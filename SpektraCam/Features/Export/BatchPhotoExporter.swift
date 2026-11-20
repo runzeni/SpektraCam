@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import UniformTypeIdentifiers
 
 nonisolated struct BatchExportItem: Identifiable, Sendable {
     let id: UUID
@@ -34,9 +35,13 @@ actor BatchPhotoExporter {
         let scale = maximum / max(w, h)
         do {
             if let recipe {
-                try RenderMemoryBudget.check(
-                    width: max(1, Int(ceil(w * scale))),
-                    height: max(1, Int(ceil(h * scale))), recipe: recipe)
+                let uti = UTType(filenameExtension: item.source.pathExtension)
+                let prefersDeep = uti.map { !($0.conforms(to: .jpeg) || $0.conforms(to: .heic)) } ?? true
+                try RenderPrecision.$activeSourcePrefersDeep.withValue(prefersDeep) {
+                    try RenderMemoryBudget.check(
+                        width: max(1, Int(ceil(w * scale))),
+                        height: max(1, Int(ceil(h * scale))), recipe: recipe)
+                }
             } else {
                 try PhotoSource.checkDevelopmentMemory(
                     width: max(1, Int(ceil(w * scale))),

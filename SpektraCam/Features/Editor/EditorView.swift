@@ -232,8 +232,8 @@ struct EditorView: View {
                 if activeTool == .crop {
                     ScrollView { toolPanel.padding(.top, 12) }
                         .scrollBounceBehavior(.basedOnSize)
-                        .background(.background, in: .rect(cornerRadius: 24))
-                        .clipShape(.rect(cornerRadius: 24))
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .adaptiveGlassRect(cornerRadius: 24)
                         .frame(width: WorkspaceLayout.panelWidth(in: workspace.size.width))
                         .padding(.leading, 8).padding(.vertical, 8)
                 } else if activeTool != nil {
@@ -324,6 +324,7 @@ struct EditorView: View {
                                     }
                                 },
                                 save: { showSaveFormula = true }))
+                            .frame(maxWidth: layout == .sideBySide ? 680 : .infinity)
                         HStack {
                             Spacer()
                             Button(compareTitle, systemImage: "square.on.square") {
@@ -403,6 +404,7 @@ struct EditorView: View {
                     else { activeTool = nil }
                 },
                 canReset: session.recipe.crop != CropSelection() || !session.recipe.geometry.isIdentity,
+                showsBackground: layout == .stacked,
                 onStraightenEditingChanged: {
                     session.setInteraction(key: "straighten", active: $0)
                 })

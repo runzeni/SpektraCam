@@ -132,7 +132,7 @@ struct AppInformationView: View {
                         String(
                             localized: "about.render_precision_note",
                             defaultValue:
-                                "Automatic uses 16-bit float on lower-memory devices and 32-bit float otherwise."
+                                "Automatic uses 32-bit float for RAW and deep-color images on capable devices, and 16-bit float for 8/10-bit photos or lower-memory devices."
                         ))
                 }
                 Section(String(localized: "about.new_edit_defaults", defaultValue: "New edit defaults")) {
@@ -176,9 +176,7 @@ struct AppInformationView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(
-                        String(localized: "common.done", defaultValue: "Done"), systemImage: "xmark"
-                    ) { dismiss() }.labelStyle(.iconOnly)
+                    SheetDismissButton { dismiss() }
                 }
             }
         }

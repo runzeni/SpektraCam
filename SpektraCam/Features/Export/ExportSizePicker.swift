@@ -71,3 +71,30 @@ struct ExportSizePicker: View {
         return "\(width) × \(height) px · \(megapixels) MP"
     }
 }
+
+/// Shared format and JPEG compression controls across single and batch export sheets.
+struct ExportFormatControls: View {
+    @Binding var format: PhotoExporter.Format
+    @Binding var quality: Double
+
+    var body: some View {
+        Picker(
+            String(localized: "export.format", defaultValue: "Format"),
+            selection: $format
+        ) {
+            ForEach(PhotoExporter.Format.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        if format == .jpeg {
+            Picker(
+                String(localized: "export.jpeg_quality", defaultValue: "JPEG quality"),
+                selection: $quality
+            ) {
+                Text(String(localized: "export.maximum", defaultValue: "Maximum")).tag(1.0)
+                Text(String(localized: "export.high", defaultValue: "High")).tag(0.95)
+                Text(String(localized: "export.standard", defaultValue: "Standard")).tag(0.85)
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+}

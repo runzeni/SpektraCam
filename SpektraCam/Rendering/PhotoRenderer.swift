@@ -20,6 +20,7 @@ actor PhotoRenderer {
     private let sourceType: String?
     private let sourceFilename: String?
     private let sourceDescription: PhotoSource.Description?
+    private let sourcePrefersDeep: Bool
     private final class PreviewState {
         let maximum: Int
         let decoder: SourceImageRenderer.Decoder
@@ -60,13 +61,13 @@ actor PhotoRenderer {
     private let renderResources: FilmRenderResources
     private let lutDirectory: URL?
     private var cubes: [String: CubeLUT] = [:]
-    private var activePrecision = RenderPrecision.resolved
+    private var activePrecision: RenderPrecision
     private var exportKey: EditRecipe?
     private var exportSize: PhotoExporter.Size?
     private var exportImage: CGImage?
 
     private func syncPrecision() {
-        let current = RenderPrecision.resolved
+        let current = RenderPrecision.resolved(sourcePrefersDeep: sourcePrefersDeep)
         guard current != activePrecision else { return }
         activePrecision = current
         discardExport()
@@ -91,6 +92,9 @@ actor PhotoRenderer {
         self.data = data
         let description = description ?? data.flatMap { PhotoSource.describe($0, typeHint: sourceType) }
         self.sourceDescription = description
+        let prefersDeep = description?.prefersDeepPipeline ?? (source.bitsPerComponent > 10)
+        self.sourcePrefersDeep = prefersDeep
+        self.activePrecision = RenderPrecision.resolved(sourcePrefersDeep: prefersDeep)
         self.sourceType = description?.type ?? sourceType
         initialTemperature = temperature ?? description?.temperature
         self.lutDirectory = lutDirectory
@@ -161,6 +165,11 @@ actor PhotoRenderer {
         return result
     }
     func render(_ recipe: EditRecipe, maximum: Int? = nil) async throws -> CGImage {
+        try await RenderPrecision.$activeSourcePrefersDeep.withValue(sourcePrefersDeep) {
+            try await renderBody(recipe, maximum: maximum)
+        }
+    }
+    private func renderBody(_ recipe: EditRecipe, maximum: Int?) async throws -> CGImage {
         try Task.checkCancellation()
         syncPrecision()
         let requested = min(previewLimit, maximum ?? previewLimit)
@@ -455,6 +464,13 @@ actor PhotoRenderer {
     /// per edit, so panning only pays for the tiles it exposes. Returns nil when the regular
     /// preview is already sharp enough or the recipe needs the whole-frame route.
     func renderDetail(_ original: EditRecipe, visible: CGRect, longEdge: Int) async throws -> Detail? {
+        try await RenderPrecision.$activeSourcePrefersDeep.withValue(sourcePrefersDeep) {
+            try await renderDetailBody(original, visible: visible, longEdge: longEdge)
+        }
+    }
+    private func renderDetailBody(
+        _ original: EditRecipe, visible: CGRect, longEdge: Int
+    ) async throws -> Detail? {
         try Task.checkCancellation()
         syncPrecision()
         guard let data, original.look.enabled, original.look.mode == .spektrafilm,
@@ -552,6 +568,11 @@ actor PhotoRenderer {
 
     /// Saved viewer/library presentation uses the same edge and paper finishing as export.
     func renderPresentation(_ recipe: EditRecipe, maximum: Int) async throws -> CGImage {
+        try await RenderPrecision.$activeSourcePrefersDeep.withValue(sourcePrefersDeep) {
+            try await renderPresentationBody(recipe, maximum: maximum)
+        }
+    }
+    private func renderPresentationBody(_ recipe: EditRecipe, maximum: Int) async throws -> CGImage {
         let photograph: CGImage
         if recipe.filmEdgeLayout != nil {
             // `maximum` bounds the finished sheet; the picture renders at exactly the size it will
@@ -608,6 +629,11 @@ actor PhotoRenderer {
     /// renders the patch. Nil when the route needs the whole-frame render (a separately
     /// developed centre) or the preview already has every pixel.
     func renderEdgeDetail(_ original: EditRecipe, visible: CGRect) async throws -> Detail? {
+        try await RenderPrecision.$activeSourcePrefersDeep.withValue(sourcePrefersDeep) {
+            try await renderEdgeDetailBody(original, visible: visible)
+        }
+    }
+    private func renderEdgeDetailBody(_ original: EditRecipe, visible: CGRect) async throws -> Detail? {
         try Task.checkCancellation()
         syncPrecision()
         guard data != nil, let layout = original.renderedFilmEdgeLayout else { return nil }
@@ -684,6 +710,13 @@ actor PhotoRenderer {
     /// Complete capture-support presentation, before paper placement and final file encoding.
     /// The final long edge includes the rebate; native export never grows the canvas silently.
     func renderFilmEdge(_ original: EditRecipe, maximum: Int?, allowOvercommit: Bool = false) async throws -> CGImage {
+        try await RenderPrecision.$activeSourcePrefersDeep.withValue(sourcePrefersDeep) {
+            try await renderFilmEdgeBody(original, maximum: maximum, allowOvercommit: allowOvercommit)
+        }
+    }
+    private func renderFilmEdgeBody(
+        _ original: EditRecipe, maximum: Int?, allowOvercommit: Bool
+    ) async throws -> CGImage {
         try Task.checkCancellation()
         syncPrecision()
         guard let layout = original.renderedFilmEdgeLayout else { throw PhotoExporter.Failure.render }
@@ -809,6 +842,16 @@ actor PhotoRenderer {
     )
         async throws -> (URL, Int, Int)
     {
+        try await RenderPrecision.$activeSourcePrefersDeep.withValue(sourcePrefersDeep) {
+            try await exportBody(
+                recipe, size: size, format: format, quality: quality,
+                allowOvercommit: allowOvercommit)
+        }
+    }
+    private func exportBody(
+        _ recipe: EditRecipe, size: PhotoExporter.Size, format: PhotoExporter.Format,
+        quality: Double, allowOvercommit: Bool
+    ) async throws -> (URL, Int, Int) {
         syncPrecision()
         if exportKey != recipe || exportSize != size { exportImage = nil }
         let caps = exportLongEdges(recipe, size: size)

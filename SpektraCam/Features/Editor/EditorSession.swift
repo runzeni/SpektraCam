@@ -41,6 +41,7 @@ import OSLog
     @ObservationIgnored private var renderedFilmRecipe: EditRecipe?
     private var renderedPreviewMaximum = 0
     @ObservationIgnored private var renderedPrecision = RenderPrecision.resolved
+    @ObservationIgnored private let sourcePrefersDeep: Bool
     var effectivePreviewMaximum = PreviewQuality.editorMaximum
     var previewWasReduced = false
     private var requestedPreviewMaximum: Int {
@@ -68,6 +69,9 @@ import OSLog
         self.photo = photo
         self.sourceFilename = sourceFilename
         self.luts = luts
+        let prefersDeep = photo.sourceDescription?.prefersDeepPipeline ?? (photo.preview.bitsPerComponent > 10)
+        self.sourcePrefersDeep = prefersDeep
+        self.renderedPrecision = RenderPrecision.resolved(sourcePrefersDeep: prefersDeep)
         filmSource = photo.preview
         renderedSource = photo.preview
         filmRenderer = PhotoRenderer(
@@ -416,9 +420,10 @@ import OSLog
         }
     }
     private func renderFilmIfNeeded() {
+        let currentPrecision = RenderPrecision.resolved(sourcePrefersDeep: sourcePrefersDeep)
         if filmTask != nil || renderedFilmRecipe != recipe.processingRecipe
             || renderedPreviewMaximum != requestedPreviewMaximum
-            || renderedPrecision != RenderPrecision.resolved
+            || renderedPrecision != currentPrecision
         {
             renderFilm()
         } else {
@@ -443,7 +448,7 @@ import OSLog
                 let revision = filmRevision
                 let requested = recipe.processingRecipe
                 let maximum = requestedPreviewMaximum
-                let precision = RenderPrecision.resolved
+                let precision = RenderPrecision.resolved(sourcePrefersDeep: sourcePrefersDeep)
                 isRefiningPreview = hasFilmPreview && renderedFilmRecipe == requested
                 frameMaximum = maximum
                 do {

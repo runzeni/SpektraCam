@@ -48,7 +48,7 @@ struct FormulaStrip: View {
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
                 Button(String(localized: "formula.save_as", defaultValue: "Save as Formula…"), action: save)
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                    .capsuleActionButton()
                     .disabled(!canSave).accessibilityIdentifier(identifier + ".formula.save")
             }
             if library.formulae.items.isEmpty {
@@ -68,8 +68,11 @@ struct FormulaStrip: View {
                             } label: {
                                 if let photo { tile(formula, photo: photo, problem: problem) } else { Text(formula.name) }
                             }
-                            .buttonStyle(photo == nil ? AnyButtonStyle(.bordered) : AnyButtonStyle(.plain))
-                            .buttonBorderShape(.capsule).controlSize(.small)
+                            .buttonStyle(
+                                photo == nil
+                                    ? AnyButtonStyle(CapsuleActionPrimitiveStyle())
+                                    : AnyButtonStyle(.plain)
+                            )
                             .disabled(problem != nil)
                             .accessibilityLabel(formula.name)
                             .accessibilityValue(problem ?? "")
@@ -107,6 +110,13 @@ private struct AnyButtonStyle: PrimitiveButtonStyle {
         body = { AnyView(style.makeBody(configuration: $0)) }
     }
     func makeBody(configuration: Configuration) -> some View { body(configuration) }
+}
+
+private struct CapsuleActionPrimitiveStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button(action: configuration.trigger) { configuration.label }
+            .capsuleActionButton()
+    }
 }
 
 /// Name a look and choose what it carries. Crop and rotation are never saved.

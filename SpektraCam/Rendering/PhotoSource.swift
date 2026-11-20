@@ -26,6 +26,25 @@ nonisolated enum PhotoSource {
         let width: Int
         let height: Int
         let temperature: Double?
+        let bitDepth: Int
+
+        init(
+            type: String, isRAW: Bool, width: Int, height: Int,
+            temperature: Double?, bitDepth: Int? = nil
+        ) {
+            self.type = type
+            self.isRAW = isRAW
+            self.width = width
+            self.height = height
+            self.temperature = temperature
+            self.bitDepth = bitDepth ?? (isRAW ? 16 : 8)
+        }
+
+        /// True for linear sensor RAWs and deep (>10-bit, e.g. 12/14/16-bit PNG or TIFF) sources.
+        /// Compressed 8/10-bit JPEGs, HEICs and 8-bit PNGs fit losslessly in IEEE 754 binary16.
+        var prefersDeepPipeline: Bool {
+            isRAW || bitDepth > 10
+        }
     }
     /// Every size used by Crop/finishing describes the upright decoded image, not sensor storage.
     static func uprightSize(width: Int, height: Int, orientation: CGImagePropertyOrientation) -> CGSize {
@@ -61,8 +80,9 @@ nonisolated enum PhotoSource {
                 raw.neutralTemperature.isFinite, (1000...50000).contains(raw.neutralTemperature)
             else { return nil }
             let size = uprightSize(width: Int(raw.nativeSize.width), height: Int(raw.nativeSize.height), orientation: raw.orientation)
-            return .init(type: type, isRAW: true, width: Int(size.width),
-                height: Int(size.height), temperature: Double(raw.neutralTemperature))
+            return .init(
+                type: type, isRAW: true, width: Int(size.width),
+                height: Int(size.height), temperature: Double(raw.neutralTemperature), bitDepth: 16)
         }
         guard CGImageSourceGetCount(source) > 0,
             let p = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -71,8 +91,11 @@ nonisolated enum PhotoSource {
             (1...65536).contains(width), (1...65536).contains(height)
         else { return nil }
         let orientation = CGImagePropertyOrientation(rawValue: (p[kCGImagePropertyOrientation] as? NSNumber)?.uint32Value ?? 1) ?? .up
+        let depth = max(1, (p[kCGImagePropertyDepth] as? NSNumber)?.intValue ?? 8)
         let size = uprightSize(width: width, height: height, orientation: orientation)
-        return .init(type: detected, isRAW: false, width: Int(size.width), height: Int(size.height), temperature: nil)
+        return .init(
+            type: detected, isRAW: false, width: Int(size.width), height: Int(size.height),
+            temperature: nil, bitDepth: depth)
     }
 
     /// Neutral development for viewing, photo LUTs and the film Mix zero endpoint.

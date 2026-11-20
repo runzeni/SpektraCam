@@ -13,6 +13,7 @@ struct CropControls: View {
     let reset: () -> Void
     let done: () -> Void
     let canReset: Bool
+    var showsBackground = true
     var onStraightenEditingChanged: (Bool) -> Void = { _ in }
 
     private let common: [CropAspect] = [
@@ -43,8 +44,11 @@ struct CropControls: View {
             }
             .controlSize(.regular).frame(minHeight: 44)
             .padding(.horizontal, 16).padding(.bottom, 8)
-        }.background(.background)
-            .onChange(of: geometry.straightenDegrees) { _, angle in
+        }
+        .background {
+            if showsBackground { Rectangle().fill(.background) }
+        }
+        .onChange(of: geometry.straightenDegrees) { _, angle in
                 if angle == 0 {
                     geometry.framingX = 0
                     geometry.framingY = 0
@@ -91,9 +95,7 @@ struct CropControls: View {
                             Button(aspect.title) {
                                 crop.setAspect(aspect, imageAspect: imageAspect)
                             }
-                            .buttonStyle(.bordered)
-                            .buttonBorderShape(.capsule)
-                            .tint(crop.aspect == aspect ? Color.accentColor : .secondary)
+                            .capsuleActionButton(selected: crop.aspect == aspect)
                             .accessibilityAddTraits(crop.aspect == aspect ? .isSelected : [])
                             .accessibilityIdentifier("crop.ratio.\(aspect.id)")
                         }

@@ -39,13 +39,19 @@ struct CameraButton: View {
                     .foregroundStyle(.onAccent)
                     .frame(width: 52, height: 52)
             } else {
-                action.labelStyle(PhotoActionLabelStyle())
-                    .font(.system(size: 17, weight: .semibold))
-                    .controlSize(.regular)
-                    .adaptiveGlassButton(prominent: true)
-                    .tint(Color.accentColor)
-                    .foregroundStyle(.onAccent)
-                    .frame(width: 44, height: 44)
+                Button {
+                    openCamera?()
+                } label: {
+                    Image(systemName: "camera")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.onAccent)
+                        .frame(width: 40, height: 40)
+                        .background(Color.accentColor, in: .circle)
+                        .frame(width: 44, height: 44)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "camera.camera", defaultValue: "Camera"))
             }
         }
         .disabled(openCamera == nil)

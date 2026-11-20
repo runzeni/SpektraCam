@@ -30,24 +30,7 @@ struct BatchExportPanel: View {
                     ExportSizePicker(size: Binding(get: { size }, set: { storedSize = $0.rawValue }))
                 }.disabled(model.running || model.remainingCount == 0)
                 Section(String(localized: "export.format", defaultValue: "Format")) {
-                    Picker(
-                        String(localized: "export.format", defaultValue: "Format"),
-                        selection: $format
-                    ) {
-                        ForEach(PhotoExporter.Format.allCases) { Text($0.rawValue).tag($0) }
-                    }.pickerStyle(.segmented)
-                    if format == .jpeg {
-                        Picker(
-                            String(localized: "export.jpeg_quality", defaultValue: "JPEG quality"),
-                            selection: $quality
-                        ) {
-                            Text(String(localized: "export.maximum", defaultValue: "Maximum")).tag(
-                                1.0)
-                            Text(String(localized: "export.high", defaultValue: "High")).tag(0.95)
-                            Text(String(localized: "export.standard", defaultValue: "Standard"))
-                                .tag(0.85)
-                        }.pickerStyle(.segmented)
-                    }
+                    ExportFormatControls(format: $format, quality: $quality)
                 }.disabled(model.running || model.remainingCount == 0)
                 Section {
                     if model.running {
@@ -142,7 +125,7 @@ struct BatchExportPanel: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "common.done", defaultValue: "Done")) { dismiss() }
+                    SheetDismissButton { dismiss() }
                         .disabled(model.running || sharing)
                 }
             }

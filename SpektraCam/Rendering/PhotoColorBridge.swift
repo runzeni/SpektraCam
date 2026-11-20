@@ -13,6 +13,11 @@ nonisolated enum RenderPrecision: String, CaseIterable, Identifiable, Sendable {
     static let storageKey = "render.precision"
     var id: String { rawValue }
 
+    /// Bound by `PhotoRenderer` and `BatchPhotoExporter` so `.automatic` adapts to source bit depth:
+    /// RAW and >10-bit images (e.g. 16-bit PNG/TIFF) use 32-bit float on capable devices, while
+    /// 8/10-bit JPEGs, HEICs and 8-bit PNGs use 16-bit float at half the working memory.
+    @TaskLocal static var activeSourcePrefersDeep: Bool?
+
     /// Devices under ~5.5 GB physical RAM (2–4 GB iPhones and iPads) default to 16-bit float.
     static var devicePrefersHalfFloat: Bool {
         #if os(iOS) && !targetEnvironment(simulator)
@@ -26,12 +31,20 @@ nonisolated enum RenderPrecision: String, CaseIterable, Identifiable, Sendable {
         Self(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .automatic
     }
 
-    static var resolved: Self {
+    static func resolved(sourcePrefersDeep: Bool?) -> Self {
         switch selected {
-        case .automatic: devicePrefersHalfFloat ? .float16 : .float32
-        case .float16: .float16
-        case .float32: .float32
+        case .automatic:
+            if devicePrefersHalfFloat { return .float16 }
+            return (sourcePrefersDeep ?? true) ? .float32 : .float16
+        case .float16:
+            return .float16
+        case .float32:
+            return .float32
         }
+    }
+
+    static var resolved: Self {
+        resolved(sourcePrefersDeep: activeSourcePrefersDeep)
     }
 
     var usesHalfFloat: Bool {

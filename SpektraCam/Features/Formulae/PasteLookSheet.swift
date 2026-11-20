@@ -19,7 +19,7 @@ struct LookActionRow: View {
             HStack(spacing: 8) { buttons }
             VStack(alignment: .leading, spacing: 8) { buttons }
         }
-        .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+        .capsuleActionButton()
         .frame(maxWidth: .infinity, alignment: .leading)
         .sensoryFeedback(.success, trigger: copies)
     }
@@ -39,13 +39,13 @@ struct LookActionRow: View {
 }
 
 extension EditRecipe {
-    /// Film over print, as the information panel names a look.
-    func lookNames(luts: LUTLibrary) -> (film: String, print: String?) {
+    /// Film over print, as the information panel, paste sheet and formulae name a look.
+    @MainActor func lookNames(luts: LUTLibrary?) -> (film: String, print: String?) {
         guard look.enabled else {
             return (String(localized: "photo.original", defaultValue: "Original"), nil)
         }
         if look.mode == .lut {
-            let names = [look.first.id, look.second.id].compactMap { luts.name($0) }
+            let names = [look.first.id, look.second.id].compactMap { luts?.name($0) }
             return (
                 "3D LUT",
                 names.isEmpty
@@ -61,6 +61,20 @@ extension EditRecipe {
                 : FilmStock.prints.first { $0.id == printID }?.name
                     ?? String(localized: "develop.print", defaultValue: "Print")
         )
+    }
+
+    @MainActor static func infoTitles(
+        _ recipe: EditRecipe?, luts: LUTLibrary?, isRAW: Bool, formatLabel: String?
+    ) -> (title: String, subtitle: String) {
+        let fallback =
+            isRAW
+            ? "RAW"
+            : (formatLabel ?? String(localized: "photo.photo", defaultValue: "Photo"))
+        guard let recipe else {
+            return (String(localized: "photo.original", defaultValue: "Original"), fallback)
+        }
+        let names = recipe.lookNames(luts: luts)
+        return (names.film, names.print ?? fallback)
     }
 }
 

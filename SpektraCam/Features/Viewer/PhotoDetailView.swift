@@ -72,8 +72,11 @@ struct PhotoDetailView: View {
         .overlay(alignment: .top) {
             if let photo {
                 let recipe = savedRecipe
+                let titles = EditRecipe.infoTitles(
+                    recipe, luts: library.luts, isRAW: photo.isRAW,
+                    formatLabel: photo.metadata.formatLabel)
                 PhotoInfoPanel(
-                    title: filmTitle(recipe), subtitle: printTitle(recipe), metadata: displayMetadata,
+                    title: titles.title, subtitle: titles.subtitle, metadata: displayMetadata,
                     location: photo.locationName, histogram: histogram, identifier: "photo",
                     look: LookActions(
                         canCopy: photo.hasEdits && !working,
@@ -234,35 +237,6 @@ struct PhotoDetailView: View {
     }
     private var savedRecipe: EditRecipe? {
         photo?.recipeData.flatMap { try? JSONDecoder().decode(EditRecipe.self, from: $0) }
-    }
-    // The saved recipe is decoded once per update and shared by both titles.
-    private func filmTitle(_ saved: EditRecipe?) -> String {
-        guard let recipe = saved, recipe.look.enabled else {
-            return String(localized: "photo.original", defaultValue: "Original")
-        }
-        if recipe.look.mode == .lut { return "3D LUT" }
-        return FilmStock.films.first { $0.id == recipe.filmID }?.name
-            ?? String(localized: "film_stock.film", defaultValue: "Film")
-    }
-    private func printTitle(_ saved: EditRecipe?) -> String {
-        guard let recipe = saved, recipe.look.enabled else {
-            return photo?.isRAW == true
-                ? "RAW"
-                : photo?.metadata.formatLabel
-                    ?? String(localized: "photo.photo", defaultValue: "Photo")
-        }
-        if recipe.look.mode == .lut {
-            let names = [recipe.look.first.id, recipe.look.second.id].compactMap {
-                library.luts.name($0)
-            }
-            return names.isEmpty
-                ? String(localized: "lut.none_selected", defaultValue: "No LUT selected")
-                : names.joined(separator: " · ")
-        }
-        return recipe.bypassesPrint
-            ? String(localized: "develop.direct_scan", defaultValue: "Direct scan")
-            : FilmStock.prints.first { $0.id == recipe.printID }?.name
-                ?? String(localized: "develop.print", defaultValue: "Print")
     }
     private func loadPreview() async {
         guard let photo else { return }

@@ -17,7 +17,6 @@ struct PhotoInfoPanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expanded = false
     @State private var channels = false
-    @State private var detailsHeight: CGFloat = 260
     private var unavailable: String {
         String(localized: "photo_info.not_available", defaultValue: "Not available")
     }
@@ -61,7 +60,7 @@ struct PhotoInfoPanel: View {
                         HistogramChart(histogram: histogram, channels: channels).frame(
                             width: 112, height: 32
                         )
-                        .overlay { Rectangle().strokeBorder(.secondary, lineWidth: 0.5) }
+                        .overlay { Rectangle().strokeBorder(.tertiary, lineWidth: 0.5) }
                         Text(
                             channels
                                 ? "RGB" : String(localized: "photo_info.luma", defaultValue: "Luma")
@@ -86,65 +85,80 @@ struct PhotoInfoPanel: View {
                 .accessibilityIdentifier(identifier + ".histogram")
             }
             if expanded {
-                ScrollView {
-                    VStack(spacing: 8) {
-                        Divider()
-                        if let look {
-                            LookActionRow(actions: look, identifier: identifier)
-                            Divider()
-                        }
-                        if let formulae {
-                            formulae
-                            Divider()
-                        }
-                        LabeledContent(
-                            String(localized: "photo_info.location", defaultValue: "Location"),
-                            value: location ?? unavailable
-                        ).accessibilityIdentifier(identifier + ".location")
-                        LabeledContent(
-                            String(localized: "photo_info.taken", defaultValue: "Time"),
-                            value: metadata.capturedAt?.formatted(
-                                date: .abbreviated, time: .shortened)
-                                ?? unavailable
-                        ).accessibilityIdentifier(identifier + ".time")
-                        LabeledContent(
-                            String(localized: "photo_info.camera", defaultValue: "Camera"),
-                            value: metadata.camera?.trimmingCharacters(in: .whitespaces)
-                                ?? unavailable
-                        ).accessibilityIdentifier(identifier + ".camera")
-                        LabeledContent(
-                            String(localized: "photo_info.lens", defaultValue: "Lens"),
-                            value: metadata.lensDisplayName ?? unavailable
-                        ).accessibilityValue(metadata.lens ?? unavailable)
-                            .accessibilityIdentifier(identifier + ".lens")
-                        LabeledContent(
-                            String(localized: "photo_info.exposure", defaultValue: "Exposure"),
-                            value: metadata.exposure ?? unavailable
-                        ).accessibilityIdentifier(identifier + ".exposure")
-                        LabeledContent(
-                            String(localized: "photo_info.format", defaultValue: "Format"),
-                            value: metadata.sizeLine
-                        ).accessibilityIdentifier(identifier + ".format")
-                        LabeledContent(
-                            String(
-                                localized: "photo_info.color_space", defaultValue: "Color"),
-                            value: metadata.colorSpaceLabel
-                        ).accessibilityIdentifier(identifier + ".colorSpace")
-                    }.font(.subheadline).padding(.horizontal, 12).padding(.bottom, 12)
-                        .onGeometryChange(for: CGFloat.self) {
-                            $0.size.height
-                        } action: {
-                            detailsHeight = $0
-                        }
+                CappedHeight(maxHeight: 380) {
+                    detailsScrollView
                 }
-                .frame(height: min(detailsHeight, 470))
-                .contentShape(.rect).onTapGesture(perform: toggleDetails)
-                .accessibilityIdentifier(identifier + ".details")
+                .clipped()
                 .transition(.opacity)
             }
         }
         .adaptiveGlassRect(cornerRadius: 20)
         .adaptiveGlassID("information", in: glass)
+    }
+
+    private var detailsScrollView: some View {
+        ScrollView { detailsContent }
+            .scrollBounceBehavior(.basedOnSize)
+            .contentMargins(0, for: .scrollContent)
+            .accessibilityIdentifier(identifier + ".details")
+    }
+
+    private var detailsContent: some View {
+        VStack(spacing: 8) {
+            Divider()
+            if let look {
+                LookActionRow(actions: look, identifier: identifier)
+                Divider()
+            }
+            if let formulae {
+                formulae
+                Divider()
+            }
+            metadataRows
+        }
+        .font(.subheadline)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
+    }
+
+    private var metadataRows: some View {
+        VStack(spacing: 8) {
+            LabeledContent(
+                String(localized: "photo_info.location", defaultValue: "Location"),
+                value: location ?? unavailable
+            ).accessibilityIdentifier(identifier + ".location")
+            LabeledContent(
+                String(localized: "photo_info.taken", defaultValue: "Time"),
+                value: metadata.capturedAt?.formatted(
+                    date: .abbreviated, time: .shortened)
+                    ?? unavailable
+            ).accessibilityIdentifier(identifier + ".time")
+            LabeledContent(
+                String(localized: "photo_info.camera", defaultValue: "Camera"),
+                value: metadata.camera?.trimmingCharacters(in: .whitespaces)
+                    ?? unavailable
+            ).accessibilityIdentifier(identifier + ".camera")
+            LabeledContent(
+                String(localized: "photo_info.lens", defaultValue: "Lens"),
+                value: metadata.lensDisplayName ?? unavailable
+            ).accessibilityValue(metadata.lens ?? unavailable)
+                .accessibilityIdentifier(identifier + ".lens")
+            LabeledContent(
+                String(localized: "photo_info.exposure", defaultValue: "Exposure"),
+                value: metadata.exposure ?? unavailable
+            ).accessibilityIdentifier(identifier + ".exposure")
+            LabeledContent(
+                String(localized: "photo_info.format", defaultValue: "Format"),
+                value: metadata.sizeLine
+            ).accessibilityIdentifier(identifier + ".format")
+            LabeledContent(
+                String(
+                    localized: "photo_info.color_space", defaultValue: "Color"),
+                value: metadata.colorSpaceLabel
+            ).accessibilityIdentifier(identifier + ".colorSpace")
+        }
+        .contentShape(.rect)
+        .onTapGesture(perform: toggleDetails)
     }
     private func toggleDetails() {
         onInteraction?()
@@ -176,5 +190,26 @@ private struct HistogramChart: View {
                 context.fill(path, with: .color(color.opacity(channels ? 0.4 : 0.55)))
             }
         }.accessibilityHidden(true)
+    }
+}
+
+private struct CappedHeight: Layout {
+    let maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        let cap = min(proposal.height ?? maxHeight, maxHeight)
+        let ideal = subview.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: ideal.width, height: min(ideal.height, cap))
+    }
+
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) {
+        subviews.first?.place(
+            at: bounds.origin,
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+        )
     }
 }

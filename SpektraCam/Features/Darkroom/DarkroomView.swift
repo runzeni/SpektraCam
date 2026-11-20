@@ -94,7 +94,7 @@ struct DarkroomView: View {
                             set: { edge = $0 == .filmEdge ? (edge ?? FilmEdgeLayout.newDefault()) : nil }), prefix: "darkroom.")
                     if height != nil { PanelExpansionButton(expanded: $expanded, identifier: "darkroom.expand") }
                 }
-                .dynamicTypeSize(...DynamicTypeSize.large)
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if edge != nil { edgeControls }

@@ -284,6 +284,57 @@ import UniformTypeIdentifiers
         let fakeRAW3x2 = PhotoSource.Description(type: "com.adobe.raw-image", isRAW: true, width: 3000, height: 2000, temperature: 5500)
         precondition(PhotoSource.embeddedThumbnail(jpegSource, description: fakeRAW3x2, maximum: 384) == nil)
 
+        // 5. Adaptive source-bit-depth pipeline detection (8-bit JPEG/HEIC/PNG -> float16 vs 16-bit PNG / RAW -> float32).
+        let heicDesc = PhotoSource.describe(heicData)!
+        let png8Desc = PhotoSource.describe(largePNG)!
+        precondition(jpegDesc.bitDepth == 8 && !jpegDesc.prefersDeepPipeline, "8-bit JPEG marked deep: \(jpegDesc.bitDepth)")
+        precondition(heicDesc.bitDepth <= 10 && !heicDesc.prefersDeepPipeline, "8-bit HEIC marked deep: \(heicDesc.bitDepth)")
+        precondition(png8Desc.bitDepth == 8 && !png8Desc.prefersDeepPipeline, "8-bit PNG marked deep: \(png8Desc.bitDepth)")
+        precondition(fakeRAW3x2.bitDepth == 16 && fakeRAW3x2.prefersDeepPipeline, "RAW description did not prefer deep pipeline")
+
+        let ctx16 = CGContext(
+            data: nil, width: 32, height: 24, bitsPerComponent: 16, bytesPerRow: 32 * 8,
+            space: sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGImageByteOrderInfo.order16Little.rawValue)!
+        ctx16.setFillColor(CGColor(colorSpace: sRGB, components: [0.35, 0.45, 0.65, 1])!)
+        ctx16.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
+        let png16Buf = NSMutableData()
+        let png16Dest = CGImageDestinationCreateWithData(png16Buf, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(png16Dest, ctx16.makeImage()!, nil)
+        precondition(CGImageDestinationFinalize(png16Dest))
+        let png16Data = png16Buf as Data
+        let png16Desc = PhotoSource.describe(png16Data)!
+        precondition(png16Desc.bitDepth == 16 && png16Desc.prefersDeepPipeline, "16-bit PNG did not prefer deep pipeline: \(png16Desc.bitDepth)")
+
+        defaults.set(RenderPrecision.automatic.rawValue, forKey: RenderPrecision.storageKey)
+        if !RenderPrecision.devicePrefersHalfFloat {
+            precondition(RenderPrecision.resolved(sourcePrefersDeep: false) == .float16)
+            precondition(RenderPrecision.resolved(sourcePrefersDeep: true) == .float32)
+            RenderPrecision.$activeSourcePrefersDeep.withValue(false) {
+                precondition(RenderPrecision.resolved == .float16 && PixelStore.Format.working == .half)
+            }
+            RenderPrecision.$activeSourcePrefersDeep.withValue(true) {
+                precondition(RenderPrecision.resolved == .float32 && PixelStore.Format.working == .float)
+            }
+        }
+        // Manual 32-bit and 16-bit overrides must always win over source bit depth.
+        defaults.set(RenderPrecision.float32.rawValue, forKey: RenderPrecision.storageKey)
+        precondition(RenderPrecision.resolved(sourcePrefersDeep: false) == .float32)
+        defaults.set(RenderPrecision.float16.rawValue, forKey: RenderPrecision.storageKey)
+        precondition(RenderPrecision.resolved(sourcePrefersDeep: true) == .float16)
+        defaults.set(RenderPrecision.automatic.rawValue, forKey: RenderPrecision.storageKey)
+
+        let autoRenderer8 = PhotoRenderer(
+            source: PhotoRenderer.placeholderSource, directory: modelDirectory, data: largePNG,
+            previewMaximum: 384, sourceType: png8Desc.type, description: png8Desc,
+            cachesIntermediates: false)
+        let autoRenderer16 = PhotoRenderer(
+            source: PhotoRenderer.placeholderSource, directory: modelDirectory, data: png16Data,
+            previewMaximum: 384, sourceType: png16Desc.type, description: png16Desc,
+            cachesIntermediates: false)
+        let autoImg8 = try await autoRenderer8.render(filmRecipe, maximum: 384)
+        let autoImg16 = try await autoRenderer16.render(filmRecipe, maximum: 384)
+        precondition(autoImg8.width > 0 && autoImg16.width == 32 && autoImg16.height == 24)
+
         #if canImport(UIKit)
             let slider = DefaultSlider.PrecisionSlider(frame: CGRect(x: 0, y: 0, width: 300, height: 32))
             slider.overrideUserInterfaceStyle = .dark

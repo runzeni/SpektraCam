@@ -11521,13 +11521,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatic uses 16-bit float on lower-memory devices and 32-bit float otherwise."
+            "value" : "Automatic uses 32-bit float for RAW and deep-color images on capable devices, and 16-bit float for 8/10-bit photos or lower-memory devices."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“自动”在较小内存设备上使用 16 位浮点，其余设备使用 32 位浮点。"
+            "value" : "“自动”在内存充足设备上对 RAW 与高色深图像使用 32 位浮点，对 8/10 位照片或较小内存设备使用 16 位浮点。"
           }
         }
       }

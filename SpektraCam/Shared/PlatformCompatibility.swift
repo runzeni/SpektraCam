@@ -145,4 +145,55 @@ extension View {
             defaultScrollAnchor(.top)
         }
     }
+
+    /// Vibrancy-aware capsule button for actions inside Liquid Glass / Material surfaces.
+    /// Avoids glass-on-glass nesting while adapting foreground and border legibility over
+    /// both dark and light photo backdrops in every accent (including monochrome).
+    func capsuleActionButton(selected: Bool = false) -> some View {
+        buttonStyle(CapsuleActionButtonStyle(selected: selected))
+    }
+}
+
+struct CapsuleActionButtonStyle: ButtonStyle {
+    var selected = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.footnote.weight(.medium))
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(minHeight: 32)
+            .foregroundStyle(
+                selected
+                    ? AnyShapeStyle(.onAccent)
+                    : (isEnabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+            )
+            .background {
+                if selected {
+                    Capsule().fill(Color.accentColor)
+                } else {
+                    Capsule()
+                        .fill(configuration.isPressed ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.quaternary))
+                        .overlay {
+                            Capsule().strokeBorder(.tertiary, lineWidth: 0.6)
+                        }
+                }
+            }
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .contentShape(.capsule)
+    }
+}
+
+/// Shared circular dismiss control for modal sheets, preserving the localized "Done" label.
+struct SheetDismissButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button(
+            String(localized: "common.done", defaultValue: "Done"),
+            systemImage: "xmark", action: action
+        )
+        .labelStyle(.iconOnly)
+    }
 }

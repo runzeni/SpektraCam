@@ -26,6 +26,12 @@ enum EditorTool: String, CaseIterable, Identifiable {
         case .effects: "sparkles"
         }
     }
+
+    static func primaryAction(darkroomActive: Bool) -> (title: String, symbol: String, id: String) {
+        darkroomActive
+            ? (String(localized: "common.export", defaultValue: "Export"), "square.and.arrow.up", "darkroom.export")
+            : (String(localized: "darkroom.title", defaultValue: "Darkroom"), "lightbulb", "editor.export")
+    }
 }
 
 /// System side-bar items for workspaces where the OS renders a vertical bar (e.g. iPhone Duo).
@@ -37,13 +43,8 @@ struct EditorToolbar: ToolbarContent {
     let openDarkroom: () -> Void
     let export: () -> Void
     @Environment(\.appAccent) private var accent
-    private var actionTitle: String {
-        darkroomActive
-            ? String(localized: "common.export", defaultValue: "Export")
-            : String(localized: "darkroom.title", defaultValue: "Darkroom")
-    }
-    private var actionSymbol: String { darkroomActive ? "square.and.arrow.up" : "lightbulb" }
     @ToolbarContentBuilder var body: some ToolbarContent {
+        let action = EditorTool.primaryAction(darkroomActive: darkroomActive)
         ToolbarItemGroup(placement: .bottomBar) {
             ForEach(EditorTool.allCases) { tool in
                 Button(tool.title, systemImage: tool.symbolName) {
@@ -56,8 +57,8 @@ struct EditorToolbar: ToolbarContent {
         }
         AdaptiveToolbarSpacer(.fixed, placement: .bottomBar)
         ToolbarItem(placement: .bottomBar) {
-            Button(actionTitle, systemImage: actionSymbol, action: darkroomActive ? export : openDarkroom)
-                .accessibilityIdentifier(darkroomActive ? "darkroom.export" : "editor.export")
+            Button(action.title, systemImage: action.symbol, action: darkroomActive ? export : openDarkroom)
+                .accessibilityIdentifier(action.id)
         }
     }
 }
@@ -69,12 +70,6 @@ struct EditorBottomBar: View {
     var darkroomActive = false
     let openDarkroom: () -> Void
     let export: () -> Void
-    private var actionTitle: String {
-        darkroomActive
-            ? String(localized: "common.export", defaultValue: "Export")
-            : String(localized: "darkroom.title", defaultValue: "Darkroom")
-    }
-    private var actionSymbol: String { darkroomActive ? "square.and.arrow.up" : "lightbulb" }
     var body: some View {
         AdaptiveGlassContainer(spacing: 10) {
             HStack(spacing: 10) {
@@ -111,15 +106,16 @@ struct EditorBottomBar: View {
     }
 
     private var actionPill: some View {
-        HStack(spacing: 0) {
+        let action = EditorTool.primaryAction(darkroomActive: darkroomActive)
+        return HStack(spacing: 0) {
             Button(action: darkroomActive ? export : openDarkroom) {
-                EditorToolLabel(title: actionTitle, symbol: actionSymbol, selected: false)
+                EditorToolLabel(title: action.title, symbol: action.symbol, selected: false)
                     .frame(minWidth: 54).frame(height: 48)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel(actionTitle)
-            .accessibilityIdentifier(darkroomActive ? "darkroom.export" : "editor.export")
-            .accessibilityShowsLargeContentViewer { Label(actionTitle, systemImage: actionSymbol) }
+            .accessibilityLabel(action.title)
+            .accessibilityIdentifier(action.id)
+            .accessibilityShowsLargeContentViewer { Label(action.title, systemImage: action.symbol) }
         }
         .padding(.horizontal, 6).padding(.vertical, 3)
         .adaptiveGlassCapsule(interactive: true)
@@ -132,13 +128,8 @@ struct EditorToolRail: View {
     var darkroomActive = false
     let openDarkroom: () -> Void
     let export: () -> Void
-    private var actionTitle: String {
-        darkroomActive
-            ? String(localized: "common.export", defaultValue: "Export")
-            : String(localized: "darkroom.title", defaultValue: "Darkroom")
-    }
-    private var actionSymbol: String { darkroomActive ? "square.and.arrow.up" : "lightbulb" }
     var body: some View {
+        let action = EditorTool.primaryAction(darkroomActive: darkroomActive)
         AdaptiveGlassContainer(spacing: 12) {
             VStack(spacing: 12) {
                 VStack(spacing: 6) {
@@ -157,12 +148,12 @@ struct EditorToolRail: View {
                 .padding(.vertical, 8).padding(.horizontal, 6)
                 .adaptiveGlassRect(cornerRadius: 28, interactive: true)
                 Button(action: darkroomActive ? export : openDarkroom) {
-                    EditorToolLabel(title: actionTitle, symbol: actionSymbol, selected: false)
+                    EditorToolLabel(title: action.title, symbol: action.symbol, selected: false)
                         .frame(width: 48, height: 44).contentShape(Rectangle())
                 }
-                .accessibilityLabel(actionTitle)
-                .accessibilityIdentifier(darkroomActive ? "darkroom.export" : "editor.export")
-                .accessibilityShowsLargeContentViewer { Label(actionTitle, systemImage: actionSymbol) }
+                .accessibilityLabel(action.title)
+                .accessibilityIdentifier(action.id)
+                .accessibilityShowsLargeContentViewer { Label(action.title, systemImage: action.symbol) }
                 .padding(.vertical, 8).padding(.horizontal, 6)
                 .adaptiveGlassRect(cornerRadius: 28, interactive: true)
             }

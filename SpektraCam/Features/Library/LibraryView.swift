@@ -70,7 +70,7 @@ struct LibraryView: View {
                                         working = false
                                     }
                                 }
-                                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                                .capsuleActionButton()
                                 .disabled(working).accessibilityIdentifier("library.look.undo")
                             }
                             .padding(.top, 6)

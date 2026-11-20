@@ -21,6 +21,10 @@ actor FilmRenderResources {
         return (model!, gpu!)
     }
 
+    func releaseWorkingCachesIfLoaded() async {
+        if let gpu { await gpu.releaseWorkingCaches() }
+    }
+
     /// Source decode and display changes do not alter the photographic material setup.
     /// Keep one immutable setup across frames and editor visits; no image buffers live here.
     func pipeline(_ recipe: EditRecipe) throws -> FilmPipeline {

@@ -45,13 +45,17 @@ nonisolated enum SourceImageRenderer {
     /// Owned by one preview resolution inside PhotoRenderer's actor. Mutable RAW filters
     /// never cross workers; export uses the uncached one-shot path instead.
     final class Decoder {
+        private let cachesIntermediates: Bool
+        init(cachesIntermediates: Bool = true) {
+            self.cachesIntermediates = cachesIntermediates
+        }
         private lazy var context32 = CIContext(options: [
             .workingColorSpace: SourceImageRenderer.linear, .workingFormat: CIFormat.RGBAf,
-            .cacheIntermediates: true,
+            .cacheIntermediates: cachesIntermediates,
         ])
         private lazy var context16 = CIContext(options: [
             .workingColorSpace: SourceImageRenderer.linear, .workingFormat: CIFormat.RGBAh,
-            .cacheIntermediates: true,
+            .cacheIntermediates: cachesIntermediates,
         ])
         var context: CIContext {
             RenderPrecision.resolved.usesHalfFloat ? context16 : context32

@@ -3735,6 +3735,24 @@
         }
       }
     },
+    "darkroom.distress.burn_texture" : {
+      "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Burn texture"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "烧灼纹理"
+          }
+        }
+      }
+    },
     "darkroom.distress.shape_burn" : {
       "comment" : "Darkroom copy; human editorial review pending.",
       "extractionState" : "manual",

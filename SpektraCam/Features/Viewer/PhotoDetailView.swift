@@ -35,7 +35,13 @@ struct PhotoDetailView: View {
         let sourceFilename: String
     }
     private var photo: LibraryPhoto? { library.photo(selectedID) }
-    private var photos: [LibraryPhoto] { library.photos.filter { filter.includes($0) } }
+    private var photos: [LibraryPhoto] { library.filteredPhotos(filter) }
+    private var viewerBottomInset: CGFloat {
+        (systemVerticalBar || layout == .sideBySide) ? 84 : 132
+    }
+    private var usesPortraitReference: Bool {
+        layout == .stacked && !systemVerticalBar
+    }
 
     init(library: PhotoLibrary, id: UUID, filter: LibraryFilter = .all) {
         self.library = library
@@ -44,7 +50,9 @@ struct PhotoDetailView: View {
     }
     var body: some View {
         ZStack {
-            AlbumPager(photos: photos, images: library.images, selection: $selectedID)
+            AlbumPager(
+                photos: photos, images: library.images, selection: $selectedID,
+                bottomInset: viewerBottomInset, usePortraitReference: usesPortraitReference)
             if working { ProgressView().padding().background(.regularMaterial, in: .capsule) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -81,6 +89,7 @@ struct PhotoDetailView: View {
                         library: library, photo: photo, canSave: photo.hasEdits && !working,
                         identifier: "photo", apply: applyFormula, save: { showSaveFormula = true })
                 )
+                .frame(maxWidth: layout == .sideBySide ? 680 : .infinity)
                 .padding(.horizontal, 12).padding(.top, 4)
             }
         }
@@ -133,6 +142,11 @@ struct PhotoDetailView: View {
         .onChange(of: selectedID) { _, _ in
             image = nil
             histogram = .empty
+        }
+        .onDisappear {
+            if editor == nil && export == nil {
+                Task { await library.files.discardPreparedPhoto() }
+            }
         }
         .navigationDestination(item: $editor) { session in
             EditorView(
@@ -557,6 +571,8 @@ struct AlbumPhotoPage: View {
     @AppStorage(PreviewQuality.libraryKey) private var previewMaximum = PreviewQuality.defaultMaximum
     let photo: LibraryPhoto
     let images: LibraryImages
+    var bottomInset: CGFloat = 132
+    var usePortraitReference = true
     var onTap: (() -> Void)? = nil
     @State private var image: UIImage?
     @State private var failure: String?
@@ -564,9 +580,10 @@ struct AlbumPhotoPage: View {
     var body: some View {
         Group {
             if let image {
-                PhotoViewport(image: image, topInset: PhotoInfoPanel.collapsedHeight + 4,
-                    edited: photo.hasEdits, topAligned: false, usePortraitReference: true,
-                    onTap: { _ in onTap?() })
+                PhotoViewport(
+                    image: image, topInset: PhotoInfoPanel.collapsedHeight + 4,
+                    bottomInset: bottomInset, edited: photo.hasEdits, topAligned: false,
+                    usePortraitReference: usePortraitReference, onTap: { _ in onTap?() })
             } else if let failure {
                 ContentUnavailableView {
                     Label(

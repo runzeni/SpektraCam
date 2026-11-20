@@ -254,8 +254,10 @@ nonisolated enum FilmEdgeRenderer {
         let w = input.width, h = input.height
         let one = SIMD3<Double>(repeating: 1)
         let lt = geometry.leakLight(neutral: one), ft = geometry.fogLight(neutral: one)
+        let ct = geometry.coreLight(neutral: one)
         let leakTint = SIMD3<Float>(Float(lt.x), Float(lt.y), Float(lt.z))
         let fogTint = SIMD3<Float>(Float(ft.x), Float(ft.y), Float(ft.z))
+        let coreTint = SIMD3<Float>(Float(ct.x), Float(ct.y), Float(ct.z))
         let knee: Float = 0.5, room = 1 - knee
         func linearized(_ v: Float) -> Float { v < knee ? v : knee - room * log((1 - v) / room) }
         func shouldered(_ y: Float) -> Float { y < knee ? y : 1 - room * exp(-(y - knee) / room) }
@@ -270,7 +272,7 @@ nonisolated enum FilmEdgeRenderer {
                     for x in 0..<w {
                         let px = gate.minX + (Double(x) + 0.5) / Double(w) * gate.width
                         let e = geometry.exposureFields(filmX: (px - cx) * mm, filmY: (py - cy) * mm)
-                        let light = leakTint * Float(e.front + e.back) + fogTint * Float(e.fog)
+                        let light = leakTint * Float(e.front + e.back) + fogTint * Float(e.fog) + coreTint * Float(e.core)
                         if light == .zero { continue }
                         let p = out[y * w + x], v = SIMD3(p.x, p.y, p.z)
                         let c = simd_clamp(v, .zero, SIMD3(repeating: 0.999))
@@ -295,7 +297,7 @@ nonisolated enum FilmEdgeRenderer {
                         for x in 0..<w {
                             let px = gate.minX + (Double(x) + 0.5) / Double(w) * gate.width
                             let e = geometry.exposureFields(filmX: (px - cx) * mm, filmY: (py - cy) * mm)
-                            let light = leakTint * Float(e.front + e.back) + fogTint * Float(e.fog)
+                            let light = leakTint * Float(e.front + e.back) + fogTint * Float(e.fog) + coreTint * Float(e.core)
                             if light == .zero { continue }
                             let p = buf[x], v = SIMD3(p.x, p.y, p.z)
                             let c = simd_clamp(v, .zero, SIMD3(repeating: 0.999))

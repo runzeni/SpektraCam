@@ -61,14 +61,14 @@ actor BatchPhotoExporter {
         }
         let data = try Data(contentsOf: item.source, options: .mappedIfSafe)
         guard
-            let photo = ImportedPhoto.decode(
-                data, maximum: 384,
-                typeHint: PhotoSource.typeHint(for: item.source))
+            let description = PhotoSource.describe(
+                data, typeHint: PhotoSource.typeHint(for: item.source))
         else { throw PhotoExporter.Failure.decode }
         let renderer = PhotoRenderer(
-            source: photo.preview, directory: directory, data: data,
-            temperature: photo.rawTemperature, lutDirectory: luts, previewMaximum: 384,
-            resources: resources, sourceType: photo.sourceType, description: photo.sourceDescription, sourceFilename: item.name)
+            source: PhotoRenderer.placeholderSource, directory: directory, data: data,
+            temperature: description.temperature, lutDirectory: luts, previewMaximum: 384,
+            resources: resources, sourceType: description.type, description: description,
+            sourceFilename: item.name, cachesIntermediates: false)
         do {
             let result = try await renderer.export(
                 recipe, size: size, format: format, quality: quality)

@@ -39,7 +39,13 @@ struct CameraButton: View {
                     .foregroundStyle(.onAccent)
                     .frame(width: 52, height: 52)
             } else {
-                action.photoActionStyle()
+                action.labelStyle(PhotoActionLabelStyle())
+                    .font(.system(size: 17, weight: .semibold))
+                    .controlSize(.regular)
+                    .adaptiveGlassButton(prominent: true)
+                    .tint(Color.accentColor)
+                    .foregroundStyle(.onAccent)
+                    .frame(width: 44, height: 44)
             }
         }
         .disabled(openCamera == nil)

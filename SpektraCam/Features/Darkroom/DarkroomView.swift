@@ -272,6 +272,11 @@ struct DarkroomView: View {
                                        scale: 100, step: 1, unit: "%", identifier: "leak")
                         distressSlider(String(localized: "darkroom.distress.leak_size", defaultValue: "Leak size"), \.leakSize,
                                        step: 0.5, unit: "mm", identifier: "leakSize")
+                        if distress.leakShape == .burn {
+                            distressSlider(
+                                String(localized: "darkroom.distress.burn_texture", defaultValue: "Burn texture"),
+                                \.burnTexture, scale: 100, step: 1, unit: "%", identifier: "burnTexture")
+                        }
                         distressSlider(String(localized: "darkroom.distress.leak_position", defaultValue: "Leak position"), \.leakPosition,
                                        scale: 100, step: 1, unit: "%", identifier: "leakPosition")
                     }

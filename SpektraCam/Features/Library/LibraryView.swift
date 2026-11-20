@@ -31,22 +31,9 @@ struct LibraryView: View {
         let items: [BatchExportItem]
     }
     private enum ImportSource { case photos, files }
-    private var visible: [LibraryPhoto] { library.photos.filter { filter.includes($0) } }
-    /// Newest day first, newest photo first. The library keeps its photos in date order, so
-    /// one pass from the end groups them without hashing or sorting.
-    private var sections: [(day: Date, photos: [LibraryPhoto])] {
-        let calendar = Calendar.current
-        var result: [(day: Date, photos: [LibraryPhoto])] = []
-        for photo in visible.reversed() {
-            let day = calendar.startOfDay(for: photo.date)
-            if result.last?.day == day {
-                result[result.count - 1].photos.append(photo)
-            } else {
-                result.append((day, [photo]))
-            }
-        }
-        return result
-    }
+    private var snapshot: PhotoLibrary.FilterSnapshot { library.grouped(for: filter) }
+    private var visible: [LibraryPhoto] { snapshot.visible }
+    private var sections: [(day: Date, photos: [LibraryPhoto])] { snapshot.sections }
     private func presented(_ source: ImportSource) -> Binding<Bool> {
         Binding(
             get: { importSource == source },
@@ -62,11 +49,8 @@ struct LibraryView: View {
         NavigationStack(path: $path) {
             gallery
                 .overlay(alignment: .bottomTrailing) {
-                    // Where the system keeps a bar on the side, the camera joins it.
-                    if !systemVerticalBar {
-                        CameraButton(prominent: true)
-                            .padding(.trailing, 26).padding(.bottom, 12)
-                    }
+                    CameraButton(prominent: true)
+                        .padding(.trailing, 26).padding(.bottom, 12)
                 }
                 .onSystemVerticalBar { systemVerticalBar = $0 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -241,10 +225,7 @@ struct LibraryView: View {
                             ) { confirmRevert = true }
                             .accessibilityIdentifier("library.revert")
                             .disabled(
-                                working
-                                    || !library.photos.contains {
-                                        selection.contains($0.id) && $0.hasEdits
-                                    }
+                                working || selection.isDisjoint(with: snapshot.editedIDs)
                             )
                             .confirmationDialog(
                                 String(
@@ -305,15 +286,6 @@ struct LibraryView: View {
                             String(localized: "formula.manager", defaultValue: "Formulae and LUTs")
                         )
                         .accessibilityIdentifier("library.formulae").disabled(working)
-                    }
-                    if systemVerticalBar {
-                        ToolbarItem(placement: .bottomBar) {
-                            Button(
-                                String(localized: "camera.camera", defaultValue: "Camera"),
-                                systemImage: "camera"
-                            ) { openCamera?() }
-                            .tint(Color.accentColor).accessibilityIdentifier("camera.open")
-                        }
                     }
                     AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
                     ToolbarItem(placement: .bottomBar) {

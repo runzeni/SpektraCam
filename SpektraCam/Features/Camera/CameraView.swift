@@ -55,7 +55,8 @@ struct CameraView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 14) {
+                let wide = !locksPortrait && isLandscape
+                VStack(spacing: wide ? 8 : 14) {
                     importFailure
                     Group {
                         // Keep exposure adjustment centered with the shutter at portrait length.
@@ -79,7 +80,9 @@ struct CameraView: View {
                         shutterButton
                     }
                 }
-                .padding(.horizontal, 20).padding(.bottom, 12)
+                .frame(maxWidth: 420)
+                .padding(.horizontal, 20).padding(.bottom, wide ? 6 : 12)
+                .frame(maxWidth: .infinity)
             }
         }
         .background(CameraOrientationBridge(locksPortrait: $locksPortrait).allowsHitTesting(false))
@@ -112,10 +115,12 @@ struct CameraView: View {
     // MARK: Viewfinder
 
     private var viewfinder: some View {
-        CameraViewfinder(model: model, landscape: !locksPortrait && isLandscape) {
+        let wide = !locksPortrait && isLandscape
+        return CameraViewfinder(model: model, landscape: wide) {
             if !ready { status }
         }
-            .padding(.horizontal, !locksPortrait && isLandscape ? 12 : 6)
+            .padding(.top, wide ? 8 : 2)
+            .padding(.horizontal, wide ? 12 : 6)
             // Hardware capture follows the same readiness as the shutter. A held camera has
             // no running session, so volume buttons retain their system behavior until resumed.
             .adaptiveCameraCaptureEvent(isEnabled: scenePhase == .active && model.canCapture) {

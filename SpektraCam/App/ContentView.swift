@@ -112,11 +112,16 @@ struct ContentView: View {
                 Task {
                     await library.images.discardMemory()
                     await library.files.discardPreparedPhoto()
+                    await library.images.resources.releaseWorkingCachesIfLoaded()
                 }
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { library?.savePending() }
+            if phase == .background, let library {
+                Task { await library.handleSceneBackground() }
+            } else if phase != .active {
+                library?.savePending()
+            }
         }
         .alert(
             String(

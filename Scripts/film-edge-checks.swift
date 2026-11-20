@@ -354,7 +354,72 @@ import UniformTypeIdentifiers
         for y in 0..<clamped.height { for x in 0..<clamped.width {
             let f = clamped.scratchFields(x: x, y: y); rebateHit = max(rebateHit, f.scatter, f.removal.z)
         }}
-        precondition(rebateHit > 0.05, "Clamped scratches vanished from the rebate")
+        precondition(rebateHit > 0.35, "Clamped scratches vanished or stayed too faint in the rebate: \(rebateHit)")
+        // Scratches are anchored to the physical film strip, never sliding with print or scan zoom,
+        // and clamped 135 scratches stay in the intact inner rail land before the sprocket holes.
+        let zoomTight = geometry(scratched, longEdge: 1024, zoom: 0.985, scanZoom: 1.0)
+        let zoomWide = geometry(scratched, longEdge: 1024, zoom: 0.90, scanZoom: 0.78)
+        precondition(
+            zoomTight.scratchCandidates.map(\.across) == zoomWide.scratchCandidates.map(\.across)
+                && zoomTight.scratchCandidates.map(\.start) == zoomWide.scratchCandidates.map(\.start),
+            "Scratch positions drifted when changing print or scan zoom")
+        precondition(
+            clamped.scratchCandidates.allSatisfy { abs($0.across) > 12.02 && abs($0.across) < 12.66 },
+            "Clamped 135 scratches fell into the frame or open sprocket holes: \(clamped.scratchCandidates.map(\.across))")
+        // Burn emulation: shrunk physical felt-plush tufts, burnTexture 0...1 control, three-layer
+        // spectral transition (white body -> golden-yellow core -> warm fog tail), and CPU/Metal parity.
+        do {
+            var burnDefault = FilmEdgeDistress(); burnDefault.leakShape = .burn; burnDefault.leak = 0.85
+            let defaultData = try JSONEncoder().encode(burnDefault)
+            precondition(
+                String(data: defaultData, encoding: .utf8)?.contains("burnTexture") == false,
+                "Default burnTexture bloated serialized recipe JSON")
+            var burnFrayed = burnDefault; burnFrayed.burnTexture = 0.9; burnFrayed.leakPosition = 0.12
+            let frayedData = try JSONEncoder().encode(burnFrayed)
+            let decodedBurn = try JSONDecoder().decode(FilmEdgeDistress.self, from: frayedData)
+            precondition(abs(decodedBurn.burnTexture - 0.9) < 1e-9, "Custom burnTexture did not round-trip")
+            var burnSmooth = burnFrayed; burnSmooth.burnTexture = 0.0
+            let gSmooth = geometry(burnSmooth, longEdge: 768)
+            let gFrayed = geometry(burnFrayed, longEdge: 768)
+            var diffSum = 0.0, sawBody = false, sawYellowCore = false, sawWarmTail = false
+            for y in 0..<gFrayed.height {
+                for x in stride(from: 0, to: gFrayed.width, by: 2) {
+                    let es = gSmooth.exposureFields(x: x, y: y)
+                    let ef = gFrayed.exposureFields(x: x, y: y)
+                    diffSum += abs(es.back - ef.back) + abs(es.core - ef.core) + abs(es.fog - ef.fog)
+                    if ef.back > 30 { sawBody = true }
+                    if ef.back < 4 && ef.core > 1.5 { sawYellowCore = true }
+                    if ef.back < 0.05 && ef.core < 0.2 && ef.fog > 0.25 { sawWarmTail = true }
+                }
+            }
+            precondition(diffSum > 25, "burnTexture had no measurable effect on the plush boundary: \(diffSum)")
+            precondition(
+                sawBody && sawYellowCore && sawWarmTail,
+                "Burn lacked three-layer white/yellow-core/warm-tail separation: \(sawBody), \(sawYellowCore), \(sawWarmTail)")
+            for tex in [0.1, 0.9] {
+                var burnCheck = burnFrayed; burnCheck.burnTexture = tex
+                selection.manualType = .negativePrint
+                var recipe = base; recipe.filmEdgeSelection = selection
+                let pipeline = try FilmPipeline(library: library, recipe: FilmEdgeRenderer.materialRecipe(recipe))
+                let gb = geometry(burnCheck, longEdge: 320)
+                let burnScene = Array(repeating: SIMD4<Float>(0.15, 0.18, 0.22, 1), count: gb.width * gb.height)
+                let cpuBurn = try pipeline.process(
+                    burnScene.map { RGB(Double($0.x), Double($0.y), Double($0.z)) },
+                    width: gb.width, height: gb.height, stochastic: false, edge: gb, autoExposureEV: 0)
+                let metalBurn = try await gpu.process(
+                    burnScene, width: gb.width, height: gb.height, pipeline: pipeline,
+                    stochastic: false, autoExposureEV: 0, edge: gb)
+                var badBurn = 0
+                for i in cpuBurn.indices {
+                    for ch in 0..<3 {
+                        let err = abs(cpuBurn[i][ch] - Double(metalBurn.pixels[i][ch]))
+                        maxError = max(maxError, err)
+                        if err > 1e-3 { badBurn += 1 }
+                    }
+                }
+                precondition(badBurn == 0, "Burn CPU/Metal disagreement at burnTexture=\(tex): \(badBurn) values")
+            }
+        }
         // Scratch colour follows layer depth and route: a shallow emulsion cut (yellow layer) prints
         // yellow from a negative but shows blue on a slide; scatter prints light and bluish.
         func scratchSeed(_ wanted: (Double) -> Bool) -> UInt32 {
@@ -638,6 +703,23 @@ import UniformTypeIdentifiers
                 let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)!
                 CGImageDestinationAddImage(dest, image, nil); precondition(CGImageDestinationFinalize(dest))
             }
+        }
+        // Visual review: roll-start burn across smooth, cassette plush and frayed burnTexture settings.
+        for tex in [0.0, 0.5, 1.0] {
+            var burned = recipe
+            var selection = FilmEdgeSelection(); selection.mode = .manual; selection.manualType = .invertedScan
+            burned.filmEdgeSelection = selection
+            burned.filmEdgeLayout?.scanZoom = 0.78
+            burned.filmEdgeLayout?.distress.leakShape = .burn
+            burned.filmEdgeLayout?.distress.leak = 0.85
+            burned.filmEdgeLayout?.distress.leakSize = 9.0
+            burned.filmEdgeLayout?.distress.leakPosition = 0.36
+            burned.filmEdgeLayout?.distress.burnTexture = tex
+            burned.filmEdgeLayout?.distress.scratches = 0.85
+            let image = try await renderer.renderFilmEdge(burned, maximum: 1440)
+            let url = folder.appendingPathComponent(String(format: "distress-burn-tex-%.1f.png", tex))
+            let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)!
+            CGImageDestinationAddImage(dest, image, nil); precondition(CGImageDestinationFinalize(dest))
         }
         var tilted = recipe
         tilted.filmEdgeLayout?.distress.apply(.worn); tilted.look.enabled = false

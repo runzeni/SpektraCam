@@ -14,6 +14,7 @@ struct ZoomablePhoto: UIViewRepresentable {
     let image: UIImage
     var topAligned = false
     var topInset: CGFloat = 0
+    var bottomInset: CGFloat = 0
     var zoomedTopInset: CGFloat = 0
     var fitCenterY: CGFloat? = nil
     var label = String(localized: "photo.edited_photo", defaultValue: "Edited photo")
@@ -28,6 +29,7 @@ struct ZoomablePhoto: UIViewRepresentable {
         view.photoView.accessibilityLabel = label
         view.topAligned = topAligned
         view.topInset = topInset
+        view.bottomInset = bottomInset
         view.zoomedTopInset = zoomedTopInset
         view.fitCenterY = fitCenterY
         view.photoView.accessibilityTraits = .image
@@ -70,6 +72,7 @@ struct ZoomablePhoto: UIViewRepresentable {
         context.coordinator.onTap = onTap
         view.topAligned = topAligned
         view.topInset = topInset
+        view.bottomInset = bottomInset
         view.zoomedTopInset = zoomedTopInset
         view.fitCenterY = fitCenterY
         view.photoView.accessibilityLabel = label
@@ -120,6 +123,7 @@ final class PhotoScrollView: UIScrollView {
     let photoView = UIImageView()
     var topAligned = false
     var topInset: CGFloat = 0
+    var bottomInset: CGFloat = 0
     var zoomedTopInset: CGFloat = 0
     var fitCenterY: CGFloat? = nil
     private var imageSize = CGSize.zero
@@ -235,7 +239,8 @@ final class PhotoScrollView: UIScrollView {
             let saved = pendingViewport ?? (lastBounds == .zero ? nil : viewport())
             let relative = saved?.zoom ?? 1
             let fit = min(
-                bounds.width / imageSize.width, max(1, bounds.height - topInset) / imageSize.height)
+                bounds.width / imageSize.width,
+                max(1, bounds.height - topInset - bottomInset) / imageSize.height)
             lastBounds = bounds.size
             minimumZoomScale = fit
             maximumZoomScale = max(fit * 8, 1)
@@ -274,14 +279,16 @@ final class PhotoScrollView: UIScrollView {
         let horizontal = max(0, (bounds.width - contentSize.width) / 2)
         let zoomed = zoomScale > minimumZoomScale * 1.05
         let reserve = zoomed ? zoomedTopInset : topInset
-        let space = max(0, bounds.height - reserve - contentSize.height)
+        let bottomReserve = zoomed ? 0 : bottomInset
+        let space = max(0, bounds.height - reserve - bottomReserve - contentSize.height)
         let center = !zoomed ? fitCenterY : nil
         let vertical = topAligned ? 0 : center.map {
             min(max($0 - contentSize.height / 2 - reserve, 0), space)
         } ?? space / 2
-        let bottom = center != nil && !topAligned ? space - vertical : vertical
+        let remaining = center != nil && !topAligned ? space - vertical : vertical
         let insets = UIEdgeInsets(
-            top: reserve + vertical, left: horizontal, bottom: bottom, right: horizontal)
+            top: reserve + vertical, left: horizontal, bottom: bottomReserve + remaining,
+            right: horizontal)
         if contentInset != insets { contentInset = insets }
         photoView.accessibilityValue = String(
             format: String(
@@ -294,6 +301,7 @@ final class PhotoScrollView: UIScrollView {
 struct PhotoViewport: View {
     let image: UIImage
     var topInset: CGFloat = PhotoInfoPanel.collapsedHeight + 12
+    var bottomInset: CGFloat = 0
     var edited = true
     var topAligned = true
     var usePortraitReference = false
@@ -302,10 +310,13 @@ struct PhotoViewport: View {
     var body: some View {
         GeometryReader { proxy in
             ZoomablePhoto(
-                image: image, topAligned: topAligned, topInset: topInset,
+                image: image, topAligned: topAligned, topInset: topInset, bottomInset: bottomInset,
                 zoomedTopInset: topInset > 0 ? 4 : 0,
                 fitCenterY: usePortraitReference
-                    ? topInset + min(proxy.size.width * 4 / 3, max(1, proxy.size.height - topInset)) / 2
+                    ? topInset
+                        + min(
+                            proxy.size.width * 4 / 3,
+                            max(1, proxy.size.height - topInset - bottomInset)) / 2
                     : nil,
                 label: edited
                     ? String(localized: "photo.edited_photo", defaultValue: "Edited photo")

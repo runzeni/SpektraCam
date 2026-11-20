@@ -240,7 +240,20 @@ import UniformTypeIdentifiers
         try await library!.undoPaste()
         let shown = library!.preview(library!.photo(target.id)!, applying: formula)
         precondition(
-            shown?.hasEdits == true && !library!.photo(target.id)!.hasEdits, "A preview saved an edit")
+            shown?.hasEdits == true && shown?.isEphemeralPreview == true
+                && !library!.photo(target.id)!.hasEdits,
+            "A preview saved an edit or was not marked ephemeral")
+        let formulaThumb = try await library!.images.image(shown!, thumbnail: true)
+        precondition(formulaThumb.width > 0 && formulaThumb.height > 0)
+        let targetCacheFolder = cache.appendingPathComponent(target.id.uuidString)
+        let polluted = (try? FileManager.default.contentsOfDirectory(at: targetCacheFolder, includingPropertiesForKeys: nil))?
+            .contains { $0.lastPathComponent.contains(shown!.renderKey) } ?? false
+        precondition(!polluted, "Ephemeral formula preview polluted permanent per-photo cache directory")
+        let groupedAll = library!.grouped(for: .all)
+        precondition(
+            groupedAll.visible.count == library!.photos.count
+                && groupedAll.editedIDs == Set(library!.photos.filter(\.hasEdits).map(\.id)),
+            "Memoized library filter snapshot diverged from photos")
         var lutLook = recipe
         lutLook.look.mode = .lut
         lutLook.look.first.id = String(repeating: "d", count: 64)
@@ -411,7 +424,7 @@ import UniformTypeIdentifiers
         try await library!.finishEditing(tallPhoto.id, recipe: EditRecipe())
         let editedTall = library!.photo(tallPhoto.id)!
         let grid = try await library!.images.image(editedTall, thumbnail: true)
-        let earlyPreview = await library!.files.cachedImage(editedTall, thumbnail: false)
+        let earlyPreview = library!.files.cachedImage(editedTall, thumbnail: false)
         precondition(
             max(grid.width, grid.height) == 384 && earlyPreview == nil,
             "Grid rebuild made a full preview or stored its small image as the photo preview")

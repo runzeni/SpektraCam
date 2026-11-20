@@ -68,6 +68,8 @@ nonisolated enum LibraryMigrationPlan: SchemaMigrationPlan {
 
 /// Send value snapshots to views and file workers, not live database records.
 nonisolated struct LibraryPhoto: Identifiable, Equatable, Sendable {
+    private static let filmEdgeMarker = Data("\"filmEdgeLayout\"".utf8)
+
     let id: UUID
     let filename: String
     let fileExtension: String
@@ -75,11 +77,40 @@ nonisolated struct LibraryPhoto: Identifiable, Equatable, Sendable {
     let isRAW: Bool
     let importedAt: Date
     let metadata: PhotoMetadata
-    var recipeData: Data? = nil
+    var recipeData: Data? = nil {
+        didSet { hasFilmEdge = Self.containsFilmEdge(recipeData) }
+    }
     var renderKey = "original"
     var locationName: String? = nil
+    private(set) var hasFilmEdge: Bool
+    var isEphemeralPreview = false
+
+    init(
+        id: UUID, filename: String, fileExtension: String, contentHash: String,
+        isRAW: Bool, importedAt: Date, metadata: PhotoMetadata,
+        recipeData: Data? = nil, renderKey: String = "original", locationName: String? = nil,
+        isEphemeralPreview: Bool = false
+    ) {
+        self.id = id
+        self.filename = filename
+        self.fileExtension = fileExtension
+        self.contentHash = contentHash
+        self.isRAW = isRAW
+        self.importedAt = importedAt
+        self.metadata = metadata
+        self.recipeData = recipeData
+        self.renderKey = renderKey
+        self.locationName = locationName
+        self.hasFilmEdge = Self.containsFilmEdge(recipeData)
+        self.isEphemeralPreview = isEphemeralPreview
+    }
+
     var date: Date { metadata.capturedAt ?? importedAt }
     var hasEdits: Bool { recipeData != nil }
+    static func containsFilmEdge(_ recipeData: Data?) -> Bool {
+        guard let data = recipeData, data.range(of: filmEdgeMarker) != nil else { return false }
+        return (try? JSONDecoder().decode(EditRecipe.self, from: data))?.filmEdgeLayout != nil
+    }
     static func recipeData(_ recipe: EditRecipe) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

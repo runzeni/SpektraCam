@@ -207,6 +207,8 @@ nonisolated struct FilmEdgeDistress: Codable, Equatable, Sendable {
     var leakShape = LeakShape.glow
     var leakSize = 8.0
     var leakPosition = 0.3
+    /// Felt-plush lip irregularity on a roll-start burn: 0 smooth lip … 0.5 cassette plush … 1 frayed tufts.
+    var burnTexture = 0.5
     /// −1 cool (front, blue layer first) … 0 neutral … +1 warm (base, red layer first).
     var warmth = 0.6
     var dust = 0.0
@@ -234,8 +236,8 @@ nonisolated struct FilmEdgeDistress: Codable, Equatable, Sendable {
     static let ranges: [WritableKeyPath<Self, Double>: ClosedRange<Double>] = [
         \.amount: 0...2, \.tilt: -3...3, \.bulge: -1...1, \.holeVariation: 0...1,
         \.carrierRoughness: 0...0.5, \.carrierReflection: 0...1, \.edgeFog: 0...1,
-        \.leak: 0...1, \.leakSize: 2...30, \.leakPosition: 0...1, \.warmth: -1...1,
-        \.dust: 0...1, \.scratches: 0...1,
+        \.leak: 0...1, \.leakSize: 2...30, \.leakPosition: 0...1, \.burnTexture: 0...1,
+        \.warmth: -1...1, \.dust: 0...1, \.scratches: 0...1,
     ]
     static func defaultWarmth(_ kind: LeakKind) -> Double { kind == .front ? -0.4 : 0.6 }
 
@@ -296,7 +298,7 @@ nonisolated struct FilmEdgeDistress: Codable, Equatable, Sendable {
     init() {}
     enum CodingKeys: String, CodingKey {
         case revision, seed, amount, tilt, bulge, holeVariation, carrierRoughness, carrierReflection, enlargerPrint,
-            edgeFog, leak, leakKind, leakShape, leakSize, leakPosition, warmth, dust, scratches, scratchesInImage
+            edgeFog, leak, leakKind, leakShape, leakSize, leakPosition, burnTexture, warmth, dust, scratches, scratchesInImage
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -307,6 +309,7 @@ nonisolated struct FilmEdgeDistress: Codable, Equatable, Sendable {
         try c.encode(enlargerPrint, forKey: .enlargerPrint); try c.encode(edgeFog, forKey: .edgeFog)
         try c.encode(leak, forKey: .leak); try c.encode(leakKind, forKey: .leakKind); try c.encode(leakShape, forKey: .leakShape)
         try c.encode(leakSize, forKey: .leakSize); try c.encode(leakPosition, forKey: .leakPosition)
+        if abs(burnTexture - 0.5) > 1e-9 { try c.encode(burnTexture, forKey: .burnTexture) }
         try c.encode(warmth, forKey: .warmth); try c.encode(dust, forKey: .dust); try c.encode(scratches, forKey: .scratches)
         try c.encode(scratchesInImage, forKey: .scratchesInImage)
     }
@@ -331,6 +334,7 @@ nonisolated struct FilmEdgeDistress: Codable, Equatable, Sendable {
         leakShape = (try? v.decodeIfPresent(LeakShape.self, forKey: .leakShape)) ?? .glow
         leakSize = try n(.leakSize, \.leakSize)
         leakPosition = try n(.leakPosition, \.leakPosition)
+        burnTexture = min(max(try n(.burnTexture, \.burnTexture), 0), 1)
         warmth = try n(.warmth, \.warmth)
         dust = try n(.dust, \.dust)
         scratches = try n(.scratches, \.scratches)
@@ -530,7 +534,10 @@ nonisolated struct FilmEdgeGeometry: Sendable {
         let ha = Double(portrait ? height : width) / factor / 2
         let ht = Double(portrait ? width : height) / factor / 2
         leakFrame = Self.leakFrame(distress, portrait: portrait, halfAlong: ha, halfAcross: ht)
-        scratchCandidates = Self.scratches(distress, halfAlong: ha, halfAcross: min(carrierHalf.across, ht), gateAcross: short / 2)
+        let stripHalfAlong = long / 2 + 2.0
+        let rebateOuter = format == .film35 ? short / 2 + 0.58 : short / 2 + 1.15
+        scratchCandidates = Self.scratches(
+            distress, halfAlong: stripHalfAlong, halfAcross: rebateOuter, gateAcross: short / 2)
     }
 
     var pixelPitchMicrometers: Double { millimetersPerPixel * 1000 }
@@ -661,10 +668,57 @@ nonisolated struct FilmEdgeGeometry: Sendable {
             e.core += rim.core
         }
         if distress.leak > 0 {
-            let value = 6 * distress.leak * distress.leak * leakField(fx, fy)
-            if distress.leakKind == .front { e.front = value } else { e.back = value }
+            if distress.leakShape == .burn {
+                let b = burnExposure(fx, fy)
+                let strength = distress.leak * distress.leak
+                if distress.leakKind == .front {
+                    e.front = strength * b.body
+                    let gate = FilmEdgeNoise.penumbra(
+                        gateDistance(fx, fy), max(distress.gateSoftness, pixelRadius))
+                    e.core += strength * gate * b.core
+                    e.fog += strength * gate * b.tail
+                } else {
+                    e.back = strength * b.body
+                    e.core += strength * b.core
+                    e.fog += strength * b.tail
+                }
+            } else {
+                let value = 6 * distress.leak * distress.leak * leakField(fx, fy)
+                if distress.leakKind == .front { e.front = value } else { e.back = value }
+            }
         }
         return e
+    }
+    /// Roll-start burn calibrated against camera, Fuji Frontier and Noritsu scans: felt-plush tufts
+    /// stay at fixed physical millimetre wavelengths (shrunk independent of `leakSize`), separating
+    /// into a broadband saturated body, a golden-yellow plush fringe and a warm red-orange base tail.
+    private func burnExposure(_ fx: Double, _ fy: Double) -> (body: Double, core: Double, tail: Double) {
+        let leak = leakFrame, size = distress.leakSize, tex = distress.burnTexture
+        let vx = fx - leak.point.0, vy = fy - leak.point.1
+        let depth = max(0, vx * leak.normal.0 + vy * leak.normal.1)
+        let u = vx * leak.normal.1 - vy * leak.normal.0
+        let v = depth - size
+        let s = seed(4), pr = pixelRadius
+        let fineWeight = 1 / (1 + (pr / 0.07) * (pr / 0.07))
+        let bow = (0.18 + 0.38 * tex) * FilmEdgeNoise.value(u / 3.6, 0.35, s)
+            + (0.06 + 0.22 * tex) * FilmEdgeNoise.value(u / 1.05, 1.35, s)
+        let patch = min(max(0.35 + 0.75 * FilmEdgeNoise.value(u / 2.2, 2.15, s), 0), 1)
+        let curl = 0.22 * FilmEdgeNoise.value(u / 0.42, v / 0.42 + 3.7, s)
+        let wispA = FilmEdgeNoise.value((u + 0.38 * v + curl) / 0.14, v / 0.38 + 5.1, s)
+        let wispB = FilmEdgeNoise.value((u - 0.34 * v - curl) / 0.17, v / 0.44 + 8.3, s)
+        let tuft = fineWeight * patch * max(0, 0.55 * wispA + 0.45 * wispB + 0.18)
+        let front = size + bow + (0.03 + 0.34 * tex) * tuft
+        let delta = depth - front
+        let lipWidth = 0.06 + 0.06 * (1 - tex)
+        let whiteBody = 80 / (1 + exp(min(max(delta / lipWidth, -40), 40)))
+        let wispReach = (0.06 + 0.48 * tex * tex) * tuft * tuft
+        let coreSpan = 0.12 + 0.20 * tex
+        let coreDelta = (delta - (0.08 + 0.14 * tex + wispReach)) / coreSpan
+        let yellowFringe = (12 + 14 * tuft) / (1 + exp(min(max(coreDelta, -40), 40)))
+        let tailSpan = 0.28 + 0.38 * tex
+        let tailDelta = (delta - (0.22 + 0.30 * tex + 0.6 * wispReach)) / tailSpan
+        let warmTail = (3.4 + 2.2 * patch) / (1 + exp(min(max(tailDelta, -40), 40)))
+        return (whiteBody, yellowFringe, warmTail)
     }
     private func leakField(_ fx: Double, _ fy: Double) -> Double {
         let leak = leakFrame, size = distress.leakSize
@@ -686,10 +740,7 @@ nonisolated struct FilmEdgeGeometry: Sendable {
             let echo = leak.weight * 0.5 * exp(-shifted * shifted / (2 * pow(0.12 * size, 2)))
             return exp(-along / (3.5 * size)) * (core + echo) * (0.7 + 0.3 * n)
         case .burn:
-            // Saturating exposure up to a wavy front `size` mm in; the fall-off is a fraction of that.
-            let front = size * (1 + 0.14 * FilmEdgeNoise.value(lateral / (0.5 * size), 0.5, seed(4))
-                + 0.04 * FilmEdgeNoise.value(lateral / (0.08 * size), 1.5, seed(4)))
-            return 60 / (1 + exp(min((depth - front) / (0.045 * size + 0.12), 40)))
+            return burnExposure(fx, fy).body / 6
         case .flare:
             let broad = exp(-lateral * lateral / (2 * pow(3 * size, 2)))
             let band = 0.8 + 0.2 * FilmEdgeNoise.value(lateral / (1.5 * size), 0.5, seed(4))
@@ -967,24 +1018,28 @@ nonisolated struct FilmEdgeGeometry: Sendable {
     static func scratches(_ d: FilmEdgeDistress, halfAlong ha: Double, halfAcross ht: Double, gateAcross: Double) -> [Scratch] {
         var b = streamSeed(d.seed, 19)
         func band() -> Double { b = FilmEdgeNoise.hash(b); return FilmEdgeNoise.unit(b) }
-        let inner = gateAcross + 0.05, outer = max(inner + 0.05, ht - 0.03)
-        let bands = (0..<4).map { _ in inner + (outer - inner) * band() }
+        let inner = gateAcross + 0.035, outer = max(inner + 0.05, ht)
+        let nearSpan = min(0.13, outer - inner)
+        let bands = (0..<4).map { index in
+            index < 2 ? inner + nearSpan * band() : inner + (outer - inner) * band()
+        }
+        let imageLimit = gateAcross * 0.92
         return (0..<scratchCount).map { k in
             var h = streamSeed(d.seed, UInt32(20 + k))
             func next() -> Double { h = FilmEdgeNoise.hash(h); return FilmEdgeNoise.unit(h) }
             let side: Double = next() < 0.5 ? -1 : 1
             let center = bands[Int(next() * 3.999)]
-            let clustered = min(max(center + (next() * 2 - 1) * 0.15, inner), outer)
+            let clustered = min(max(center + (next() * 2 - 1) * 0.08, inner), outer)
             // Draw both positions every time so toggling the clamp never shifts other features.
-            let free = next(), anywhere = (next() * 2 - 1) * ht
+            let free = next(), anywhere = (next() * 2 - 1) * imageLimit
             let across = d.scratchesInImage && free < 0.6 ? anywhere : side * clustered
             let slope = (next() * 2 - 1) * 0.0008
-            let wander = 0.001 + 0.008 * next(), wavelength = 60 + 140 * next(), phase = next() * 6.2832
-            let span = ha * (0.5 + 1.7 * next()), mid = (next() * 2 - 1) * ha
-            let width = 0.004 + 0.016 * pow(next(), 1.3)
+            let wander = 0.001 + 0.006 * next(), wavelength = 60 + 140 * next(), phase = next() * 6.2832
+            let span = ha * (0.55 + 1.65 * next()), mid = (next() * 2 - 1) * ha * 0.85
+            let width = 0.006 + 0.020 * pow(next(), 1.3)
             let emulsion = next() < 0.25
-            let depth = emulsion ? 0.05 + 0.6 * pow(next(), 2) : -(0.18 + 0.8 * pow(next(), 1.4))
-            let dash = 0.6 + 6 * next(), bias = next() * 0.9 - 0.2
+            let depth = emulsion ? 0.08 + 0.62 * pow(next(), 1.8) : -(0.62 + 0.35 * pow(next(), 0.9))
+            let dash = 1.8 + 9.0 * next(), bias = 0.18 + 0.72 * next()
             return Scratch(across: across, slope: slope, wander: wander, wavelength: wavelength, phase: phase,
                            start: mid - span, end: mid + span, width: width, depth: depth, dash: dash, bias: bias)
         }
@@ -1012,12 +1067,12 @@ nonisolated struct FilmEdgeGeometry: Sendable {
             let ends = min(max((a - s.start) / 2, 0), 1) * min(max((s.end - a) / 2, 0), 1)
             if ends <= 0 { continue }
             let line = s.across + s.slope * a + s.wander * sin(a / s.wavelength * 6.2832 + s.phase)
-            let rr = max(s.width, pr * 0.9)
+            let rr = max(s.width, pr * 0.85)
             if abs(t - line) > rr + pr { continue }
             // Pressure varies along the run: the scratch breaks up and fades rather than drawing a ruler line.
             let pressure = FilmEdgeNoise.value(a / s.dash, Double(k) * 7.31, seed(30))
             let broken = min(max((pressure + s.bias) / 0.35, 0), 1)
-            let cover = (s.width / rr) * FilmEdgeNoise.penumbra(abs(t - line) - rr, pr) * ends * active * broken * outside
+            let cover = (s.width / rr).squareRoot() * FilmEdgeNoise.penumbra(abs(t - line) - rr, pr) * ends * active * broken * outside
             if s.depth > 0 {
                 let d = s.depth * 3
                 let r = SIMD3(min(max(d - 2, 0), 1), min(max(d - 1, 0), 1), min(max(d, 0), 1)) * cover
@@ -1029,8 +1084,8 @@ nonisolated struct FilmEdgeGeometry: Sendable {
         return result
     }
     /// Scattering removes more short-wavelength light from the transmitted beam; per output channel.
-    /// Rayleigh-like λ⁻⁴ relative to 450 nm: ≈0.23 at 650 nm, ≈0.45 at 550 nm.
-    static let scatterWeights = SIMD3<Double>(0.23, 0.45, 1.0)
+    /// Calibrated against collimated groove scatter on D-max negative rebate: cool-white with blue lead.
+    static let scatterWeights = SIMD3<Double>(0.34, 0.58, 1.0)
     var hasEmulsionScratches: Bool { distress.scratches > 0 && scratchCandidates.contains { $0.depth > 0 } }
 
     /// Combine intact film and clear light in transmission; never average densities with air.
@@ -1119,7 +1174,7 @@ nonisolated struct FilmEdgeGeometry: Sendable {
             SIMD4(Float(fogLight.x), Float(fogLight.y), Float(fogLight.z), Float(d.carrierReflection)),
             SIMD4(Float(d.carrierBlur), Float(d.carrierDetail), Float(leak.direction.0), Float(leak.direction.1)),
             SIMD4(Float(coreLight.x), Float(coreLight.y), Float(coreLight.z), Float(d.enlargerPrint ? -d.carrierTailWidth : d.carrierTailWidth)),
-            SIMD4(Float(easelOffset.x), Float(easelOffset.y), Float(registration), 0),
+            SIMD4(Float(easelOffset.x), Float(easelOffset.y), Float(registration), Float(d.burnTexture)),
         ]
         for s in scratchCandidates {
             values.append(SIMD4(Float(s.across), Float(s.wander), Float(s.wavelength), Float(s.phase)))

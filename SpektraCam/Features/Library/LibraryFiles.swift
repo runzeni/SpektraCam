@@ -87,6 +87,28 @@ actor LibraryFiles {
                 try manager.removeItem(at: folder)
             }
         }
+        Self.pruneFormulaPreviews(in: cache.appendingPathComponent("FormulaPreviews"))
+    }
+    private static func pruneFormulaPreviews(in directory: URL, keepLimit: Int = 160) {
+        let manager = FileManager.default
+        guard
+            let entries = try? manager.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]),
+            entries.count > keepLimit
+        else { return }
+        let sorted = entries.sorted {
+            let d0 =
+                (try? $0.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+            let d1 =
+                (try? $1.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+            return d0 > d1
+        }
+        for stale in sorted.dropFirst(keepLimit) {
+            try? manager.removeItem(at: stale)
+        }
     }
     func pendingCaptures() throws -> [URL] { try CameraInbox(root: root).pending() }
     func removeCapture(_ url: URL) throws { try CameraInbox(root: root).remove(url) }
@@ -94,15 +116,17 @@ actor LibraryFiles {
         root.appendingPathComponent("Originals").appendingPathComponent(photo.id.uuidString)
             .appendingPathComponent("original." + photo.fileExtension)
     }
-    private func cacheURL(
+    nonisolated private func cacheURL(
         _ photo: LibraryPhoto, thumbnail: Bool, maximum: Int = PreviewQuality.libraryMaximum
     ) -> URL {
         // Render changes must rebuild saved previews even when the edit recipe is unchanged.
-        let hasFilmEdge = photo.recipeData.flatMap { try? JSONDecoder().decode(EditRecipe.self, from: $0) }?.filmEdgeLayout != nil
-        let revision = hasFilmEdge ? "v14-distress-" : "v11-"
-        return cache.appendingPathComponent(photo.id.uuidString)
-            .appendingPathComponent(
-                revision + photo.renderKey + (thumbnail ? "-thumb.jpg" : "-preview-\(maximum).jpg"))
+        let revision = photo.hasFilmEdge ? "v15-distress-" : "v11-"
+        let suffix = revision + photo.renderKey + (thumbnail ? "-thumb.jpg" : "-preview-\(maximum).jpg")
+        if photo.isEphemeralPreview {
+            return cache.appendingPathComponent("FormulaPreviews")
+                .appendingPathComponent(photo.id.uuidString + "-" + suffix)
+        }
+        return cache.appendingPathComponent(photo.id.uuidString).appendingPathComponent(suffix)
     }
     func importPhoto(from url: URL, now: Date = Date()) throws -> LibraryPhoto {
         try Task.checkCancellation()
@@ -138,15 +162,31 @@ actor LibraryFiles {
         try? Self.writeJPEG(thumbnail, to: cacheURL(photo, thumbnail: true))
         return photo
     }
-    func cachedImage(
+    nonisolated func cachedImage(
         _ photo: LibraryPhoto, thumbnail: Bool, maximum: Int = PreviewQuality.libraryMaximum
     ) -> CGImage? {
-        guard
+        guard !Task.isCancelled,
             let source = CGImageSourceCreateWithURL(
-                cacheURL(photo, thumbnail: thumbnail, maximum: maximum) as CFURL, nil)
+                cacheURL(photo, thumbnail: thumbnail, maximum: maximum) as CFURL,
+                [kCGImageSourceShouldCache: false] as CFDictionary)
         else { return nil }
         return CGImageSourceCreateImageAtIndex(
             source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+    }
+    func sourceForRendering(_ photo: LibraryPhoto) throws -> (data: Data, description: PhotoSource.Description) {
+        try Task.checkCancellation()
+        if let preparedPhoto, preparedPhoto.id == photo.id,
+            let description = preparedPhoto.photo.sourceDescription
+        {
+            return (preparedPhoto.photo.data, description)
+        }
+        let url = sourceURL(photo)
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard let description = PhotoSource.describe(data, typeHint: PhotoSource.typeHint(for: url))
+        else {
+            throw Failure.image
+        }
+        return (data, description)
     }
     func originalImage(
         _ photo: LibraryPhoto, thumbnail: Bool, maximum: Int = PreviewQuality.libraryMaximum
@@ -219,7 +259,19 @@ actor LibraryFiles {
             guard let result = context.makeImage() else { throw Failure.image }
             small = result
         }
-        try Self.writeJPEG(small, to: cacheURL(photo, thumbnail: true))
+        let target = cacheURL(photo, thumbnail: true)
+        try Self.writeJPEG(small, to: target)
+        if !photo.isEphemeralPreview,
+            let entries = try? FileManager.default.contentsOfDirectory(
+                at: target.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+        {
+            for url in entries
+            where url.lastPathComponent.hasSuffix("-thumb.jpg")
+                && url.lastPathComponent != target.lastPathComponent
+            {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
         return small
     }
     func storePreview(

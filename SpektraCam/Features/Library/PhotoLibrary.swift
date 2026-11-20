@@ -14,6 +14,9 @@ import SwiftData
     @ObservationIgnored private let container: ModelContainer
     @ObservationIgnored private let context: ModelContext
     @ObservationIgnored private var records: [UUID: LibrarySchemaV1.Record] = [:]
+    @ObservationIgnored private var indexByID: [UUID: Int] = [:]
+    @ObservationIgnored private var filterCache: [LibraryFilter: FilterSnapshot] = [:]
+    @ObservationIgnored private var filterCacheDay: Date?
     private(set) var importedAssetIdentifiers: [String] = []
     @ObservationIgnored private var sources: [String: LibrarySchemaV2.PhotosSource] = [:]
     @ObservationIgnored private var pending: [UUID: EditRecipe] = [:]
@@ -23,6 +26,11 @@ import SwiftData
     private(set) var copiedLook: LookClip?
     /// What the last paste replaced, until one of those photos is edited some other way.
     private(set) var pasteUndo: PasteUndo?
+    struct FilterSnapshot {
+        let visible: [LibraryPhoto]
+        let sections: [(day: Date, photos: [LibraryPhoto])]
+        let editedIDs: Set<UUID>
+    }
     struct PasteUndo {
         fileprivate let previous: [UUID: Data?]
         fileprivate let luts: Set<String>
@@ -66,6 +74,7 @@ import SwiftData
         luts = LUTLibrary(root: root)
         formulae = FormulaLibrary(root: root)
         photos = initial
+        rebuildIndex()
         for source in try context.fetch(FetchDescriptor<LibrarySchemaV2.PhotosSource>()) {
             sources[source.assetIdentifier] = source
         }
@@ -77,7 +86,66 @@ import SwiftData
                 ? a.id.uuidString < b.id.uuidString : a.importedAt < b.importedAt)
             : a.date < b.date
     }
-    func photo(_ id: UUID) -> LibraryPhoto? { photos.first { $0.id == id } }
+    private func rebuildIndex() {
+        indexByID.removeAll(keepingCapacity: true)
+        for (index, item) in photos.enumerated() {
+            indexByID[item.id] = index
+        }
+        filterCache.removeAll()
+    }
+    private func updatePhoto(_ updated: LibraryPhoto) {
+        if let index = indexByID[updated.id], photos.indices.contains(index),
+            photos[index].id == updated.id
+        {
+            photos[index] = updated
+            filterCache.removeAll()
+        } else if let index = photos.firstIndex(where: { $0.id == updated.id }) {
+            photos[index] = updated
+            rebuildIndex()
+        }
+    }
+    func photo(_ id: UUID) -> LibraryPhoto? {
+        let current = photos
+        if let index = indexByID[id], current.indices.contains(index), current[index].id == id {
+            return current[index]
+        }
+        return current.first { $0.id == id }
+    }
+    /// Memoized per-filter visible slice, day sections, and edited-photo set so selection
+    /// taps and UI state transitions stay O(1) even with thousands of photos.
+    func grouped(for filter: LibraryFilter) -> FilterSnapshot {
+        let current = photos
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        if filterCacheDay != today {
+            filterCache.removeAll()
+            filterCacheDay = today
+        }
+        if let cached = filterCache[filter] { return cached }
+        let visible = filter == .all ? current : current.filter { filter.includes($0) }
+        var sections: [(day: Date, photos: [LibraryPhoto])] = []
+        var editedIDs = Set<UUID>()
+        for item in visible.reversed() {
+            if item.hasEdits { editedIDs.insert(item.id) }
+            let day = calendar.startOfDay(for: item.date)
+            if sections.last?.day == day {
+                sections[sections.count - 1].photos.append(item)
+            } else {
+                sections.append((day, [item]))
+            }
+        }
+        let snapshot = FilterSnapshot(visible: visible, sections: sections, editedIDs: editedIDs)
+        filterCache[filter] = snapshot
+        return snapshot
+    }
+    func filteredPhotos(_ filter: LibraryFilter) -> [LibraryPhoto] {
+        grouped(for: filter).visible
+    }
+    func handleSceneBackground() async {
+        savePending()
+        await files.discardPreparedPhoto()
+        await images.trimForBackground()
+    }
     @discardableResult func importPhoto(
         _ url: URL, now: Date = Date(), assetIdentifier: String? = nil
     )
@@ -100,6 +168,7 @@ import SwiftData
             records[imported.id] = record
             photos.append(imported)
             photos.sort(by: Self.order)
+            rebuildIndex()
         } catch {
             context.rollback()
             try? await files.removeFiles(imported)
@@ -179,9 +248,7 @@ import SwiftData
             guard metadata != photo.metadata else { continue }
             record.metadataData = try JSONEncoder().encode(metadata)
             try context.save()
-            if let index = photos.firstIndex(where: { $0.id == photo.id }) {
-                photos[index] = try record.snapshot()
-            }
+            updatePhoto(try record.snapshot())
         }
     }
     func queueRecipe(_ recipe: EditRecipe, for id: UUID, immediate: Bool = false) {
@@ -207,10 +274,13 @@ import SwiftData
     /// gallery thumbnails on every slider update while the editor is still open.
     func flushForLibrary() throws {
         try flushPending()
+        var changed = false
         for index in photos.indices {
             guard let record = records[photos[index].id], record.renderKey != photos[index].renderKey else { continue }
             photos[index] = try record.snapshot()
+            changed = true
         }
+        if changed { filterCache.removeAll() }
     }
     private func flush(_ id: UUID) throws {
         guard let recipe = pending[id], let record = records[id] else { return }
@@ -279,6 +349,7 @@ import SwiftData
         var result = photo
         result.recipeData = data
         result.renderKey = LibraryPhoto.key(data)
+        result.isEphemeralPreview = true
         return result
     }
     private func apply(_ parts: Set<EditRecipe.Part>, of source: EditRecipe, to ids: Set<UUID>) async throws
@@ -342,9 +413,7 @@ import SwiftData
             throw error
         }
         for (record, _, _) in changes {
-            if let index = photos.firstIndex(where: { $0.id == record.id }) {
-                photos[index] = try record.snapshot()
-            }
+            updatePhoto(try record.snapshot())
         }
     }
     /// Commit reference changes before deleting files. Failure keeps original files and all other adjustments.
@@ -370,9 +439,7 @@ import SwiftData
             throw error
         }
         for (record, _, _, _) in changes {
-            if let index = photos.firstIndex(where: { $0.id == record.id }) {
-                photos[index] = try record.snapshot()
-            }
+            updatePhoto(try record.snapshot())
         }
         luts.clearReferences(to: ids)
         copiedLook = copiedLook?.removingLUTs(ids)
@@ -386,9 +453,7 @@ import SwiftData
             saves[id]?.cancel()
             try persistRecipe(nil, record: record)
             pending[id] = nil
-            if let index = photos.firstIndex(where: { $0.id == id }) {
-                photos[index] = try record.snapshot()
-            }
+            updatePhoto(try record.snapshot())
         }
         await images.discardPreviews()
     }
@@ -405,9 +470,7 @@ import SwiftData
             // Do not rewrite an unchanged legacy recipe just because its decoded schema
             // is newer. A pending save may already have updated only the database.
             pending[id] = nil
-            if let index = photos.firstIndex(where: { $0.id == id }) {
-                photos[index] = try record.snapshot()
-            }
+            updatePhoto(try record.snapshot())
             return
         }
         if let recipe {
@@ -422,7 +485,7 @@ import SwiftData
         // Viewer previews have their own resolution and color policy. Rebuild from the source,
         // rather than storing an editor interaction proxy under a higher-quality cache key.
         await images.discardPreviews()
-        if let index = photos.firstIndex(where: { $0.id == id }) { photos[index] = saved }
+        updatePhoto(saved)
     }
     func recipe(_ id: UUID) throws -> EditRecipe? {
         guard let record = records[id] else { throw LibraryFiles.Failure.missing }
@@ -435,11 +498,10 @@ import SwiftData
         guard let record = records[id] else { return }
         record.locationName = name
         try context.save()
-        if let index = photos.firstIndex(where: { $0.id == id }) {
-            photos[index] = try record.snapshot()
-        }
+        updatePhoto(try record.snapshot())
     }
     func delete(_ ids: Set<UUID>) async throws {
+        var removed = false
         for id in ids {
             guard let record = records[id], let photo = photo(id) else { continue }
             saves[id]?.cancel()
@@ -459,8 +521,10 @@ import SwiftData
             importedAssetIdentifiers = sources.keys.sorted()
             records[id] = nil
             photos.removeAll { $0.id == id }
+            rebuildIndex()
+            removed = true
             await files.finishRemoval(staged, photo: photo)
         }
-        await images.discardPreviews()
+        if removed { await images.discardPreviews() }
     }
 }

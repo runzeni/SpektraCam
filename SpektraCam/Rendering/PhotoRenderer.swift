@@ -6,14 +6,27 @@ import ImageIO
 /// Owns one source and one GPU worker. Preview input, baseline metering and the latest film
 /// frame are cached independently. Mix reuses the film frame; export uses original bytes.
 actor PhotoRenderer {
+    static let placeholderSource: CGImage = {
+        let context = CGContext(
+            data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        return context.makeImage()!
+    }()
+
     private let source: CGImage, data: Data?, initialTemperature: Double?
     private let sourceType: String?
     private let sourceFilename: String?
     private let sourceDescription: PhotoSource.Description?
     private final class PreviewState {
         let maximum: Int
-        init(maximum: Int) { self.maximum = maximum }
-        let decoder = SourceImageRenderer.Decoder()
+        let decoder: SourceImageRenderer.Decoder
+        init(maximum: Int, cachesIntermediates: Bool = true) {
+            self.maximum = maximum
+            self.decoder = SourceImageRenderer.Decoder(cachesIntermediates: cachesIntermediates)
+        }
         var neutralKey: EditRecipe.Source?
         var neutralTemperature: Double?
         var neutralImage: CGImage?
@@ -43,6 +56,7 @@ actor PhotoRenderer {
     private var alternatePreview: (maximum: Int, state: PreviewState)?
     private var previewMaximum: Int
     private let previewLimit: Int
+    private let cachesIntermediates: Bool
     private let renderResources: FilmRenderResources
     private let lutDirectory: URL?
     private var cubes: [String: CubeLUT] = [:]
@@ -64,12 +78,14 @@ actor PhotoRenderer {
         lutDirectory: URL? = nil, previewMaximum: Int = PreviewQuality.editorMaximum,
         resources: FilmRenderResources? = nil,
         sourceType: String? = nil, description: PhotoSource.Description? = nil,
-        sourceFilename: String? = nil
+        sourceFilename: String? = nil, cachesIntermediates: Bool = true
     ) {
         self.sourceFilename = sourceFilename
         self.source = source
         self.previewMaximum = previewMaximum
-        preview = PreviewState(maximum: previewMaximum)
+        self.cachesIntermediates = cachesIntermediates
+        preview = PreviewState(maximum: previewMaximum, cachesIntermediates: cachesIntermediates)
+        edgeMetering = PreviewState(maximum: 720, cachesIntermediates: cachesIntermediates)
         previewLimit = previewMaximum
         renderResources = resources ?? FilmRenderResources(directory: directory)
         self.data = data
@@ -151,7 +167,8 @@ actor PhotoRenderer {
         if requested != previewMaximum {
             let previous = (maximum: previewMaximum, state: preview)
             preview = alternatePreview?.maximum == requested
-                ? alternatePreview!.state : PreviewState(maximum: requested)
+                ? alternatePreview!.state
+                : PreviewState(maximum: requested, cachesIntermediates: cachesIntermediates)
             alternatePreview = previous
             previewMaximum = requested
         }
@@ -821,10 +838,12 @@ actor PhotoRenderer {
             let width = Int(dimensions.width)
             let height = Int(dimensions.height)
             let originalLong = max(width, height)
+            let baseWidth = CGFloat(sourceDescription?.width ?? source.width)
+            let baseHeight = CGFloat(sourceDescription?.height ?? source.height)
             let oriented =
                 recipe.geometry.quarterTurns % 2 == 0
-                ? CGSize(width: source.width, height: source.height)
-                : CGSize(width: source.height, height: source.width)
+                ? CGSize(width: baseWidth, height: baseHeight)
+                : CGSize(width: baseHeight, height: baseWidth)
             let crop = recipe.crop.pixelRect(in: oriented)
             let fraction = max(crop.width, crop.height) / max(oriented.width, oriented.height)
             let maximum = min(

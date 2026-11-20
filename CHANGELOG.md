@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1
+
+- Lowered minimum deployment target to iOS 17.0 and iPadOS 17.0 with native fallbacks for Liquid Glass, toolbars, sliders, Metal math precision, and reverse geocoding.
+- Added regular `HEIC` / `JPEG` camera capture for non-RAW phones, iPads, and non-RAW lenses, while keeping `Apple ProRAW` and `Bayer RAW` as defaults on RAW-capable cameras across lens switches.
+- Added **Rendering pipeline** (`Automatic`, `16-bit float`, `32-bit float`) in About → Settings, defaulting to 16-bit half-float working storage on lower-memory devices while preserving 32-bit internal FFT/IIR photochemical precision.
+- Accelerated camera startup, shutter-to-next-shot responsiveness, lossless JPEG-XL ProRAW writing (iOS 18+), and CPU embedded-thumbnail import.
+
 ## 1.0
 
 First App Store release (build 11) for iPhone and iPad.

@@ -200,4 +200,34 @@ final class CameraLifecycleTests: XCTestCase {
         app.buttons["Automatic"].tap()
         app.buttons["Done"].tap()
     }
+
+    @MainActor func testBayerHybridLensFlipPreservesRAW() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "io.github.runzeni.spektracam")
+        app.launchArguments = [
+            "--ui-test-library", "--reset-test-library", "--ui-test-camera-demo",
+            "--ui-test-camera-bayer-hybrid",
+        ]
+        app.launch()
+        XCTAssertTrue(app.buttons["camera.open"].waitForExistence(timeout: 15))
+        app.buttons["camera.open"].tap()
+        XCTAssertTrue(app.buttons["camera.lens.24"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.format"].label.contains("Bayer RAW"))
+
+        // Switch to non-RAW ultra-wide (13 mm -> HEIC), then back to primary wide (24 mm -> Bayer RAW).
+        app.buttons["camera.lens.13"].tap()
+        XCTAssertTrue(app.buttons["camera.format"].label.contains("HEIC"))
+        app.buttons["camera.lens.24"].tap()
+        XCTAssertTrue(app.buttons["camera.format"].label.contains("Bayer RAW"))
+
+        // Flip to non-RAW front camera (-> HEIC), then flip back to rear wide (-> Bayer RAW).
+        app.buttons["camera.flip"].tap()
+        XCTAssertTrue(app.buttons["camera.format"].label.contains("HEIC"))
+        app.buttons["camera.flip"].tap()
+        XCTAssertTrue(app.buttons["camera.lens.24"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["camera.format"].label.contains("Bayer RAW"))
+
+        app.buttons["camera.close"].tap()
+        XCTAssertTrue(app.buttons["library.info"].waitForExistence(timeout: 10))
+    }
 }

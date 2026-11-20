@@ -4,6 +4,9 @@ import Foundation
 import ImageIO
 import SwiftData
 import UniformTypeIdentifiers
+#if canImport(UIKit)
+    import UIKit
+#endif
 
 @main struct Checks {
     @MainActor static func main() async throws {
@@ -63,7 +66,29 @@ import UniformTypeIdentifiers
         let decodedHalf = try PhotoColorBridge.decode(halfCG)
         precondition(abs(decodedHalf[0].x - 16.0) < 1e-3 && abs(decodedHalf[0].y - (-0.25)) < 1e-3)
 
-        // NaN, Inf and non-opaque alpha must fail isValid().
+        // NaN, Inf and non-opaque alpha must fail isValid(), whereas finite float32 values
+        // exceeding Float16 max (65504) must clamp cleanly in write() rather than turning into ±Inf.
+        let extremeFinite: [SIMD4<Float>] = [SIMD4(80_000, -80_000, 1.0, 1.0)]
+        extremeFinite.withUnsafeBytes {
+            single.write(x: 0, y: 0, width: 1, height: 1, from: $0.baseAddress!, sourceRowBytes: 16)
+        }
+        precondition(single.isValid(), "Finite >65504 float overflowed PixelStore(.half) to ±Inf")
+        readBack.withUnsafeMutableBytes {
+            single.read(x: 0, y: 0, width: 1, height: 1, into: $0.baseAddress!)
+        }
+        precondition(readBack[0].x == 65_504 && readBack[0].y == -65_504, "Expected ±65504 clamp, got \(readBack[0])")
+
+        let genuineInf: [SIMD4<Float>] = [SIMD4(.infinity, 1.0, 1.0, 1.0)]
+        genuineInf.withUnsafeBytes {
+            single.write(x: 0, y: 0, width: 1, height: 1, from: $0.baseAddress!, sourceRowBytes: 16)
+        }
+        precondition(!single.isValid(), "Genuine +Inf float passed PixelStore(.half).isValid()")
+        let genuineNaN: [SIMD4<Float>] = [SIMD4(.nan, 1.0, 1.0, 1.0)]
+        genuineNaN.withUnsafeBytes {
+            single.write(x: 0, y: 0, width: 1, height: 1, from: $0.baseAddress!, sourceRowBytes: 16)
+        }
+        precondition(!single.isValid(), "Genuine NaN float passed PixelStore(.half).isValid()")
+
         let rawHalf = single.base.assumingMemoryBound(to: SIMD4<UInt16>.self)
         rawHalf[0] = SIMD4(0x7E00, 0x3C00, 0x3C00, 0x3C00)  // NaN in R
         precondition(!single.isValid(), "NaN half-float passed isValid()")
@@ -173,6 +198,25 @@ import UniformTypeIdentifiers
         print(String(format: "Tiled Film-Edge+Leak+Damage 16-bit vs 32-bit: max %d/255, mean %.5f/255", edgeMax, edgeMean))
         precondition(edgeMax <= 2 && edgeMean < 0.1, "16-bit film-edge export diverged: max=\(edgeMax) mean=\(edgeMean)")
 
+        // Resident PhotoRenderer must invalidate preview/edge caches when RenderPrecision changes dynamically.
+        defaults.set(RenderPrecision.float16.rawValue, forKey: RenderPrecision.storageKey)
+        let sharedRenderer = PhotoRenderer(
+            source: largeImported.preview, directory: modelDirectory, data: largePNG,
+            previewMaximum: 720,
+            sourceType: largeImported.sourceType, description: largeImported.sourceDescription)
+        let preview16 = try await sharedRenderer.render(filmRecipe, maximum: 720)
+        defaults.set(RenderPrecision.float32.rawValue, forKey: RenderPrecision.storageKey)
+        let preview32 = try await sharedRenderer.render(filmRecipe, maximum: 720)
+        let freshRenderer32 = PhotoRenderer(
+            source: largeImported.preview, directory: modelDirectory, data: largePNG,
+            previewMaximum: 720,
+            sourceType: largeImported.sourceType, description: largeImported.sourceDescription)
+        let freshPreview32 = try await freshRenderer32.render(filmRecipe, maximum: 720)
+        let (exactMax, exactMean) = maxAndMeanDiff(preview32, freshPreview32)
+        precondition(exactMax == 0 && exactMean == 0, "Resident PhotoRenderer returned stale 16-bit cache after switching to 32-bit")
+        let (prevMax, prevMean) = maxAndMeanDiff(preview32, preview16)
+        precondition(prevMax <= 1 && prevMean < 0.2 && preview16 !== preview32, "16-bit vs 32-bit preview diverged: max=\(prevMax) mean=\(prevMean)")
+
         // 4. CameraInbox regular capture formats (HEIC, JPG, DNG) and embeddedThumbnail validation.
         let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(
             "SpektraCam-Precision-" + UUID().uuidString)
@@ -215,8 +259,13 @@ import UniformTypeIdentifiers
         let library = try PhotoLibrary(
             root: tempRoot, cache: tempRoot.appendingPathComponent("Cache"),
             modelDirectory: modelDirectory)
-        let recovered = try await library.recoverCaptures()
-        precondition(recovered == 2 && library.photos.count == 2)
+        // Overlapping recoverCaptures() calls must serialize cleanly without missing-file errors or double counting.
+        async let r1 = library.recoverCaptures()
+        async let r2 = library.recoverCaptures()
+        async let r3 = library.recoverCaptures()
+        let recoveredCounts = try await [r1, r2, r3]
+        let recovered = recoveredCounts.reduce(0, +)
+        precondition(recovered == 2 && library.photos.count == 2, "Concurrent recoverCaptures mismatch: \(recoveredCounts)")
         let remaining = try inbox.pending()
         precondition(remaining.isEmpty, "Recovered captures remained in CameraInbox")
         for photo in library.photos {
@@ -227,7 +276,7 @@ import UniformTypeIdentifiers
             precondition(thumb.width == 64 && thumb.height == 48)
         }
 
-        // Non-RAW sources must return nil from embeddedThumbnail so HDR/SDR paths stay authoritative.
+        // Non-RAW sources must return nil from embeddedThumbnail so Lanczos/HDR/SDR paths stay authoritative.
         let jpegSource = PhotoSource.imageSource(jpegData)!
         let jpegDesc = PhotoSource.describe(jpegData)!
         precondition(PhotoSource.embeddedThumbnail(jpegSource, description: jpegDesc, maximum: 384) == nil)
@@ -235,6 +284,40 @@ import UniformTypeIdentifiers
         let fakeRAW3x2 = PhotoSource.Description(type: "com.adobe.raw-image", isRAW: true, width: 3000, height: 2000, temperature: 5500)
         precondition(PhotoSource.embeddedThumbnail(jpegSource, description: fakeRAW3x2, maximum: 384) == nil)
 
-        print("PASS: 16-bit float PixelStore/pipeline parity, invalid half-float guards, and CameraInbox regular HEIC/JPEG recovery")
+        #if canImport(UIKit)
+            let slider = DefaultSlider.PrecisionSlider(frame: CGRect(x: 0, y: 0, width: 300, height: 32))
+            slider.overrideUserInterfaceStyle = .dark
+            slider.tintColor = .systemYellow
+            slider.neutralOrigin = 0.5
+            slider.defaultTick = 0.5
+            slider.setValue(0.85, animated: false)
+            slider.setNeedsLayout()
+            slider.layoutIfNeeded()
+            let track = slider.trackRect(forBounds: slider.bounds)
+            let originThumb = slider.thumbRect(forBounds: slider.bounds, trackRect: track, value: 0.5)
+            let currentThumb = slider.thumbRect(forBounds: slider.bounds, trackRect: track, value: 0.85)
+            var rgba = [UInt8](repeating: 0, count: 300 * 32 * 4)
+            rgba.withUnsafeMutableBytes { buf in
+                let ctx = CGContext(
+                    data: buf.baseAddress, width: 300, height: 32, bitsPerComponent: 8,
+                    bytesPerRow: 300 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                ctx.translateBy(x: 0, y: 32)
+                ctx.scaleBy(x: 1, y: -1)
+                slider.layer.render(in: ctx)
+            }
+            let fillX = Int((originThumb.midX + currentThumb.minX) / 2)
+            let fillY = Int(track.midY)
+            let fillOffset = (fillY * 300 + fillX) * 4
+            precondition(
+                rgba[fillOffset] > 245 && rgba[fillOffset + 1] > 195 && rgba[fillOffset + 2] < 15,
+                "PrecisionSlider neutralFill was occluded by track: (\(rgba[fillOffset]), \(rgba[fillOffset + 1]), \(rgba[fillOffset + 2]))")
+            let thumbOffset = (fillY * 300 + Int(currentThumb.midX)) * 4
+            precondition(
+                rgba[thumbOffset] > 245 && rgba[thumbOffset + 1] > 245 && rgba[thumbOffset + 2] > 245,
+                "PrecisionSlider neutralFill overlapped thumb: (\(rgba[thumbOffset]), \(rgba[thumbOffset + 1]), \(rgba[thumbOffset + 2]))")
+        #endif
+
+        print("PASS: 16-bit float PixelStore/pipeline parity, finite ±65504 clamp, concurrent CameraInbox recovery, and fallback UI checks")
     }
 }

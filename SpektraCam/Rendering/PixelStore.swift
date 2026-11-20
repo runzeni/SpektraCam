@@ -209,6 +209,13 @@ nonisolated final class PixelStore: @unchecked Sendable {
                 var to = vImage_Buffer(
                     data: output, height: 1, width: vImagePixelCount(w * 4), rowBytes: w * 8)
                 vImageConvert_PlanarFtoPlanar16F(&from, &to, vImage_Flags(kvImageNoFlags))
+                // Match Core Image / Metal RGBA16Float semantics: clamp finite values > 65504 to ±65504
+                // while preserving genuine ±Inf and NaN so isValid() still catches corrupt math.
+                let floats = source.advanced(by: row * sourceRowBytes).assumingMemoryBound(to: Float.self)
+                let halves = output.assumingMemoryBound(to: UInt16.self)
+                for c in 0..<(w * 4) where (halves[c] & 0x7FFF) == 0x7C00 && floats[c].isFinite {
+                    halves[c] &-= 1
+                }
             case .byte:
                 var from = vImage_Buffer(
                     data: input, height: 1, width: vImagePixelCount(w * 4), rowBytes: w * 16)

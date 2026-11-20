@@ -89,7 +89,20 @@ actor CameraService {
     }
     private enum FormatSpec: Sendable {
         case raw(OSType)
-        case processed(AVVideoCodecType)
+        case processed(AVVideoCodecType, AVFileType?)
+    }
+    private struct PreparedKey: Equatable {
+        let deviceID: String
+        let format: CameraFormat
+        let flash: Bool
+        let highResolution: Bool
+    }
+    private static var maxInFlightCaptures: Int {
+        #if os(iOS) && !targetEnvironment(simulator)
+            return ProcessInfo.processInfo.physicalMemory < 4_500_000_000 ? 2 : 3
+        #else
+            return 3
+        #endif
     }
     nonisolated let events: AsyncStream<Event>
     private let sink: AsyncStream<Event>.Continuation
@@ -108,8 +121,9 @@ actor CameraService {
     private var source: CameraPreviewSource?
     private var sourceDeviceID: String?
     private var formats: [CameraFormat: FormatSpec] = [:]
-    private var preferredFormat: CameraFormat = .proRAW
+    private var preferredFormat: CameraFormat?
     private var preparedFlash = false
+    private var preparedKey: PreparedKey?
     private var captures: [Int64: PhotoCapture] = [:]
     private var drainWaiters: [CheckedContinuation<Void, Never>] = []
     private var stopRequested = false
@@ -151,7 +165,7 @@ actor CameraService {
             stopRequested = false
             if !session.isRunning { session.startRunning() }
             guard session.isRunning, source != nil else { throw CameraFailure.configuration }
-            sink.yield(.ready(output.captureReadiness == .ready))
+            publishReadiness()
             return try configuration()
         #endif
     }
@@ -259,16 +273,11 @@ actor CameraService {
             device.autoFocusRangeRestriction = macro ? .near : .none
         }
         device.unlockForConfiguration()
-        formats = availableFormats()
-        guard !formats.isEmpty else { throw CameraFailure.configuration }
         output.maxPhotoQualityPrioritization = .quality
-        // Shorten the time from press to capture and between captures where the format allows.
-        if output.isZeroShutterLagSupported { output.isZeroShutterLagEnabled = true }
-        if output.isResponsiveCaptureSupported { output.isResponsiveCaptureEnabled = true }
-        if output.isFastCapturePrioritizationSupported {
-            output.isFastCapturePrioritizationEnabled = true
+        let supportsProRAW = output.isAppleProRAWSupported
+        if output.isAppleProRAWEnabled != supportsProRAW {
+            output.isAppleProRAWEnabled = supportsProRAW
         }
-        configureControls(device: device)
         let dimensions = device.activeFormat.supportedMaxPhotoDimensions.sorted(by: {
             Int64($0.width) * Int64($0.height) < Int64($1.width) * Int64($1.height)
         })
@@ -278,6 +287,19 @@ actor CameraService {
         {
             output.maxPhotoDimensions = selected
         }
+        formats = availableFormats()
+        guard !formats.isEmpty else { throw CameraFailure.configuration }
+        if preferredFormat == nil {
+            preferredFormat = CameraFormat.allCases.first { formats[$0] != nil }
+        }
+        // Enable ZSL and responsive capture after maxPhotoDimensions/ProRAW settle so AVFoundation
+        // does not reset them during output format reconfiguration.
+        if output.isZeroShutterLagSupported { output.isZeroShutterLagEnabled = true }
+        if output.isResponsiveCaptureSupported { output.isResponsiveCaptureEnabled = true }
+        if output.isFastCapturePrioritizationSupported {
+            output.isFastCapturePrioritizationEnabled = true
+        }
+        configureControls(device: device)
         let deviceChanged = sourceDeviceID != device.uniqueID || source == nil
         if session.outputs.contains(video) {
             guard
@@ -292,6 +314,7 @@ actor CameraService {
                     source = CameraPreviewSource(session: session, device: device)
                     sourceDeviceID = device.uniqueID
                 }
+                prepareCapture(deviceID: device.uniqueID, format: preferredFormat, flash: preparedFlash, force: true)
                 return
             }
             if (video.videoSettings[kCVPixelBufferPixelFormatTypeKey as String] as? OSType) != type
@@ -309,16 +332,12 @@ actor CameraService {
             source = CameraPreviewSource(session: session, device: device)
             sourceDeviceID = device.uniqueID
         }
-        prepareCapture(format: preferredFormat, flash: preparedFlash)
+        prepareCapture(deviceID: device.uniqueID, format: preferredFormat, flash: preparedFlash, force: true)
         Log.camera.debug(
             "Photo size: \(self.output.maxPhotoDimensions.width)×\(self.output.maxPhotoDimensions.height)")
     }
     /// Query only after attaching a video input and the photo output to the session.
     private func availableFormats() -> [CameraFormat: FormatSpec] {
-        let supportsProRAW = output.isAppleProRAWSupported
-        if output.isAppleProRAWEnabled != supportsProRAW {
-            output.isAppleProRAWEnabled = supportsProRAW
-        }
         var result: [CameraFormat: FormatSpec] = [:]
         // Keep the first matching entry; AVFoundation orders preferred pixel formats first.
         for value in output.availableRawPhotoPixelFormatTypes {
@@ -329,11 +348,13 @@ actor CameraService {
                 result[.bayerRAW] = .raw(value)
             }
         }
-        let codecs = output.availablePhotoCodecTypes
-        if codecs.contains(.hevc), output.availablePhotoFileTypes.contains(.heic) {
-            result[.heic] = .processed(.hevc)
-        } else if codecs.contains(.jpeg) {
-            result[.jpeg] = .processed(.jpeg)
+        let fileTypes = output.availablePhotoFileTypes
+        if fileTypes.contains(.heic), output.supportedPhotoCodecTypes(for: .heic).contains(.hevc) {
+            result[.heic] = .processed(.hevc, .heic)
+        } else if fileTypes.contains(.jpg), output.supportedPhotoCodecTypes(for: .jpg).contains(.jpeg) {
+            result[.jpeg] = .processed(.jpeg, .jpg)
+        } else if output.availablePhotoCodecTypes.contains(.jpeg) {
+            result[.jpeg] = .processed(.jpeg, nil)
         }
         return result
     }
@@ -354,8 +375,15 @@ actor CameraService {
                 Int64($0.width) * Int64($0.height) < Int64($1.width) * Int64($1.height)
             } ?? output.maxPhotoDimensions
     }
-    private func resolvedFormat(_ requested: CameraFormat) -> CameraFormat? {
-        if formats[requested] != nil { return requested }
+    private var isReadyToCapture: Bool {
+        !closed && !stopRequested && captures.count < Self.maxInFlightCaptures
+            && output.captureReadiness == .ready
+    }
+    private func publishReadiness() {
+        sink.yield(.ready(isReadyToCapture))
+    }
+    private func resolvedFormat(_ requested: CameraFormat?) -> CameraFormat? {
+        if let requested, formats[requested] != nil { return requested }
         return CameraFormat.allCases.first { formats[$0] != nil }
     }
     private func photoSettings(format: CameraFormat, flash: Bool = false) throws -> AVCapturePhotoSettings {
@@ -365,9 +393,13 @@ actor CameraService {
         let settings: AVCapturePhotoSettings
         switch spec {
         case .raw(let pixelFormat):
-            settings = AVCapturePhotoSettings(rawPixelFormatType: pixelFormat)
-            if #available(iOS 18.0, *), format == .proRAW,
-                output.availableRawPhotoFileTypes.contains(.dng)
+            let rawFileType: AVFileType? =
+                output.availableRawPhotoFileTypes.contains(.dng) ? .dng : nil
+            settings = AVCapturePhotoSettings(
+                rawPixelFormatType: pixelFormat, rawFileType: rawFileType,
+                processedFormat: nil, processedFileType: nil)
+            if #available(iOS 18.0, *), format == .proRAW, rawFileType == .dng,
+                output.availableRawPhotoCodecTypes.contains(.JPEGXL)
             {
                 let rawCodecs = output.supportedRawPhotoCodecTypes(
                     forRawPhotoPixelFormatType: pixelFormat, fileType: .dng)
@@ -388,17 +420,10 @@ actor CameraService {
                     AVVideoHeightKey: max(2, Int(Double(size.height) * scale) & ~1),
                 ]
             }
-        case .processed(let codec):
-            settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: codec])
-            if let thumbCodec = settings.availableEmbeddedThumbnailPhotoCodecTypes.first {
-                let size = output.maxPhotoDimensions
-                let scale = min(1, 1080.0 / Double(max(size.width, size.height)))
-                settings.embeddedThumbnailPhotoFormat = [
-                    AVVideoCodecKey: thumbCodec,
-                    AVVideoWidthKey: max(2, Int(Double(size.width) * scale) & ~1),
-                    AVVideoHeightKey: max(2, Int(Double(size.height) * scale) & ~1),
-                ]
-            }
+        case .processed(let codec, let fileType):
+            settings = AVCapturePhotoSettings(
+                rawPixelFormatType: 0, rawFileType: nil,
+                processedFormat: [AVVideoCodecKey: codec], processedFileType: fileType)
         }
         settings.maxPhotoDimensions = output.maxPhotoDimensions
         let desired: AVCapturePhotoOutput.QualityPrioritization =
@@ -412,13 +437,21 @@ actor CameraService {
     func prepare(format: CameraFormat, flash: Bool) {
         preferredFormat = format
         preparedFlash = flash
-        guard !closed, session.inputs.first != nil else { return }
-        prepareCapture(format: format, flash: flash)
+        guard !closed, let device = (session.inputs.first as? AVCaptureDeviceInput)?.device else {
+            return
+        }
+        prepareCapture(deviceID: device.uniqueID, format: format, flash: flash, force: false)
     }
-    private func prepareCapture(format: CameraFormat, flash: Bool) {
-        guard let active = resolvedFormat(format),
+    private func prepareCapture(
+        deviceID: String, format: CameraFormat?, flash: Bool, force: Bool
+    ) {
+        guard let active = resolvedFormat(format) else { return }
+        let key = PreparedKey(
+            deviceID: deviceID, format: active, flash: flash, highResolution: highResolution)
+        guard force || preparedKey != key,
             let settings = try? photoSettings(format: active, flash: flash)
         else { return }
+        preparedKey = key
         output.setPreparedPhotoSettingsArray([settings], completionHandler: nil)
     }
     private func waitForCaptures() async {
@@ -427,7 +460,8 @@ actor CameraService {
     }
     func setHighResolution(_ enabled: Bool) async throws -> Configuration {
         await waitForCaptures()
-        guard !closed, let device = (session.inputs.first as? AVCaptureDeviceInput)?.device
+        guard !closed, !stopRequested,
+            let device = (session.inputs.first as? AVCaptureDeviceInput)?.device
         else {
             throw CameraFailure.notReady
         }
@@ -439,7 +473,7 @@ actor CameraService {
     }
     func selectLens(_ id: String, macro: Bool = false) async throws -> Configuration {
         await waitForCaptures()
-        guard !closed, let device = devices[id],
+        guard !closed, !stopRequested, let device = devices[id],
             let lens = lenses.first(where: { $0.id == id }),
             let previous = session.inputs.first as? AVCaptureDeviceInput
         else { throw CameraFailure.notReady }
@@ -563,13 +597,14 @@ actor CameraService {
                                 defaultValue: "The camera stopped. Try again.")))
             },
         ]
-        readiness = output.observe(\.captureReadiness, options: [.initial, .new]) { output, _ in
-            sink.yield(.ready(output.captureReadiness == .ready))
+        readiness = output.observe(\.captureReadiness, options: [.initial, .new]) { [weak self] _, _ in
+            Task { await self?.publishReadiness() }
         }
     }
     func stop() {
         stopRequested = true
         if captures.isEmpty && session.isRunning { session.stopRunning() }
+        publishReadiness()
     }
     func shutdown() async {
         closed = true
@@ -594,6 +629,7 @@ actor CameraService {
             waiters.forEach { $0.resume() }
             if stopRequested && session.isRunning { session.stopRunning() }
         }
+        publishReadiness()
         await onStored(result)
     }
     /// Returns as soon as sensor exposure completes so the shutter unlocks immediately;
@@ -603,10 +639,10 @@ actor CameraService {
         flash: Bool = false,
         onStored: @escaping @MainActor @Sendable (Result<URL, Error>) -> Void
     )
-        async throws
+        async throws -> Bool
     {
         guard !closed, !stopRequested, session.isRunning, !session.isInterrupted,
-            output.captureReadiness == .ready
+            captures.count < Self.maxInFlightCaptures, output.captureReadiness == .ready
         else { throw CameraFailure.notReady }
         preferredFormat = format
         preparedFlash = flash
@@ -633,8 +669,11 @@ actor CameraService {
                 Task { await self.finishCapture(id: captureID, result: outcome, onStored: onStored) }
             }
             captures[id] = delegate
+            publishReadiness()
             output.capturePhoto(with: settings, delegate: delegate)
         }
+        publishReadiness()
+        return isReadyToCapture
     }
 }
 

@@ -46,9 +46,18 @@ actor PhotoRenderer {
     private let renderResources: FilmRenderResources
     private let lutDirectory: URL?
     private var cubes: [String: CubeLUT] = [:]
+    private var activePrecision = RenderPrecision.resolved
     private var exportKey: EditRecipe?
     private var exportSize: PhotoExporter.Size?
     private var exportImage: CGImage?
+
+    private func syncPrecision() {
+        let current = RenderPrecision.resolved
+        guard current != activePrecision else { return }
+        activePrecision = current
+        discardExport()
+        releasePreviewCaches(keepMetering: true)
+    }
 
     init(
         source: CGImage, directory: URL, data: Data? = nil, temperature: Double? = nil,
@@ -137,6 +146,7 @@ actor PhotoRenderer {
     }
     func render(_ recipe: EditRecipe, maximum: Int? = nil) async throws -> CGImage {
         try Task.checkCancellation()
+        syncPrecision()
         let requested = min(previewLimit, maximum ?? previewLimit)
         if requested != previewMaximum {
             let previous = (maximum: previewMaximum, state: preview)
@@ -429,6 +439,7 @@ actor PhotoRenderer {
     /// preview is already sharp enough or the recipe needs the whole-frame route.
     func renderDetail(_ original: EditRecipe, visible: CGRect, longEdge: Int) async throws -> Detail? {
         try Task.checkCancellation()
+        syncPrecision()
         guard let data, original.look.enabled, original.look.mode == .spektrafilm,
             original.mix >= 1, original.filmEdgeLayout == nil,
             original.printLayout.map(\.isIdentity) ?? true,
@@ -581,6 +592,7 @@ actor PhotoRenderer {
     /// developed centre) or the preview already has every pixel.
     func renderEdgeDetail(_ original: EditRecipe, visible: CGRect) async throws -> Detail? {
         try Task.checkCancellation()
+        syncPrecision()
         guard data != nil, let layout = original.renderedFilmEdgeLayout else { return nil }
         let dimensions = sourceDescription.map { CGSize(width: $0.width, height: $0.height) }
             ?? CGSize(width: source.width, height: source.height)
@@ -656,6 +668,7 @@ actor PhotoRenderer {
     /// The final long edge includes the rebate; native export never grows the canvas silently.
     func renderFilmEdge(_ original: EditRecipe, maximum: Int?, allowOvercommit: Bool = false) async throws -> CGImage {
         try Task.checkCancellation()
+        syncPrecision()
         guard let layout = original.renderedFilmEdgeLayout else { throw PhotoExporter.Failure.render }
         let dimensions = sourceDescription.map { CGSize(width: $0.width, height: $0.height) }
             ?? CGSize(width: source.width, height: source.height)
@@ -779,6 +792,7 @@ actor PhotoRenderer {
     )
         async throws -> (URL, Int, Int)
     {
+        syncPrecision()
         if exportKey != recipe || exportSize != size { exportImage = nil }
         let caps = exportLongEdges(recipe, size: size)
         let image: CGImage

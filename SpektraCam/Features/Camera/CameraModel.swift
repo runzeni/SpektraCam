@@ -11,7 +11,7 @@ import UIKit
     private(set) var source: CameraPreviewSource?
     private(set) var formats: [CameraFormat] = []
     @ObservationIgnored private var applyingConfiguration = false
-    @ObservationIgnored private var preferredFormat = CameraFormat.proRAW
+    @ObservationIgnored private var preferredFormat: CameraFormat?
     var format = CameraFormat.proRAW {
         didSet {
             guard !applyingConfiguration, format != oldValue else { return }
@@ -186,7 +186,7 @@ import UIKit
         #endif
         beginSaveSlot()
         do {
-            try await service.takePhoto(
+            let ready = try await service.takePhoto(
                 format: format, rotation: source?.captureRotation ?? 90,
                 inbox: CameraInbox(root: library.files.root), location: location.captureLocation,
                 flash: flashOn && flashAvailable
@@ -198,8 +198,13 @@ import UIKit
                     Task { @MainActor in _ = try? await library.recoverCaptures() }
                 }
             }
+            outputReady = ready
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             busy = false
+        } catch CameraFailure.notReady {
+            outputReady = false
+            busy = false
+            endSaveSlot()
         } catch {
             saveFailure = error.localizedDescription
             busy = false
@@ -246,6 +251,16 @@ import UIKit
         } catch { saveFailure = error.localizedDescription }
         pendingCount = (try? await library.files.pendingCaptures().count) ?? 0
     }
+    private func resolveFormatSelection() {
+        if preferredFormat == nil {
+            preferredFormat = formats.first
+        }
+        if let preferredFormat, formats.contains(preferredFormat) {
+            format = preferredFormat
+        } else if let first = formats.first {
+            format = first
+        }
+    }
     private func apply(_ configuration: CameraService.Configuration) {
         applyingConfiguration = true
         defer { applyingConfiguration = false }
@@ -259,11 +274,7 @@ import UIKit
         exposureBias = configuration.exposureBias
         exposureRange = configuration.exposureRange
         flashAvailable = configuration.flashAvailable
-        if formats.contains(preferredFormat) {
-            format = preferredFormat
-        } else if !formats.contains(format), let first = formats.first {
-            format = first
-        }
+        resolveFormatSelection()
         let selected = format
         let flash = flashOn && flashAvailable
         Task { await service.prepare(format: selected, flash: flash) }
@@ -275,6 +286,7 @@ import UIKit
                 selectedLens = lens
                 self.macro = macro
                 flashAvailable = !lens.front
+                applyDemoFormats(for: lens)
                 return
             }
         #endif
@@ -284,6 +296,7 @@ import UIKit
             apply(try await service.selectLens(lens.id, macro: macro))
             saveFailure = nil
             UISelectionFeedbackGenerator().selectionChanged()
+        } catch CameraFailure.notReady {
         } catch { saveFailure = error.localizedDescription }
     }
     func setHighResolution(_ enabled: Bool) async {
@@ -296,7 +309,8 @@ import UIKit
         #endif
         busy = true
         defer { busy = false }
-        do { apply(try await service.setHighResolution(enabled)) } catch {
+        do { apply(try await service.setHighResolution(enabled)) } catch CameraFailure.notReady {
+        } catch {
             saveFailure = error.localizedDescription
         }
     }
@@ -305,6 +319,7 @@ import UIKit
         do {
             try await service.focus(at: point)
             UISelectionFeedbackGenerator().selectionChanged()
+        } catch CameraFailure.notReady {
         } catch { saveFailure = error.localizedDescription }
     }
     func setExposureBias(_ value: Double) {
@@ -316,7 +331,8 @@ import UIKit
         #endif
         let target = exposureBias
         Task {
-            do { try await service.setExposureBias(target) } catch {
+            do { try await service.setExposureBias(target) } catch CameraFailure.notReady {
+            } catch {
                 saveFailure = error.localizedDescription
             }
         }
@@ -370,6 +386,7 @@ import UIKit
                 return
             }
             let bayerOnly = args.contains("--ui-test-camera-bayer-only")
+            let bayerHybrid = args.contains("--ui-test-camera-bayer-hybrid")
             let regularOnly = args.contains("--ui-test-camera-regular-only")
             lenses = [
                 CameraLens(id: "13", millimeters: 13, front: false, macro: !regularOnly, primary: false),
@@ -379,23 +396,36 @@ import UIKit
             ]
             if bayerOnly {
                 lenses = lenses.filter { $0.primary || $0.id == "120" }
-            } else if regularOnly {
+            } else if regularOnly || bayerHybrid {
                 lenses = lenses.filter { $0.id != "120" }
             }
             if selectedLens == nil { selectedLens = lenses.first(where: \.primary) }
-            applyingConfiguration = true
-            formats =
-                regularOnly ? [.heic] : (bayerOnly ? [.bayerRAW] : [.proRAW, .bayerRAW, .heic])
-            if !formats.contains(format), let first = formats.first { format = first }
-            preferredFormat = format
-            applyingConfiguration = false
-            maximumMegapixels = regularOnly ? 24 : 48
+            applyDemoFormats(for: selectedLens)
+            maximumMegapixels = regularOnly ? 24 : (bayerHybrid ? 12 : 48)
             flashAvailable = selectedLens?.front != true
             outputReady = true
             readings = CameraReadings(
                 histogram: (0..<64).map { exp(-pow(Double($0) - 26, 2) / 180) }, seconds: 1.0 / 250,
                 aperture: 1.8, iso: 64, bias: Float(exposureBias))
             state = .ready
+        }
+        private func applyDemoFormats(for lens: CameraLens?) {
+            let args = ProcessInfo.processInfo.arguments
+            let bayerOnly = args.contains("--ui-test-camera-bayer-only")
+            let bayerHybrid = args.contains("--ui-test-camera-bayer-hybrid")
+            let regularOnly = args.contains("--ui-test-camera-regular-only")
+            applyingConfiguration = true
+            defer { applyingConfiguration = false }
+            if lens?.front == true || regularOnly || (bayerHybrid && lens?.primary != true) {
+                formats = [.heic]
+            } else if bayerOnly {
+                formats = [.bayerRAW]
+            } else if bayerHybrid {
+                formats = [.bayerRAW, .heic]
+            } else {
+                formats = [.proRAW, .bayerRAW, .heic]
+            }
+            resolveFormatSelection()
         }
     #endif
     func close() async {

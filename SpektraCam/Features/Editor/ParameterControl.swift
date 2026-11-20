@@ -262,12 +262,13 @@ struct DefaultSlider: UIViewRepresentable {
         override func accessibilityDecrement() { adjustAccessibility?(-1) }
         private let marker = UIView()
         private let neutralFill = UIView()
-        override var tintColor: UIColor! {
-            didSet { updateLegacyTrackColors() }
+        override func tintColorDidChange() {
+            super.tintColorDidChange()
+            if neutralOrigin != nil { neutralFill.backgroundColor = tintColor }
         }
         override func setValue(_ value: Float, animated: Bool) {
             super.setValue(value, animated: animated)
-            if neutralOrigin != nil { setNeedsLayout() }
+            if neutralOrigin != nil || defaultTick != nil { setNeedsLayout() }
         }
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -290,35 +291,49 @@ struct DefaultSlider: UIViewRepresentable {
                 neutralFill.isHidden = true
                 return
             }
-            minimumTrackTintColor = .secondarySystemFill
-            maximumTrackTintColor = .secondarySystemFill
+            if minimumTrackTintColor != .secondarySystemFill {
+                minimumTrackTintColor = .secondarySystemFill
+            }
+            if maximumTrackTintColor != .secondarySystemFill {
+                maximumTrackTintColor = .secondarySystemFill
+            }
             neutralFill.backgroundColor = tintColor
         }
         override func layoutSubviews() {
             super.layoutSubviews()
             let track = trackRect(forBounds: bounds)
-            let thumbView = subviews.last {
-                $0 !== marker && $0 !== neutralFill && $0.bounds.height >= 16
-            }
+            let currentThumb = thumbRect(forBounds: bounds, trackRect: track, value: value)
             if let origin = neutralOrigin, origin > 0.001 {
-                updateLegacyTrackColors()
+                neutralFill.backgroundColor = tintColor
                 let anchorX = thumbRect(forBounds: bounds, trackRect: track, value: origin).midX
-                let currentX = thumbRect(forBounds: bounds, trackRect: track, value: value).midX
-                let minX = min(anchorX, currentX)
-                let width = abs(currentX - anchorX)
+                let startX: CGFloat
+                let endX: CGFloat
+                if currentThumb.midX >= anchorX {
+                    startX = anchorX
+                    endX = max(anchorX, min(track.maxX, currentThumb.minX + 1))
+                } else {
+                    startX = max(track.minX, min(anchorX, currentThumb.maxX - 1))
+                    endX = anchorX
+                }
+                let width = endX - startX
                 neutralFill.isHidden = width < 0.5
                 neutralFill.layer.cornerRadius = track.height / 2
                 neutralFill.frame = CGRect(
-                    x: minX, y: track.minY, width: width, height: track.height)
-                if let thumbView { insertSubview(neutralFill, belowSubview: thumbView) }
+                    x: startX, y: track.minY, width: width, height: track.height)
             } else {
                 neutralFill.isHidden = true
             }
-            marker.isHidden = defaultTick == nil
-            if let value = defaultTick {
-                let thumb = thumbRect(forBounds: bounds, trackRect: track, value: value)
+            if let tick = defaultTick {
+                let thumb = thumbRect(forBounds: bounds, trackRect: track, value: tick)
                 marker.frame = CGRect(x: thumb.midX - 0.5, y: track.midY - 3, width: 1, height: 6)
-                if let thumbView { insertSubview(marker, belowSubview: thumbView) }
+                if #available(iOS 26.0, *) {
+                    marker.isHidden = false
+                } else {
+                    marker.isHidden = currentThumb.insetBy(dx: 2, dy: 0).contains(
+                        CGPoint(x: thumb.midX, y: track.midY))
+                }
+            } else {
+                marker.isHidden = true
             }
         }
     }

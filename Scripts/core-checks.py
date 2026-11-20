@@ -98,6 +98,8 @@ if args.simulator:
  if not booted: raise SystemExit('Boot a Simulator before using --simulator.')
  simulator = [simctl,'spawn',booted[0]]
  compiler += ['-target',platform.machine()+'-apple-ios17.0-simulator','-default-isolation','MainActor']
+ for ui_dep in ['EditorSession','Log','PhotoHistogram','PhotoCanvas','PhotoInfoPanel','PasteLookSheet','FormulaViews','FormulaCard','FormulaCode','FormulaProcess','FormulaSharing','FailureAlert','PhotoThumbnail','LUTPanel','PanelTabs','AppAccent','AdaptiveToggle','ParameterControl','PlatformCompatibility']:
+  if ui_dep not in checks['precision'][0]: checks['precision'][0].append(ui_dep)
 for name in args.checks or [key for key in checks if not key.startswith('metal-') and not key.endswith('-benchmark') and key not in ['raw-input','processed-export','stress-export','bypass','tone-response']]:
  files,arguments=checks[name];binary=out/(name+'-checks'+('-simulator' if args.simulator else ''))
  subprocess.run(compiler+(['-O','-assert-config','Debug'] if args.optimized else ['-O'] if name.endswith('-benchmark') and not args.debug_benchmarks else [])+[str(sources[f]) for f in files]+[str(root/'Scripts'/(name+'-checks.swift')),'-o',str(binary)],env=env,check=True)

@@ -40,6 +40,7 @@ import OSLog
     @ObservationIgnored private var filmEpoch = UUID()
     @ObservationIgnored private var renderedFilmRecipe: EditRecipe?
     private var renderedPreviewMaximum = 0
+    @ObservationIgnored private var renderedPrecision = RenderPrecision.resolved
     var effectivePreviewMaximum = PreviewQuality.editorMaximum
     var previewWasReduced = false
     private var requestedPreviewMaximum: Int {
@@ -417,6 +418,7 @@ import OSLog
     private func renderFilmIfNeeded() {
         if filmTask != nil || renderedFilmRecipe != recipe.processingRecipe
             || renderedPreviewMaximum != requestedPreviewMaximum
+            || renderedPrecision != RenderPrecision.resolved
         {
             renderFilm()
         } else {
@@ -441,6 +443,7 @@ import OSLog
                 let revision = filmRevision
                 let requested = recipe.processingRecipe
                 let maximum = requestedPreviewMaximum
+                let precision = RenderPrecision.resolved
                 isRefiningPreview = hasFilmPreview && renderedFilmRecipe == requested
                 frameMaximum = maximum
                 do {
@@ -471,6 +474,7 @@ import OSLog
                     filmHistogram = stats
                     renderedFilmRecipe = requested
                     renderedPreviewMaximum = maximum
+                    renderedPrecision = precision
                     effectivePreviewMaximum = actualMaximum
                     previewWasReduced = actualMaximum < maximum
                     hasFilmPreview = true

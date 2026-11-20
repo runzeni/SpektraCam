@@ -18,6 +18,7 @@ import SwiftData
     @ObservationIgnored private var sources: [String: LibrarySchemaV2.PhotosSource] = [:]
     @ObservationIgnored private var pending: [UUID: EditRecipe] = [:]
     @ObservationIgnored private var saves: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var recoveryChain: Task<Void, Never>?
     /// The look last copied. Kept for this run of the app.
     private(set) var copiedLook: LookClip?
     /// What the last paste replaced, until one of those photos is edited some other way.
@@ -122,7 +123,20 @@ import SwiftData
     }
 
     /// Remove an inbox file only after its original and database record are durable.
+    /// Serialized so overlapping camera/foreground recovery calls never race on the same file.
     @discardableResult func recoverCaptures() async throws -> Int {
+        let previous = recoveryChain
+        var result: Result<Int, Error> = .success(0)
+        let current = Task { @MainActor in
+            await previous?.value
+            result = await Result { try await self.drainCaptures() }
+        }
+        recoveryChain = current
+        await current.value
+        return try result.get()
+    }
+
+    private func drainCaptures() async throws -> Int {
         var count = 0
         var failure: Error?
         for url in try await files.pendingCaptures() {

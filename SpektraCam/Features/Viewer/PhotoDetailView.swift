@@ -23,6 +23,7 @@ struct PhotoDetailView: View {
     @State private var working = false
     @State private var failure: String?
     @State private var layout = WorkspaceLayout.stacked
+    @State private var viewportHeight: CGFloat = 800
     @State private var systemVerticalBar = false
     @State private var confirmRevert = false
     @State private var confirmDelete = false
@@ -68,7 +69,10 @@ struct PhotoDetailView: View {
             .padding(.horizontal, 16).padding(.bottom, 12)
         }
         .onSystemVerticalBar { systemVerticalBar = $0 }
-        .onGeometryChange(for: WorkspaceLayout.self) { WorkspaceLayout($0.size) } action: { layout = $0 }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            layout = WorkspaceLayout(size)
+            viewportHeight = size.height
+        }
         .overlay(alignment: .top) {
             if let photo {
                 let recipe = savedRecipe
@@ -78,6 +82,10 @@ struct PhotoDetailView: View {
                 PhotoInfoPanel(
                     title: titles.title, subtitle: titles.subtitle, metadata: displayMetadata,
                     location: photo.locationName, histogram: histogram, identifier: "photo",
+                    maxExpandedHeight: min(
+                        380,
+                        max(160, viewportHeight - viewerBottomInset - PhotoInfoPanel.collapsedHeight - 20)
+                    ),
                     look: LookActions(
                         canCopy: photo.hasEdits && !working,
                         canPaste: library.copiedLook != nil && !working,

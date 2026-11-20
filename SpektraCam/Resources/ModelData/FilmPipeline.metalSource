@@ -108,21 +108,23 @@ inline float3 edge_burn(float2 f,constant float4 *e){
     float2 dvec=f-e[7].xy;
     float depth=max(0.0f,dot(dvec,e[7].zw)),u=dvec.x*e[7].w-dvec.y*e[7].z,v=depth-size;
     uint s=fe_seed(e,4);
-    float fineWeight=1/(1+(pr/0.07f)*(pr/0.07f));
-    float bow=(0.18f+0.38f*tex)*fe_value(u/3.6f,0.35f,s)+(0.06f+0.22f*tex)*fe_value(u/1.05f,1.35f,s);
-    float patch=clamp(0.35f+0.75f*fe_value(u/2.2f,2.15f,s),0.0f,1.0f);
-    float curl=0.22f*fe_value(u/0.42f,v/0.42f+3.7f,s);
-    float wispA=fe_value((u+0.38f*v+curl)/0.14f,v/0.38f+5.1f,s);
-    float wispB=fe_value((u-0.34f*v-curl)/0.17f,v/0.44f+8.3f,s);
-    float tuft=fineWeight*patch*max(0.0f,0.55f*wispA+0.45f*wispB+0.18f);
-    float front=size+bow+(0.03f+0.34f*tex)*tuft,delta=depth-front;
-    float lipWidth=0.06f+0.06f*(1-tex);
-    float whiteBody=80/(1+exp(clamp(delta/lipWidth,-40.0f,40.0f)));
-    float wispReach=(0.06f+0.48f*tex*tex)*tuft*tuft;
-    float coreSpan=0.12f+0.20f*tex;
-    float yellowFringe=(12+14*tuft)/(1+exp(clamp((delta-(0.08f+0.14f*tex+wispReach))/coreSpan,-40.0f,40.0f)));
-    float tailSpan=0.28f+0.38f*tex;
-    float warmTail=(3.4f+2.2f*patch)/(1+exp(clamp((delta-(0.22f+0.30f*tex+0.6f*wispReach))/tailSpan,-40.0f,40.0f)));
+    float wCoarse=1/(1+(pr/0.11f)*(pr/0.11f)),wFine=1/(1+(pr/0.048f)*(pr/0.048f));
+    float bow=(0.04f+0.12f*tex)*fe_value(u/6.0f,0.35f,s)+(0.015f+0.055f*tex)*fe_value(u/2.0f,1.35f,s);
+    float patch=clamp(0.42f+0.58f*fe_value(u/2.5f,2.15f,s),0.0f,1.0f);
+    float clump=clamp(0.45f+0.55f*fe_value(u*2.0f,3.45f,s),0.0f,1.0f);
+    float lean=0.05f*v*fe_value(u,4.75f,s);
+    float r1=1-abs(fe_value((u+lean)*8.0f,v/0.75f+5.1f,s));
+    float r2=1-abs(fe_value((u-lean)*16.0f,v*2.0f+8.3f,s));
+    float teeth=wCoarse*(r1*r1)*0.62f+wFine*(r2*r2*r2)*0.58f;
+    float bristle=patch*(0.28f*clump+0.72f*clump*teeth);
+    float front=size+bow+(0.015f+0.22f*tex)*bristle,delta=depth-front;
+    float lipWidth=0.024f+0.032f*(1-tex);
+    float whiteBody=180/(1+exp(clamp(delta/lipWidth,-40.0f,40.0f)));
+    float bristleReach=(0.03f+0.62f*tex*tex)*teeth*clump;
+    float coreSpan=0.055f+0.065f*tex;
+    float yellowFringe=(16+22*teeth*tex)/(1+exp(clamp((delta-(0.065f+0.085f*tex+bristleReach))/coreSpan,-40.0f,40.0f)));
+    float tailSpan=0.16f+0.22f*tex;
+    float warmTail=(4.2f+3.0f*patch*(0.5f+0.5f*clump))/(1+exp(clamp((delta-(0.16f+0.18f*tex+0.75f*bristleReach))/tailSpan,-40.0f,40.0f)));
     return float3(whiteBody,yellowFringe,warmTail);
 }
 inline float edge_leak_field(float2 f,constant float4 *e){
@@ -171,7 +173,7 @@ inline float4 edge_exposure(float2 px,constant float4 *e){
     if(e[12].x>0&&e[2].x!=0){float2 rim=edge_hole_rim(s.x,s.y,e);ex.z+=rim.x;ex.w+=rim.y;}
     if(e[6].z>0){
         if(int(e[12].w)==3){
-            float3 b=edge_burn(f,e);float strength=e[6].z*e[6].z;
+            float3 b=edge_burn(f,e);float strength=e[6].z*(0.45f+0.55f*e[6].z);
             if(e[12].z!=0){
                 ex.x=strength*b.x;
                 float gate=fe_penumbra(fe_gate_distance(f,e),max(e[1].w,fe_pixel_radius(e)));
@@ -349,7 +351,7 @@ kernel void film_edge_transmission(device float4 *image [[buffer(0)]],constant f
     float3 occlusion=float3(0);
     if((mode&1u)!=0){
         float scatter=edge_scratches(p,e).w;
-        occlusion=1-(1-edge_dust(p,e))*(1-scatter*float3(0.34f,0.58f,1.0f));
+        occlusion=1-(1-edge_dust(p,e))*(1-scatter*float3(0.62f,0.78f,1.0f));
     }
     float3 light=(image[i].xyz*support+clear.xyz*(1-support))*(1-occlusion*support)*carrier;
     if((mode&16u)!=0)light+=clear.xyz*(edge_reflection(p,e)*carrier+edge_halo(p,e));

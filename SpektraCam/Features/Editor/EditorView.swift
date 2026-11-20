@@ -16,6 +16,7 @@ struct EditorView: View {
     @Environment(\.appAccent) private var accent
     @State private var activeTool: EditorTool? = .develop
     @State private var panelExpanded = false
+    @State private var infoExpanded = false
     @State private var inspectorFrame = CGRect.zero
     @State private var adjustSection = AdjustPanel.Section.exposure
     @State private var effectsSection = EffectsPanel.Section.grain
@@ -229,10 +230,20 @@ struct EditorView: View {
         GeometryReader { workspace in
             HStack(spacing: 0) {
                 canvas
+                    .overlay(alignment: .top) {
+                        if activeTool != .crop {
+                            editorInfoOverlay(
+                                maxHeight: min(
+                                    380,
+                                    max(160, workspace.size.height - PhotoInfoPanel.collapsedHeight - 24)
+                                ))
+                        }
+                    }
                 if activeTool == .crop {
-                    ScrollView { toolPanel.padding(.top, 12) }
-                        .scrollBounceBehavior(.basedOnSize)
-                        .frame(maxHeight: .infinity, alignment: .top)
+                    toolPanel
+                        .padding(.top, 12)
+                        .frame(maxHeight: .infinity)
+                        .clipShape(.rect(cornerRadius: 24))
                         .adaptiveGlassRect(cornerRadius: 24)
                         .frame(width: WorkspaceLayout.panelWidth(in: workspace.size.width))
                         .padding(.leading, 8).padding(.vertical, 8)
@@ -247,19 +258,56 @@ struct EditorView: View {
     private var stackedWorkspace: some View {
         VStack(spacing: 0) {
             GeometryReader { workspace in
-                canvas.overlay(alignment: .bottom) {
-                    if activeTool != nil && activeTool != .crop {
-                        let maximum = maximumPanelHeight(in: workspace.size.height)
-                        inspector(height: panelExpanded ? maximum : min(maximum, collapsedPanelHeight))
-                            .padding(.horizontal, 12).padding(.bottom, 8)
-                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
-                                inspectorFrame = $0
-                            }
+                canvas
+                    .overlay(alignment: .bottom) {
+                        if activeTool != nil && activeTool != .crop {
+                            let maximum = maximumPanelHeight(in: workspace.size.height)
+                            inspector(height: panelExpanded ? maximum : min(maximum, collapsedPanelHeight))
+                                .padding(.horizontal, 12).padding(.bottom, 8)
+                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                                    inspectorFrame = $0
+                                }
+                        }
                     }
-                }
+                    .overlay(alignment: .top) {
+                        if activeTool != .crop {
+                            editorInfoOverlay(
+                                maxHeight: min(
+                                    380,
+                                    max(160, workspace.size.height - PhotoInfoPanel.collapsedHeight - 20)
+                                ))
+                        }
+                    }
             }
             if activeTool == .crop { toolPanel }
         }
+    }
+    private func editorInfoOverlay(maxHeight: CGFloat) -> some View {
+        EditorInfoBar(
+            session: session, showingOriginal: showOriginal, location: locationName,
+            onInteraction: { if panelExpanded { setExpanded(false) } },
+            onExpandedChange: { expanded in
+                infoExpanded = expanded
+                if expanded && panelExpanded { setExpanded(false) }
+            },
+            maxExpandedHeight: maxHeight,
+            look: LookActions(
+                canCopy: session.hasEdits, canPaste: library.copiedLook != nil,
+                copy: { library.copyLook(session.recipe, from: photoID) },
+                paste: { showPasteLook = true }),
+            formulae: FormulaStrip(
+                library: library, canSave: session.hasEdits, identifier: "editor",
+                apply: { formula in
+                    session.update(key: "formula.apply") {
+                        $0 = $0.taking(
+                            Set(formula.parts), from: formula.recipe,
+                            rawTarget: session.photo.rawTemperature != nil)
+                    }
+                },
+                save: { showSaveFormula = true })
+        )
+        .frame(maxWidth: layout == .sideBySide ? 680 : .infinity)
+        .padding(.horizontal, 12).padding(.top, 4)
     }
     private func finish() {
         guard !closing else { return }
@@ -305,39 +353,20 @@ struct EditorView: View {
                     },
                     detail: showOriginal ? nil : session.detailProvider
                 )
-                .overlay(alignment: .top) {
-                    VStack(spacing: 8) {
-                        EditorInfoBar(
-                            session: session, showingOriginal: showOriginal, location: locationName,
-                            onInteraction: { if panelExpanded { setExpanded(false) } },
-                            look: LookActions(
-                                canCopy: session.hasEdits, canPaste: library.copiedLook != nil,
-                                copy: { library.copyLook(session.recipe, from: photoID) },
-                                paste: { showPasteLook = true }),
-                            formulae: FormulaStrip(
-                                library: library, canSave: session.hasEdits, identifier: "editor",
-                                apply: { formula in
-                                    session.update(key: "formula.apply") {
-                                        $0 = $0.taking(
-                                            Set(formula.parts), from: formula.recipe,
-                                            rawTarget: session.photo.rawTemperature != nil)
-                                    }
-                                },
-                                save: { showSaveFormula = true }))
-                            .frame(maxWidth: layout == .sideBySide ? 680 : .infinity)
-                        HStack {
-                            Spacer()
-                            Button(compareTitle, systemImage: "square.on.square") {
-                                showOriginal.toggle()
-                                if panelExpanded { setExpanded(false) }
-                            }
-                            .tint(showOriginal ? Color.accentColor : accent.idle)
-                            .accessibilityAddTraits(showOriginal ? .isSelected : [])
-                            .photoActionStyle()
-                            .accessibilityLabel(compareTitle)
-                            .accessibilityIdentifier("editor.compare")
-                        }
-                    }.padding(.horizontal, 12).padding(.top, 4)
+                .overlay(alignment: .topTrailing) {
+                    Button(compareTitle, systemImage: "square.on.square") {
+                        showOriginal.toggle()
+                        if panelExpanded { setExpanded(false) }
+                    }
+                    .tint(showOriginal ? Color.accentColor : accent.idle)
+                    .accessibilityAddTraits(showOriginal ? .isSelected : [])
+                    .photoActionStyle()
+                    .accessibilityLabel(compareTitle)
+                    .accessibilityIdentifier("editor.compare")
+                    .padding(.top, 4 + PhotoInfoPanel.collapsedHeight + 8)
+                    .padding(.trailing, 12)
+                    .opacity(infoExpanded ? 0 : 1)
+                    .allowsHitTesting(!infoExpanded)
                 }
             }
             if showRenderProgress {

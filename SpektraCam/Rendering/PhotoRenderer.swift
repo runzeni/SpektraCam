@@ -51,13 +51,14 @@ actor PhotoRenderer {
     }
     private var preview: PreviewState
     // Finishing must not evict Develop's scene/LUT cache or meter the padded canvas.
-    private var edgeMetering = PreviewState(maximum: 720)
+    private var edgeMetering: PreviewState
     // At most the active and one alternate resolution. A drag cannot evict the settled
     // source/film cache, and a 2160 px setting does not create an unbounded image ladder.
     private var alternatePreview: (maximum: Int, state: PreviewState)?
     private var previewMaximum: Int
     private let previewLimit: Int
     private let cachesIntermediates: Bool
+    private let detailDecoder: SourceImageRenderer.Decoder
     private let renderResources: FilmRenderResources
     private let lutDirectory: URL?
     private var cubes: [String: CubeLUT] = [:]
@@ -85,6 +86,7 @@ actor PhotoRenderer {
         self.source = source
         self.previewMaximum = previewMaximum
         self.cachesIntermediates = cachesIntermediates
+        self.detailDecoder = SourceImageRenderer.Decoder(cachesIntermediates: cachesIntermediates)
         preview = PreviewState(maximum: previewMaximum, cachesIntermediates: cachesIntermediates)
         edgeMetering = PreviewState(maximum: 720, cachesIntermediates: cachesIntermediates)
         previewLimit = previewMaximum
@@ -375,7 +377,7 @@ actor PhotoRenderer {
         library: ModelLibrary, gpu: MetalFilmPipeline, preview: Bool, state: PreviewState? = nil,
         framing: (recipe: EditRecipe, size: CGSize, maximum: Int)? = nil
     ) async throws -> CGImage {
-        let cache = state ?? PreviewState(maximum: previewMaximum)
+        let cache = state ?? PreviewState(maximum: previewMaximum, cachesIntermediates: cachesIntermediates)
         var recipe = recipe
         recipe.numbers["film_render.halation.scatter_amount"] = min(
             max(recipe.number("film_render.halation.scatter_amount"), 0), 1)
@@ -456,7 +458,6 @@ actor PhotoRenderer {
         /// Where the image lies in the displayed (turned and cropped) photo, in unit coordinates.
         let rect: CGRect
     }
-    private let detailDecoder = SourceImageRenderer.Decoder()
     /// Render only what is on screen, at the resolution the zoom needs. `visible` is the part
     /// of the displayed photo in view (unit coordinates, origin top left); `longEdge` is how
     /// many pixels the whole displayed photo's long edge would need at this zoom.
@@ -877,7 +878,12 @@ actor PhotoRenderer {
         } else {
             releasePreviewCaches(keepMetering: true)
             guard let data else { throw PhotoExporter.Failure.decode }
-            let dimensions = try PhotoExporter.sourceDimensions(data, sourceType: sourceType)
+            let dimensions: CGSize
+            if let sourceDescription, sourceDescription.width > 0, sourceDescription.height > 0 {
+                dimensions = CGSize(width: sourceDescription.width, height: sourceDescription.height)
+            } else {
+                dimensions = try PhotoExporter.sourceDimensions(data, sourceType: sourceType)
+            }
             let width = Int(dimensions.width)
             let height = Int(dimensions.height)
             let originalLong = max(width, height)
@@ -910,7 +916,7 @@ actor PhotoRenderer {
             selectInputMode(recipe.inputMode)
             let input = try SourceImageRenderer.prepare(
                 data: data, fallback: decoded, recipe: recipe, maximum: maximum,
-                sourceType: sourceType, allowsStore: true)
+                sourceType: sourceType, description: sourceDescription, allowsStore: true)
             let graded: CGImage
             if recipe.look.enabled {
                 let (library, gpu) = try await renderResources.load()
@@ -958,8 +964,8 @@ actor PhotoRenderer {
         exportSize = nil
     }
     func releasePreviewCaches(keepMetering: Bool = false) {
-        let next = PreviewState(maximum: previewMaximum)
-        let nextEdge = PreviewState(maximum: 720)
+        let next = PreviewState(maximum: previewMaximum, cachesIntermediates: cachesIntermediates)
+        let nextEdge = PreviewState(maximum: 720, cachesIntermediates: cachesIntermediates)
         if keepMetering {
             next.meter = preview.meter
             next.meteredEV = preview.meteredEV

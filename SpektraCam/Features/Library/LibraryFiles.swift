@@ -89,7 +89,7 @@ actor LibraryFiles {
         }
         Self.pruneFormulaPreviews(in: cache.appendingPathComponent("FormulaPreviews"))
     }
-    private static func pruneFormulaPreviews(in directory: URL, keepLimit: Int = 160) {
+    private static func pruneFormulaPreviews(in directory: URL, keepLimit: Int = 64) {
         let manager = FileManager.default
         guard
             let entries = try? manager.contentsOfDirectory(
@@ -120,7 +120,7 @@ actor LibraryFiles {
         _ photo: LibraryPhoto, thumbnail: Bool, maximum: Int = PreviewQuality.libraryMaximum
     ) -> URL {
         // Render changes must rebuild saved previews even when the edit recipe is unchanged.
-        let revision = photo.hasFilmEdge ? "v15-distress-" : "v11-"
+        let revision = photo.hasFilmEdge ? "v16-distress-" : "v11-"
         let suffix = revision + photo.renderKey + (thumbnail ? "-thumb.jpg" : "-preview-\(maximum).jpg")
         if photo.isEphemeralPreview {
             return cache.appendingPathComponent("FormulaPreviews")
@@ -232,7 +232,10 @@ actor LibraryFiles {
         return exif[kCGImagePropertyExifLensModel] as? String
     }
     func nativeRAWSize(_ photo: LibraryPhoto) -> CGSize? {
-        CIRAWFilter(imageURL: sourceURL(photo))?.nativeSize
+        guard let raw = CIRAWFilter(imageURL: sourceURL(photo)) else { return nil }
+        return PhotoSource.uprightSize(
+            width: Int(raw.nativeSize.width), height: Int(raw.nativeSize.height),
+            orientation: raw.orientation)
     }
     /// A grid rebuild must never replace the independent 1080 px photo preview.
     @discardableResult func storeThumbnail(_ image: CGImage, photo: LibraryPhoto) throws -> CGImage
@@ -261,9 +264,10 @@ actor LibraryFiles {
         }
         let target = cacheURL(photo, thumbnail: true)
         try Self.writeJPEG(small, to: target)
-        if !photo.isEphemeralPreview,
-            let entries = try? FileManager.default.contentsOfDirectory(
-                at: target.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+        if photo.isEphemeralPreview {
+            Self.pruneFormulaPreviews(in: target.deletingLastPathComponent())
+        } else if let entries = try? FileManager.default.contentsOfDirectory(
+            at: target.deletingLastPathComponent(), includingPropertiesForKeys: nil)
         {
             for url in entries
             where url.lastPathComponent.hasSuffix("-thumb.jpg")

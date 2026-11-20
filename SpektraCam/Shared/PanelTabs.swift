@@ -25,7 +25,7 @@ where Selection.RawValue == String {
                     .disabled(unavailable.contains(option.0))
                 }
             }.padding(.vertical, 4)
-        }.scrollIndicators(.hidden).frame(height: 44)
+        }.scrollIndicators(.hidden).scrollClipDisabled().frame(height: 44)
             .dynamicTypeSize(...DynamicTypeSize.large)
     }
     private func tab(_ option: (Selection, String)) -> some View {

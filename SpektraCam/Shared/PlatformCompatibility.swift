@@ -94,6 +94,24 @@ extension View {
         }
     }
 
+    /// Floating inspector/popover card that may straddle bright chrome (`PhotoTheme.canvas`)
+    /// and a dark photograph simultaneously, preventing a two-tone horizontal refraction seam.
+    @ViewBuilder func adaptiveFloatingPanelSurface(
+        cornerRadius: CGFloat, unifiedBackdrop: Bool
+    ) -> some View {
+        if unifiedBackdrop {
+            if #available(iOS 26.0, macOS 26.0, *) {
+                glassEffect(
+                    .regular.tint(Color(uiColor: .secondarySystemBackground).opacity(0.84)),
+                    in: .rect(cornerRadius: cornerRadius))
+            } else {
+                background(.thickMaterial, in: .rect(cornerRadius: cornerRadius))
+            }
+        } else {
+            adaptiveGlassRect(cornerRadius: cornerRadius)
+        }
+    }
+
     @ViewBuilder func adaptiveGlassCapsule(interactive: Bool = false) -> some View {
         if #available(iOS 26.0, macOS 26.0, *) {
             glassEffect(interactive ? .regular.interactive() : .regular, in: .capsule)
@@ -168,16 +186,24 @@ struct CapsuleActionButtonStyle: ButtonStyle {
             .foregroundStyle(
                 selected
                     ? AnyShapeStyle(.onAccent)
-                    : (isEnabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+                    : (isEnabled
+                        ? AnyShapeStyle(Color.primary)
+                        : AnyShapeStyle(Color.secondary.opacity(0.55)))
             )
             .background {
                 if selected {
                     Capsule().fill(Color.accentColor)
+                } else if isEnabled {
+                    Capsule()
+                        .fill(Color.primary.opacity(configuration.isPressed ? 0.16 : 0.09))
+                        .overlay {
+                            Capsule().strokeBorder(Color.primary.opacity(0.22), lineWidth: 0.75)
+                        }
                 } else {
                     Capsule()
-                        .fill(configuration.isPressed ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.quaternary))
+                        .fill(Color.primary.opacity(0.03))
                         .overlay {
-                            Capsule().strokeBorder(.tertiary, lineWidth: 0.6)
+                            Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.6)
                         }
                 }
             }

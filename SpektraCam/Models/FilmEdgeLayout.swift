@@ -670,7 +670,7 @@ nonisolated struct FilmEdgeGeometry: Sendable {
         if distress.leak > 0 {
             if distress.leakShape == .burn {
                 let b = burnExposure(fx, fy)
-                let strength = distress.leak * distress.leak
+                let strength = distress.leak * (0.45 + 0.55 * distress.leak)
                 if distress.leakKind == .front {
                     e.front = strength * b.body
                     let gate = FilmEdgeNoise.penumbra(
@@ -689,9 +689,10 @@ nonisolated struct FilmEdgeGeometry: Sendable {
         }
         return e
     }
-    /// Roll-start burn calibrated against camera, Fuji Frontier and Noritsu scans: felt-plush tufts
-    /// stay at fixed physical millimetre wavelengths (shrunk independent of `leakSize`), separating
-    /// into a broadband saturated body, a golden-yellow plush fringe and a warm red-orange base tail.
+    /// Roll-start burn calibrated against camera, Fuji Frontier and Noritsu scans: a nearly straight
+    /// stamped cassette lip with perpendicular sub-millimetre velvet plush bristles (independent of
+    /// `leakSize`), separating into a saturated white body, crisp golden-yellow plush teeth and a
+    /// warm red-orange base-piped tail.
     private func burnExposure(_ fx: Double, _ fy: Double) -> (body: Double, core: Double, tail: Double) {
         let leak = leakFrame, size = distress.leakSize, tex = distress.burnTexture
         let vx = fx - leak.point.0, vy = fy - leak.point.1
@@ -699,25 +700,28 @@ nonisolated struct FilmEdgeGeometry: Sendable {
         let u = vx * leak.normal.1 - vy * leak.normal.0
         let v = depth - size
         let s = seed(4), pr = pixelRadius
-        let fineWeight = 1 / (1 + (pr / 0.07) * (pr / 0.07))
-        let bow = (0.18 + 0.38 * tex) * FilmEdgeNoise.value(u / 3.6, 0.35, s)
-            + (0.06 + 0.22 * tex) * FilmEdgeNoise.value(u / 1.05, 1.35, s)
-        let patch = min(max(0.35 + 0.75 * FilmEdgeNoise.value(u / 2.2, 2.15, s), 0), 1)
-        let curl = 0.22 * FilmEdgeNoise.value(u / 0.42, v / 0.42 + 3.7, s)
-        let wispA = FilmEdgeNoise.value((u + 0.38 * v + curl) / 0.14, v / 0.38 + 5.1, s)
-        let wispB = FilmEdgeNoise.value((u - 0.34 * v - curl) / 0.17, v / 0.44 + 8.3, s)
-        let tuft = fineWeight * patch * max(0, 0.55 * wispA + 0.45 * wispB + 0.18)
-        let front = size + bow + (0.03 + 0.34 * tex) * tuft
+        let wCoarse = 1 / (1 + (pr / 0.11) * (pr / 0.11))
+        let wFine = 1 / (1 + (pr / 0.048) * (pr / 0.048))
+        let bow = (0.04 + 0.12 * tex) * FilmEdgeNoise.value(u / 6.0, 0.35, s)
+            + (0.015 + 0.055 * tex) * FilmEdgeNoise.value(u / 2.0, 1.35, s)
+        let patch = min(max(0.42 + 0.58 * FilmEdgeNoise.value(u / 2.5, 2.15, s), 0), 1)
+        let clump = min(max(0.45 + 0.55 * FilmEdgeNoise.value(u * 2.0, 3.45, s), 0), 1)
+        let lean = 0.05 * v * FilmEdgeNoise.value(u, 4.75, s)
+        let r1 = 1 - abs(FilmEdgeNoise.value((u + lean) * 8.0, v / 0.75 + 5.1, s))
+        let r2 = 1 - abs(FilmEdgeNoise.value((u - lean) * 16.0, v * 2.0 + 8.3, s))
+        let teeth = wCoarse * (r1 * r1) * 0.62 + wFine * (r2 * r2 * r2) * 0.58
+        let bristle = patch * (0.28 * clump + 0.72 * clump * teeth)
+        let front = size + bow + (0.015 + 0.22 * tex) * bristle
         let delta = depth - front
-        let lipWidth = 0.06 + 0.06 * (1 - tex)
-        let whiteBody = 80 / (1 + exp(min(max(delta / lipWidth, -40), 40)))
-        let wispReach = (0.06 + 0.48 * tex * tex) * tuft * tuft
-        let coreSpan = 0.12 + 0.20 * tex
-        let coreDelta = (delta - (0.08 + 0.14 * tex + wispReach)) / coreSpan
-        let yellowFringe = (12 + 14 * tuft) / (1 + exp(min(max(coreDelta, -40), 40)))
-        let tailSpan = 0.28 + 0.38 * tex
-        let tailDelta = (delta - (0.22 + 0.30 * tex + 0.6 * wispReach)) / tailSpan
-        let warmTail = (3.4 + 2.2 * patch) / (1 + exp(min(max(tailDelta, -40), 40)))
+        let lipWidth = 0.024 + 0.032 * (1 - tex)
+        let whiteBody = 180 / (1 + exp(min(max(delta / lipWidth, -40), 40)))
+        let bristleReach = (0.03 + 0.62 * tex * tex) * teeth * clump
+        let coreSpan = 0.055 + 0.065 * tex
+        let coreDelta = (delta - (0.065 + 0.085 * tex + bristleReach)) / coreSpan
+        let yellowFringe = (16 + 22 * teeth * tex) / (1 + exp(min(max(coreDelta, -40), 40)))
+        let tailSpan = 0.16 + 0.22 * tex
+        let tailDelta = (delta - (0.16 + 0.18 * tex + 0.75 * bristleReach)) / tailSpan
+        let warmTail = (4.2 + 3.0 * patch * (0.5 + 0.5 * clump)) / (1 + exp(min(max(tailDelta, -40), 40)))
         return (whiteBody, yellowFringe, warmTail)
     }
     private func leakField(_ fx: Double, _ fy: Double) -> Double {
@@ -1018,10 +1022,10 @@ nonisolated struct FilmEdgeGeometry: Sendable {
     static func scratches(_ d: FilmEdgeDistress, halfAlong ha: Double, halfAcross ht: Double, gateAcross: Double) -> [Scratch] {
         var b = streamSeed(d.seed, 19)
         func band() -> Double { b = FilmEdgeNoise.hash(b); return FilmEdgeNoise.unit(b) }
-        let inner = gateAcross + 0.035, outer = max(inner + 0.05, ht)
-        let nearSpan = min(0.13, outer - inner)
+        let inner = gateAcross + 0.04, outer = max(inner + 0.05, ht)
+        let nearSpan = min(0.24, outer - inner)
         let bands = (0..<4).map { index in
-            index < 2 ? inner + nearSpan * band() : inner + (outer - inner) * band()
+            index < 3 ? inner + nearSpan * band() : inner + (outer - inner) * band()
         }
         let imageLimit = gateAcross * 0.92
         return (0..<scratchCount).map { k in
@@ -1029,17 +1033,17 @@ nonisolated struct FilmEdgeGeometry: Sendable {
             func next() -> Double { h = FilmEdgeNoise.hash(h); return FilmEdgeNoise.unit(h) }
             let side: Double = next() < 0.5 ? -1 : 1
             let center = bands[Int(next() * 3.999)]
-            let clustered = min(max(center + (next() * 2 - 1) * 0.08, inner), outer)
+            let clustered = min(max(center + (next() * 2 - 1) * 0.05, inner), outer)
             // Draw both positions every time so toggling the clamp never shifts other features.
             let free = next(), anywhere = (next() * 2 - 1) * imageLimit
             let across = d.scratchesInImage && free < 0.6 ? anywhere : side * clustered
             let slope = (next() * 2 - 1) * 0.0008
             let wander = 0.001 + 0.006 * next(), wavelength = 60 + 140 * next(), phase = next() * 6.2832
-            let span = ha * (0.55 + 1.65 * next()), mid = (next() * 2 - 1) * ha * 0.85
-            let width = 0.006 + 0.020 * pow(next(), 1.3)
-            let emulsion = next() < 0.25
-            let depth = emulsion ? 0.08 + 0.62 * pow(next(), 1.8) : -(0.62 + 0.35 * pow(next(), 0.9))
-            let dash = 1.8 + 9.0 * next(), bias = 0.18 + 0.72 * next()
+            let span = ha * (0.60 + 1.65 * next()), mid = (next() * 2 - 1) * ha * 0.85
+            let width = 0.007 + 0.022 * pow(next(), 1.25)
+            let emulsion = next() < 0.30
+            let depth = emulsion ? 0.08 + 0.84 * pow(next(), 1.6) : -(0.72 + 0.26 * pow(next(), 0.8))
+            let dash = 2.2 + 10.0 * next(), bias = 0.22 + 0.72 * next()
             return Scratch(across: across, slope: slope, wander: wander, wavelength: wavelength, phase: phase,
                            start: mid - span, end: mid + span, width: width, depth: depth, dash: dash, bias: bias)
         }
@@ -1084,8 +1088,8 @@ nonisolated struct FilmEdgeGeometry: Sendable {
         return result
     }
     /// Scattering removes more short-wavelength light from the transmitted beam; per output channel.
-    /// Calibrated against collimated groove scatter on D-max negative rebate: cool-white with blue lead.
-    static let scatterWeights = SIMD3<Double>(0.34, 0.58, 1.0)
+    /// Calibrated against collimated groove scatter on D-max negative rebate: cool silvery-blue with blue lead.
+    static let scatterWeights = SIMD3<Double>(0.62, 0.78, 1.0)
     var hasEmulsionScratches: Bool { distress.scratches > 0 && scratchCandidates.contains { $0.depth > 0 } }
 
     /// Combine intact film and clear light in transmission; never average densities with air.

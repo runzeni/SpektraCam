@@ -41,6 +41,10 @@ nonisolated enum SourceImageRenderer {
     private static var context: CIContext {
         RenderPrecision.resolved.usesHalfFloat ? context16 : context32
     }
+    static func clearCaches() {
+        context16.clearCaches()
+        context32.clearCaches()
+    }
 
     /// Owned by one preview resolution inside PhotoRenderer's actor. Mutable RAW filters
     /// never cross workers; export uses the uncached one-shot path instead.

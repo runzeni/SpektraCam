@@ -104,6 +104,7 @@ struct DarkroomView: View {
                     .font(.footnote).padding(16)
                 }
                 .frame(height: height).frame(maxHeight: height == nil ? .infinity : nil)
+                .clipShape(.rect(cornerRadius: 24))
                 .adaptiveGlassRect(cornerRadius: 24)
             }
         }

@@ -112,6 +112,7 @@ struct ContentView: View {
                 Task {
                     await library.images.discardMemory()
                     await library.files.discardPreparedPhoto()
+                    LibraryImages.clearRenderingContextCaches()
                     await library.images.resources.releaseWorkingCachesIfLoaded()
                 }
             }

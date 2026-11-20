@@ -15,6 +15,10 @@ nonisolated enum FilmEdgeRenderer {
     private static var context: CIContext {
         RenderPrecision.resolved.usesHalfFloat ? context16 : context32
     }
+    static func clearCaches() {
+        context16.clearCaches()
+        context32.clearCaches()
+    }
 
     @inline(__always) private static func halfToFloat(_ h: UInt16) -> Float {
         let sign = UInt32(h & 0x8000) << 16

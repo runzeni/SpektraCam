@@ -305,6 +305,40 @@ import UniformTypeIdentifiers
         let png16Desc = PhotoSource.describe(png16Data)!
         precondition(png16Desc.bitDepth == 16 && png16Desc.prefersDeepPipeline, "16-bit PNG did not prefer deep pipeline: \(png16Desc.bitDepth)")
 
+        let graySpace = CGColorSpaceCreateDeviceGray()
+        let gray16Ctx = CGContext(
+            data: nil, width: 16, height: 16, bitsPerComponent: 16, bytesPerRow: 16 * 2,
+            space: graySpace, bitmapInfo: CGImageAlphaInfo.none.rawValue | CGImageByteOrderInfo.order16Little.rawValue)!
+        let gray16Buf = NSMutableData()
+        let gray16Dest = CGImageDestinationCreateWithData(gray16Buf, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(gray16Dest, gray16Ctx.makeImage()!, nil)
+        precondition(CGImageDestinationFinalize(gray16Dest))
+        let gray16Desc = PhotoSource.describe(gray16Buf as Data)!
+        precondition(gray16Desc.bitDepth == 16 && gray16Desc.prefersDeepPipeline, "16-bit grayscale PNG did not prefer deep pipeline: \(gray16Desc.bitDepth)")
+
+        let tiff16Buf = NSMutableData()
+        let tiff16Dest = CGImageDestinationCreateWithData(tiff16Buf, UTType.tiff.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(tiff16Dest, ctx16.makeImage()!, nil)
+        precondition(CGImageDestinationFinalize(tiff16Dest))
+        let tiff16Desc = PhotoSource.describe(tiff16Buf as Data)!
+        precondition(tiff16Desc.bitDepth == 16 && tiff16Desc.prefersDeepPipeline, "16-bit TIFF did not prefer deep pipeline: \(tiff16Desc.bitDepth)")
+
+        let probeDir = FileManager.default.temporaryDirectory.appendingPathComponent("spektra-depth-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: probeDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: probeDir) }
+        let png8URL = probeDir.appendingPathComponent("a.png")
+        let png16URL = probeDir.appendingPathComponent("b.png")
+        let tiff16URL = probeDir.appendingPathComponent("c.tiff")
+        let jpg8URL = probeDir.appendingPathComponent("d.jpg")
+        try largePNG.write(to: png8URL)
+        try png16Data.write(to: png16URL)
+        try (tiff16Buf as Data).write(to: tiff16URL)
+        try jpegData.write(to: jpg8URL)
+        precondition(!PhotoSource.prefersDeepPipeline(at: png8URL), "URL probe marked 8-bit PNG deep")
+        precondition(!PhotoSource.prefersDeepPipeline(at: jpg8URL), "URL probe marked 8-bit JPEG deep")
+        precondition(PhotoSource.prefersDeepPipeline(at: png16URL), "URL probe missed 16-bit PNG")
+        precondition(PhotoSource.prefersDeepPipeline(at: tiff16URL), "URL probe missed 16-bit TIFF")
+
         defaults.set(RenderPrecision.automatic.rawValue, forKey: RenderPrecision.storageKey)
         if !RenderPrecision.devicePrefersHalfFloat {
             precondition(RenderPrecision.resolved(sourcePrefersDeep: false) == .float16)

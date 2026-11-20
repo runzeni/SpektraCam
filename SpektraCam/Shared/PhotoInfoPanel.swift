@@ -10,6 +10,8 @@ struct PhotoInfoPanel: View {
     let histogram: PhotoHistogram
     let identifier: String
     var onInteraction: (() -> Void)? = nil
+    var onExpandedChange: ((Bool) -> Void)? = nil
+    var maxExpandedHeight: CGFloat = 380
     /// Copy and paste for the look named in the title. Formulae will join them here.
     var look: LookActions? = nil
     /// Saved formulae for this photo, below the look's own actions.
@@ -85,15 +87,17 @@ struct PhotoInfoPanel: View {
                 .accessibilityIdentifier(identifier + ".histogram")
             }
             if expanded {
-                CappedHeight(maxHeight: 380) {
+                CappedHeight(maxHeight: maxExpandedHeight) {
                     detailsScrollView
                 }
                 .clipped()
                 .transition(.opacity)
             }
         }
-        .adaptiveGlassRect(cornerRadius: 20)
+        .adaptiveFloatingPanelSurface(cornerRadius: 20, unifiedBackdrop: expanded)
         .adaptiveGlassID("information", in: glass)
+        .onChange(of: expanded) { _, value in onExpandedChange?(value) }
+        .onDisappear { if expanded { onExpandedChange?(false) } }
     }
 
     private var detailsScrollView: some View {

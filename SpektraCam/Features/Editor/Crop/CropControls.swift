@@ -23,7 +23,11 @@ struct CropControls: View {
     var body: some View {
         VStack(spacing: 0) {
             Group {
-                if typeSize.isAccessibilitySize {
+                if !showsBackground {
+                    ScrollView { controls }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                } else if typeSize.isAccessibilitySize {
                     ScrollView { controls }
                         .frame(height: 280)
                         .clipped()
@@ -43,7 +47,7 @@ struct CropControls: View {
                     .accessibilityIdentifier("crop.done")
             }
             .controlSize(.regular).frame(minHeight: 44)
-            .padding(.horizontal, 16).padding(.bottom, 8)
+            .padding(.horizontal, 16).padding(.bottom, showsBackground ? 8 : 12)
         }
         .background {
             if showsBackground { Rectangle().fill(.background) }
@@ -78,7 +82,6 @@ struct CropControls: View {
                     if filmGate?.isSquare != true { HStack { orientationButtons } }
                 }
             }
-            .adaptiveGlassButton()
             .controlSize(.large)
 
             straightenControls
@@ -182,7 +185,7 @@ struct CropControls: View {
             ) {
                 crop.setOrientation(.portrait, imageAspect: imageAspect)
             }
-            .tint(crop.orientation == .portrait ? Color.accentColor : .secondary)
+            .capsuleActionButton(selected: crop.orientation == .portrait)
             .accessibilityAddTraits(crop.orientation == .portrait ? .isSelected : [])
             .accessibilityIdentifier("crop.portrait")
             Button(
@@ -191,7 +194,7 @@ struct CropControls: View {
             ) {
                 crop.setOrientation(.landscape, imageAspect: imageAspect)
             }
-            .tint(crop.orientation == .landscape ? Color.accentColor : .secondary)
+            .capsuleActionButton(selected: crop.orientation == .landscape)
             .accessibilityAddTraits(crop.orientation == .landscape ? .isSelected : [])
             .accessibilityIdentifier("crop.landscape")
         }.labelStyle(.titleAndIcon)

@@ -35,8 +35,7 @@ actor BatchPhotoExporter {
         let scale = maximum / max(w, h)
         do {
             if let recipe {
-                let uti = UTType(filenameExtension: item.source.pathExtension)
-                let prefersDeep = uti.map { !($0.conforms(to: .jpeg) || $0.conforms(to: .heic)) } ?? true
+                let prefersDeep = PhotoSource.prefersDeepPipeline(at: item.source)
                 try RenderPrecision.$activeSourcePrefersDeep.withValue(prefersDeep) {
                     try RenderMemoryBudget.check(
                         width: max(1, Int(ceil(w * scale))),

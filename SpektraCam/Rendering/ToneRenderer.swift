@@ -24,6 +24,10 @@ nonisolated enum ToneRenderer {
     private static var context: CIContext {
         RenderPrecision.resolved.usesHalfFloat ? context16 : context32
     }
+    static func clearCaches() {
+        context16.clearCaches()
+        context32.clearCaches()
+    }
     private static let gpu = try? GradeKernel()
 
     /// Versioned code-value curve; older grades retain their original formula.

@@ -13,6 +13,7 @@ struct CameraView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isLandscape = false
+    @State private var systemVerticalBar = false
     @State private var locksPortrait = AppDelegate.defaultLocksCameraToPortrait
     @State private var glyphs = CameraGlyphRotation()
     private var glyphDegrees: Double { locksPortrait ? glyphs.degrees : 0 }
@@ -31,6 +32,25 @@ struct CameraView: View {
                 viewfinder
             }
             .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if systemVerticalBar {
+                    HStack(spacing: 12) {
+                        formatControl.frame(width: 84, height: 32)
+                            .adaptiveGlassCapsule()
+                            .accessibilityIdentifier("camera.format")
+                        Spacer(minLength: 8)
+                        CameraHistogram(model: model).frame(width: 100, height: 32)
+                            .opacity(ready ? 1 : 0)
+                        Spacer(minLength: 8)
+                        CameraExposureReadout(model: model).frame(width: 84, height: 32)
+                            .adaptiveGlassCapsule()
+                            .accessibilityIdentifier("camera.exposureInfo")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(
@@ -40,18 +60,20 @@ struct CameraView: View {
                     .labelStyle(.iconOnly).buttonBorderShape(.circle)
                     .disabled(model.busy).accessibilityIdentifier("camera.close")
                 }
-                AdaptiveToolbarSpacer(.fixed, placement: .topBarLeading)
-                AdaptiveToolbarItem(placement: .topBarLeading, background: .visible) {
-                    formatControl.frame(width: 84, height: 32).accessibilityIdentifier(
-                        "camera.format")
-                }
-                ToolbarItem(placement: .principal) {
-                    CameraHistogram(model: model).frame(width: 100, height: 32)
-                        .opacity(ready ? 1 : 0)
-                }
-                AdaptiveToolbarItem(placement: .topBarTrailing, background: .visible) {
-                    CameraExposureReadout(model: model).frame(width: 84, height: 32)
-                        .accessibilityIdentifier("camera.exposureInfo")
+                if !systemVerticalBar {
+                    AdaptiveToolbarSpacer(.fixed, placement: .topBarLeading)
+                    AdaptiveToolbarItem(placement: .topBarLeading, background: .visible) {
+                        formatControl.frame(width: 84, height: 32).accessibilityIdentifier(
+                            "camera.format")
+                    }
+                    ToolbarItem(placement: .principal) {
+                        CameraHistogram(model: model).frame(width: 100, height: 32)
+                            .opacity(ready ? 1 : 0)
+                    }
+                    AdaptiveToolbarItem(placement: .topBarTrailing, background: .visible) {
+                        CameraExposureReadout(model: model).frame(width: 84, height: 32)
+                            .accessibilityIdentifier("camera.exposureInfo")
+                    }
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -87,6 +109,7 @@ struct CameraView: View {
         }
         .background(CameraOrientationBridge(locksPortrait: $locksPortrait).allowsHitTesting(false))
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { isLandscape = $0 }
+        .onSystemVerticalBar { systemVerticalBar = $0 }
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled(model.busy)
         .task {

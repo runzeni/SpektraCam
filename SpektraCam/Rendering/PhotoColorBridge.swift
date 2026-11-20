@@ -73,6 +73,11 @@ nonisolated enum PhotoColorBridge {
         RenderPrecision.resolved.usesHalfFloat ? context16 : context32
     }
 
+    static func clearCaches() {
+        context16.clearCaches()
+        context32.clearCaches()
+    }
+
     static func decode(_ source: CGImage) throws -> [SIMD4<Float>] {
         let count = source.width * source.height
         guard count > 0 else { throw Failure.invalidImage }

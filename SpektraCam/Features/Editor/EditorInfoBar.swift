@@ -5,6 +5,8 @@ struct EditorInfoBar: View {
     let showingOriginal: Bool
     var location: String? = nil
     var onInteraction: (() -> Void)? = nil
+    var onExpandedChange: ((Bool) -> Void)? = nil
+    var maxExpandedHeight: CGFloat = 380
     var look: LookActions? = nil
     var formulae: FormulaStrip? = nil
     var body: some View {
@@ -17,7 +19,9 @@ struct EditorInfoBar: View {
                 title: titles.title, subtitle: titles.subtitle, metadata: session.photo.metadata,
                 location: location,
                 histogram: showingOriginal ? session.originalHistogram : session.histogram,
-                identifier: "editor", onInteraction: onInteraction, look: look, formulae: formulae)
+                identifier: "editor", onInteraction: onInteraction,
+                onExpandedChange: onExpandedChange, maxExpandedHeight: maxExpandedHeight,
+                look: look, formulae: formulae)
             if session.previewWasReduced {
                 Text(
                     String(

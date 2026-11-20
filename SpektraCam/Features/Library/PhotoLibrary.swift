@@ -501,7 +501,16 @@ import SwiftData
         updatePhoto(try record.snapshot())
     }
     func delete(_ ids: Set<UUID>) async throws {
+        guard !ids.isEmpty else { return }
         var removed = false
+        let sourcesByPhoto = Dictionary(grouping: sources.values, by: \.photoID)
+        defer {
+            if removed {
+                photos.removeAll { records[$0.id] == nil }
+                rebuildIndex()
+                importedAssetIdentifiers = sources.keys.sorted()
+            }
+        }
         for id in ids {
             guard let record = records[id], let photo = photo(id) else { continue }
             saves[id]?.cancel()
@@ -510,7 +519,7 @@ import SwiftData
             if pasteUndo?.contains(id) == true { pasteUndo = nil }
             let staged = try await files.stageRemoval(photo)
             context.delete(record)
-            let links = sources.values.filter { $0.photoID == id }
+            let links = sourcesByPhoto[id] ?? []
             for link in links { context.delete(link) }
             do { try context.save() } catch {
                 context.rollback()
@@ -518,10 +527,7 @@ import SwiftData
                 throw error
             }
             for link in links { sources[link.assetIdentifier] = nil }
-            importedAssetIdentifiers = sources.keys.sorted()
             records[id] = nil
-            photos.removeAll { $0.id == id }
-            rebuildIndex()
             removed = true
             await files.finishRemoval(staged, photo: photo)
         }

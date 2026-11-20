@@ -11,7 +11,13 @@ import UniformTypeIdentifiers
 
 /// File identity is independent of a recipe's white balance or creative look.
 nonisolated enum PhotoSource {
-    private static let previewContext = CIContext(options: [.cacheIntermediates: false])
+    private static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+    private static let previewContext = CIContext(options: [
+        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false,
+    ])
+    static func clearCaches() {
+        previewContext.clearCaches()
+    }
     static func checkDevelopmentMemory(width: Int, height: Int) throws {
         guard width > 0, height > 0, width <= 65536, height <= 65536,
             let device = MTLCreateSystemDefaultDevice(),
@@ -56,6 +62,27 @@ nonisolated enum PhotoSource {
 
     static func typeHint(for url: URL) -> String? {
         UTType(filenameExtension: url.pathExtension)?.identifier
+    }
+
+    /// Lightweight header-only bit-depth probe for memory admission without decoding pixels.
+    static func prefersDeepPipeline(at url: URL) -> Bool {
+        let hint = typeHint(for: url)
+        if let hint, UTType(hint)?.conforms(to: .rawImage) == true { return true }
+        var options: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        if let hint { options[kCGImageSourceTypeIdentifierHint] = hint }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, options as CFDictionary) else {
+            return true
+        }
+        if let detected = CGImageSourceGetType(source) as String?,
+            UTType(detected)?.conforms(to: .rawImage) == true
+        {
+            return true
+        }
+        guard CGImageSourceGetCount(source) > 0,
+            let p = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        else { return false }
+        let depth = max(1, (p[kCGImagePropertyDepth] as? NSNumber)?.intValue ?? 8)
+        return depth > 10
     }
 
     static func imageSource(_ data: Data, typeHint: String? = nil) -> CGImageSource? {

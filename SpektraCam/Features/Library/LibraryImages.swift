@@ -66,7 +66,18 @@ actor LibraryImages {
         let key = "\(scope)\(photo.id)-\(photo.renderKey)-\(thumbnail)-\(maximum)" as NSString
         let memory = thumbnail ? thumbnails : previews
         if let image = memory.object(forKey: key) { return image }
-        if let image = files.cachedImage(photo, thumbnail: thumbnail, maximum: maximum) {
+        let files = self.files
+        let diskDecode = Task.detached(priority: .userInitiated) {
+            files.cachedImage(photo, thumbnail: thumbnail, maximum: maximum)
+        }
+        let diskImage = await withTaskCancellationHandler {
+            await diskDecode.value
+        } onCancel: {
+            diskDecode.cancel()
+        }
+        try Task.checkCancellation()
+        if let image = memory.object(forKey: key) { return image }
+        if let image = diskImage {
             memory.setObject(image, forKey: key, cost: image.width * image.height * 4)
             return image
         }
@@ -149,9 +160,17 @@ actor LibraryImages {
         thumbnails.removeAllObjects()
         previews.removeAllObjects()
     }
+    nonisolated static func clearRenderingContextCaches() {
+        PhotoColorBridge.clearCaches()
+        PhotoSource.clearCaches()
+        SourceImageRenderer.clearCaches()
+        ToneRenderer.clearCaches()
+        FilmEdgeRenderer.clearCaches()
+    }
     func trimForBackground() async {
         previews.removeAllObjects()
         if lowMemoryDevice { thumbnails.removeAllObjects() }
+        Self.clearRenderingContextCaches()
         if !Task.isCancelled {
             await resources.releaseWorkingCachesIfLoaded()
         }

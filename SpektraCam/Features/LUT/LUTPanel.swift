@@ -61,7 +61,7 @@ struct LUTPanel: View {
                     Image(systemName: "chevron.up.chevron.down").foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, minHeight: 30)
             }
-            .buttonStyle(.glass).buttonBorderShape(.roundedRectangle(radius: 12))
+            .adaptiveGlassButton().buttonBorderShape(.roundedRectangle(radius: 12))
             .accessibilityIdentifier("lut.slot.\(slot.rawValue)")
             NumericControl(
                 title: String(localized: "common.mix", defaultValue: "Mix"),
@@ -200,16 +200,16 @@ struct LUTLibraryView: View {
                     ) { showImport = true }
                     .disabled(working).accessibilityIdentifier("lut.import")
                 }
-                ToolbarSpacer(.flexible, placement: .bottomBar)
-                ToolbarItem(placement: .bottomBar) {
+                AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
+                AdaptiveToolbarItem(placement: .bottomBar, background: .hidden) {
                     Text(
                         String(
                             localized: "lut.item_count",
                             defaultValue: "\(library.luts.items.count) LUTs")
                     )
                     .font(.footnote).foregroundStyle(.secondary)
-                }.sharedBackgroundVisibility(.hidden)
-                ToolbarSpacer(.flexible, placement: .bottomBar)
+                }
+                AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
                 ToolbarItem(placement: .bottomBar) {
                     Button(
                         String(localized: "common.delete", defaultValue: "Delete"),

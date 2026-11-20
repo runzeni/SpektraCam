@@ -32,17 +32,30 @@ nonisolated enum SourceImageRenderer {
         }
     }
     private static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
-    private static let context = CIContext(options: [
+    private static let context32 = CIContext(options: [
         .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false,
     ])
+    private static let context16 = CIContext(options: [
+        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAh, .cacheIntermediates: false,
+    ])
+    private static var context: CIContext {
+        RenderPrecision.resolved.usesHalfFloat ? context16 : context32
+    }
 
     /// Owned by one preview resolution inside PhotoRenderer's actor. Mutable RAW filters
     /// never cross workers; export uses the uncached one-shot path instead.
     final class Decoder {
-        lazy var context = CIContext(options: [
+        private lazy var context32 = CIContext(options: [
             .workingColorSpace: SourceImageRenderer.linear, .workingFormat: CIFormat.RGBAf,
             .cacheIntermediates: true,
         ])
+        private lazy var context16 = CIContext(options: [
+            .workingColorSpace: SourceImageRenderer.linear, .workingFormat: CIFormat.RGBAh,
+            .cacheIntermediates: true,
+        ])
+        var context: CIContext {
+            RenderPrecision.resolved.usesHalfFloat ? context16 : context32
+        }
         private var filters: [Intent: (CIRAWFilter, Float, Float)] = [:]
         private var maximum: Int?
         func raw(
@@ -129,7 +142,10 @@ nonisolated enum SourceImageRenderer {
                     options: [
                         .applyOrientationProperty: true,
                         .expandToHDR: intent == .sceneLinear,
-                        .toneMapHDRtoSDR: false,
+                        .toneMapHDRtoSDR: intent == .developedPhoto && {
+                            if #available(iOS 18.0, macOS 15.0, *) { return false }
+                            return true
+                        }(),
                     ])
             {
                 // The display thumbnail is 8-bit. Processing decodes original pixels before downsampling.
@@ -138,9 +154,16 @@ nonisolated enum SourceImageRenderer {
                     maximum: maximum)
             } else {
                 image = CIImage(cgImage: fallback)
-                if intent == .developedPhoto {
+                if intent == .developedPhoto, #available(iOS 18.0, macOS 15.0, *) {
                     let recorded = fallback.contentHeadroom
-                    let headroom = recorded > 0 ? recorded : fallback.calculatedContentHeadroom
+                    let headroom: Float
+                    if recorded > 0 {
+                        headroom = recorded
+                    } else if #available(iOS 26.0, macOS 26.0, *) {
+                        headroom = fallback.calculatedContentHeadroom
+                    } else {
+                        headroom = 1
+                    }
                     if headroom > 1 {
                         image = image.applyingFilter(
                             "CIToneMapHeadroom",
@@ -242,7 +265,8 @@ nonisolated enum SourceImageRenderer {
         let source = image(input)
         guard
             let frame = context.createCGImage(
-                source, from: source.extent, format: .RGBAf, colorSpace: linear, deferred: false)
+                source, from: source.extent, format: RenderPrecision.resolved.ciFormat,
+                colorSpace: linear, deferred: false)
         else { throw Failure.decode }
         return frame
     }
@@ -268,7 +292,7 @@ nonisolated enum SourceImageRenderer {
         }
         guard
             let image = context.createCGImage(
-                output, from: original.extent, format: .RGBAf,
+                output, from: original.extent, format: RenderPrecision.resolved.ciFormat,
                 colorSpace: linear, deferred: false)
         else { throw Failure.decode }
         return image

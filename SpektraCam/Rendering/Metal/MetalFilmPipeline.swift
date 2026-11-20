@@ -35,9 +35,7 @@ actor MetalFilmPipeline {
         else {
             throw Failure.unavailable
         }
-        let options = MTLCompileOptions()
-        options.mathMode = .safe
-        options.mathFloatingPointFunctions = .precise
+        let options = MTLCompileOptions.safeMath
         let library = try device.makeLibrary(
             source: sources.joined(separator: "\n") + RawAdjustments.shader
                 + RawAdjustments.bufferKernel
@@ -136,7 +134,7 @@ actor MetalFilmPipeline {
     /// Film result, sRGB-encoded with extended range. A byte store is the finished SDR image.
     func processImage(
         _ source: PixelStore, pipeline: FilmPipeline, seed: UInt64 = 0, autoExposureEV: Double,
-        edge: FilmEdgeGeometry? = nil, format: PixelStore.Format = .float,
+        edge: FilmEdgeGeometry? = nil, format: PixelStore.Format = .working,
         tiling: Tiling = Tiling()
     ) async throws -> PixelStore {
         try await beginFrame()
@@ -152,12 +150,13 @@ actor MetalFilmPipeline {
     ) async throws -> (PixelStore, PixelStore) {
         try await beginFrame()
         defer { endFrame() }
+        let working = PixelStore.Format.working
         let mean = try await renderTiled(
             source, pipeline: pipeline, autoExposureEV: autoExposureEV, grainMean: true,
-            grainDensityOnly: true, format: .float, tiling: tiling)
+            grainDensityOnly: true, format: working, tiling: tiling)
         let noisy = try await renderTiled(
             source, pipeline: pipeline, autoExposureEV: autoExposureEV, grainDensityOnly: true,
-            format: .float, tiling: tiling)
+            format: working, tiling: tiling)
         return (noisy, mean)
     }
     /// Linear RGB after the optical kernels only.
@@ -167,7 +166,7 @@ actor MetalFilmPipeline {
         try await beginFrame()
         defer { endFrame() }
         return try await renderTiled(
-            source, pipeline: pipeline, autoExposureEV: 0, opticsOnly: true, format: .float,
+            source, pipeline: pipeline, autoExposureEV: 0, opticsOnly: true, format: .working,
             tiling: tiling)
     }
     /// Check entry: the tiled graph on an in-memory image.
@@ -358,6 +357,11 @@ actor MetalFilmPipeline {
                 tiling.tileEdge = 1024
                 tiling.transform = 1024
             }
+            if available < 650 * 1_048_576 {
+                tiling.tileEdge = 768
+                tiling.transform = 1024
+                tiling.proxyLongEdge = 768
+            }
             return tiling
         }
     }
@@ -458,7 +462,7 @@ actor MetalFilmPipeline {
         format: PixelStore.Format, tiling: Tiling
     ) async throws -> PixelStore {
         let width = source.width, height = source.height
-        guard source.format == .float, width * height <= Int(UInt32.max) else {
+        guard source.format.isFloatingPoint, width * height <= Int(UInt32.max) else {
             throw Failure.invalidShape
         }
         try Task.checkCancellation()
@@ -726,7 +730,7 @@ actor MetalFilmPipeline {
     /// corner is at `origin`, covering the region plus the prepared halo (clipped to the image).
     func processRegion(
         _ source: PixelStore, origin: (x: Int, y: Int), region: (x: Int, y: Int, w: Int, h: Int),
-        key: RegionKey, pipeline: FilmPipeline
+        key: RegionKey, pipeline: FilmPipeline, format: PixelStore.Format? = nil
     ) async throws -> PixelStore {
         try await beginFrame()
         defer { endFrame() }
@@ -737,7 +741,7 @@ actor MetalFilmPipeline {
         return try await renderTiles(
             run: cached.run, setup: setup, pipeline: pipeline, stochastic: true, seed: key.seed,
             opticsOnly: false, grainMean: false, grainDensityOnly: false, edge: cached.edge,
-            format: .float, region: region, proxyPool: nil
+            format: format ?? source.format, region: region, proxyPool: nil
         ) { _, _, _, _ in (source, origin.x, origin.y) }
     }
 

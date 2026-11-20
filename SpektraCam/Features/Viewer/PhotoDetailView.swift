@@ -1,3 +1,4 @@
+import CoreLocation
 import MapKit
 import SwiftUI
 
@@ -201,7 +202,7 @@ struct PhotoDetailView: View {
             }
             .tint(Color.accentColor).disabled(working).accessibilityIdentifier("photo.develop")
         }
-        ToolbarSpacer(.fixed, placement: .bottomBar)
+        AdaptiveToolbarSpacer(.fixed, placement: .bottomBar)
         ToolbarItemGroup(placement: .bottomBar) {
             Button(String(localized: "common.export", defaultValue: "Export"), systemImage: "square.and.arrow.up") {
                 prepareEditor(exporting: true)
@@ -330,21 +331,41 @@ struct PhotoDetailView: View {
     }
     private func resolveLocation() async {
         guard let photo, photo.locationName == nil,
-            let latitude = photo.metadata.latitude, let longitude = photo.metadata.longitude,
-            let request = MKReverseGeocodingRequest(
-                location: CLLocation(latitude: latitude, longitude: longitude))
+            let latitude = photo.metadata.latitude, let longitude = photo.metadata.longitude
         else { return }
+        let coordinate = CLLocation(latitude: latitude, longitude: longitude)
         do {
-            let items = try await withTaskCancellationHandler {
-                try await request.mapItems
-            } onCancel: {
-                request.cancel()
-            }
-            try Task.checkCancellation()
-            if let item = items.first,
-                let name = item.addressRepresentations?.cityWithContext ?? item.name
-            {
-                try library.setLocationName(name, for: photo.id)
+            if #available(iOS 26.0, *) {
+                guard let request = MKReverseGeocodingRequest(location: coordinate) else { return }
+                let items = try await withTaskCancellationHandler {
+                    try await request.mapItems
+                } onCancel: {
+                    request.cancel()
+                }
+                try Task.checkCancellation()
+                if let item = items.first,
+                    let name = item.addressRepresentations?.cityWithContext ?? item.name
+                {
+                    try library.setLocationName(name, for: photo.id)
+                }
+            } else {
+                let geocoder = CLGeocoder()
+                let placemarks = try await withTaskCancellationHandler {
+                    try await geocoder.reverseGeocodeLocation(coordinate)
+                } onCancel: {
+                    geocoder.cancelGeocode()
+                }
+                try Task.checkCancellation()
+                if let placemark = placemarks.first {
+                    let parts = [
+                        placemark.locality,
+                        placemark.administrativeArea ?? placemark.country,
+                    ].compactMap { $0 }.filter { !$0.isEmpty }
+                    let name = parts.isEmpty ? placemark.name : parts.joined(separator: ", ")
+                    if let name, !name.isEmpty {
+                        try library.setLocationName(name, for: photo.id)
+                    }
+                }
             }
         } catch { /* Keep the capture date when the optional lookup is unavailable. */  }
     }
@@ -400,7 +421,7 @@ private struct PhotoViewerControls: View {
     }
     /// With width to spare, the actions run down the trailing edge and leave the photo its height.
     private var sideBySide: some View {
-        GlassEffectContainer(spacing: 12) {
+        AdaptiveGlassContainer(spacing: 12) {
             HStack(alignment: .bottom, spacing: 12) {
                 Color.clear.frame(width: 104, height: 1)
                 PhotoFilmstrip(photos: photos, images: images, selection: $selection)
@@ -410,7 +431,7 @@ private struct PhotoViewerControls: View {
                     Button(String(localized: "editor.develop", defaultValue: "Develop"),
                            systemImage: "camera.filters", action: develop)
                         .labelStyle(.iconOnly).font(.system(size: 20, weight: .medium))
-                        .buttonStyle(.glassProminent).buttonBorderShape(.circle).controlSize(.large)
+                        .adaptiveGlassButton(prominent: true).buttonBorderShape(.circle).controlSize(.large)
                         .foregroundStyle(.onAccent).frame(width: 56, height: 56)
                         .accessibilityIdentifier("photo.develop")
                     Button {
@@ -436,7 +457,7 @@ private struct PhotoViewerControls: View {
         }.disabled(working)
     }
     private var stacked: some View {
-        GlassEffectContainer(spacing: 12) {
+        AdaptiveGlassContainer(spacing: 12) {
             VStack(spacing: 12) {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) {
@@ -489,7 +510,7 @@ private struct PhotoViewerControls: View {
                     horizontal: true, vertical: false
                 )
                 .padding(.horizontal, 24)
-        }.buttonStyle(.glassProminent).foregroundStyle(.onAccent).accessibilityIdentifier("photo.develop")
+        }.adaptiveGlassButton(prominent: true).foregroundStyle(.onAccent).accessibilityIdentifier("photo.develop")
     }
     private var exportButton: some View {
         Button(action: export) {

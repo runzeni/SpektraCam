@@ -191,9 +191,11 @@ actor PhotoRenderer {
                 width: input.width, height: input.height, recipe: recipe,
                 pixelPitchMicrometers: edge?.pixelPitchMicrometers)
         else { return nil }
-        let store = try PixelStore(width: input.width, height: input.height, format: .float)
+        let store = try PixelStore(width: input.width, height: input.height, format: .working)
         input.pixels.withUnsafeBytes {
-            store.base.copyMemory(from: $0.baseAddress!, byteCount: $0.count)
+            store.write(
+                x: 0, y: 0, width: input.width, height: input.height, from: $0.baseAddress!,
+                sourceRowBytes: input.width * 16)
         }
         return store
     }
@@ -210,7 +212,7 @@ actor PhotoRenderer {
         }
         let result = try await gpu.processImage(
             store, pipeline: pipeline, autoExposureEV: autoExposureEV, edge: edge,
-            format: finished ? .byte : .float, tiling: tiling)
+            format: finished ? .byte : .working, tiling: tiling)
         return try result.image(
             colorSpace: CGColorSpace(name: finished ? CGColorSpace.sRGB : CGColorSpace.extendedSRGB)!)
     }

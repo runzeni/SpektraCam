@@ -82,7 +82,7 @@ struct DarkroomView: View {
 
     /// `height` is nil when the controls fill their column and have nothing to expand into.
     private func inspector(height: CGFloat?) -> some View {
-        GlassEffectContainer(spacing: 8) {
+        AdaptiveGlassContainer(spacing: 8) {
             VStack(spacing: 8) {
                 HStack(spacing: 10) {
                     PanelTabs(
@@ -104,7 +104,7 @@ struct DarkroomView: View {
                     .font(.footnote).padding(16)
                 }
                 .frame(height: height).frame(maxHeight: height == nil ? .infinity : nil)
-                .glassEffect(.regular, in: .rect(cornerRadius: 24))
+                .adaptiveGlassRect(cornerRadius: 24)
             }
         }
     }
@@ -414,7 +414,7 @@ struct DarkroomView: View {
                     defaultValue: { var d = current; d.margin = nil; d.fill = false; return d.resolvedMargin(content) * 100 }(),
                     fillOrigin: 0, onEditingChanged: onEditingChanged)
                 Button(String(localized: "darkroom.fill", defaultValue: "Fill")) { setMargin(fill) }
-                    .buttonStyle(.glass).tint(filled ? .accentColor : nil)
+                    .adaptiveGlassButton().tint(filled ? .accentColor : nil)
                     .accessibilityValue(filled ? String(localized: "common.on", defaultValue: "On") : String(localized: "common.off", defaultValue: "Off"))
                     .accessibilityIdentifier("darkroom.fill")
             }

@@ -32,13 +32,13 @@ struct CropControls: View {
             }
             HStack {
                 Button(String(localized: "editor.reset", defaultValue: "Reset"), action: reset)
-                    .buttonStyle(.glass).disabled(!canReset)
+                    .adaptiveGlassButton().disabled(!canReset)
                     .accessibilityLabel(String(localized: "editor.reset_crop", defaultValue: "Reset Crop"))
                     .accessibilityIdentifier("crop.reset")
                 Spacer()
                 Button(String(localized: "common.done", defaultValue: "Done"),
                     systemImage: "checkmark", action: done)
-                    .buttonStyle(.glassProminent).foregroundStyle(.onAccent)
+                    .adaptiveGlassButton(prominent: true).foregroundStyle(.onAccent)
                     .accessibilityIdentifier("crop.done")
             }
             .controlSize(.regular).frame(minHeight: 44)
@@ -74,7 +74,7 @@ struct CropControls: View {
                     if filmGate?.isSquare != true { HStack { orientationButtons } }
                 }
             }
-            .buttonStyle(.glass)
+            .adaptiveGlassButton()
             .controlSize(.large)
 
             straightenControls
@@ -110,7 +110,7 @@ struct CropControls: View {
                         Button(aspect.title) { crop.setAspect(aspect, imageAspect: imageAspect) }
                     }
                 }
-                .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle)
+                .labelStyle(.iconOnly).adaptiveGlassButton().buttonBorderShape(.circle)
                 .accessibilityLabel(
                     String(localized: "crop.more_aspect_ratios", defaultValue: "More Aspect Ratios")
                 )
@@ -169,7 +169,7 @@ struct CropControls: View {
         -> some View
     {
         Button(action: action) { Image(systemName: symbol).frame(width: 24, height: 24) }
-            .accessibilityLabel(title).buttonStyle(.glass).buttonBorderShape(.circle)
+            .accessibilityLabel(title).adaptiveGlassButton().buttonBorderShape(.circle)
     }
 
     private var orientationButtons: some View {

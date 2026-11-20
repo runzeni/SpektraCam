@@ -57,7 +57,7 @@ struct EditorToolbar: ToolbarContent {
                 .accessibilityIdentifier("editor.tool." + tool.rawValue)
             }
         }
-        ToolbarSpacer(.fixed, placement: .bottomBar)
+        AdaptiveToolbarSpacer(.fixed, placement: .bottomBar)
         ToolbarItem(placement: .bottomBar) {
             Button(actionTitle, systemImage: actionSymbol, action: darkroomActive ? export : openDarkroom)
                 .accessibilityIdentifier(darkroomActive ? "darkroom.export" : "editor.export")
@@ -80,7 +80,7 @@ struct EditorToolbar: ToolbarContent {
                 }
             }.controlGroupStyle(.navigation).controlSize(.small)
         }
-        ToolbarSpacer(.fixed, placement: .bottomBar)
+        AdaptiveToolbarSpacer(.fixed, placement: .bottomBar)
         ToolbarItem(placement: .bottomBar) {
             Button(action: darkroomActive ? export : openDarkroom) {
                 toolLabel(actionTitle, symbol: actionSymbol, selected: false)
@@ -110,7 +110,7 @@ struct EditorToolRail: View {
     }
     private var actionSymbol: String { darkroomActive ? "square.and.arrow.up" : "lightbulb" }
     var body: some View {
-        GlassEffectContainer(spacing: 12) {
+        AdaptiveGlassContainer(spacing: 12) {
             VStack(spacing: 12) {
                 VStack(spacing: 6) {
                     ForEach(EditorTool.allCases) { tool in
@@ -125,7 +125,7 @@ struct EditorToolRail: View {
                     }
                 }
                 .padding(.vertical, 8).padding(.horizontal, 6)
-                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 28))
+                .adaptiveGlassRect(cornerRadius: 28, interactive: true)
                 Button(action: darkroomActive ? export : openDarkroom) {
                     EditorToolLabel(title: actionTitle, symbol: actionSymbol, selected: false)
                 }
@@ -133,7 +133,7 @@ struct EditorToolRail: View {
                 .accessibilityIdentifier(darkroomActive ? "darkroom.export" : "editor.export")
                 .accessibilityShowsLargeContentViewer { Label(actionTitle, systemImage: actionSymbol) }
                 .padding(.vertical, 8).padding(.horizontal, 6)
-                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 28))
+                .adaptiveGlassRect(cornerRadius: 28, interactive: true)
             }
             .buttonStyle(.plain)
         }

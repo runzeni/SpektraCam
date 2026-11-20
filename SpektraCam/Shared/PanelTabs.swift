@@ -15,9 +15,9 @@ where Selection.RawValue == String {
                 ForEach(options, id: \.0) { option in
                     Group {
                         if isSelectionActive && selection == option.0 {
-                            tab(option).buttonStyle(.glassProminent).foregroundStyle(.onAccent)
+                            tab(option).adaptiveGlassButton(prominent: true).foregroundStyle(.onAccent)
                         } else {
-                            tab(option).buttonStyle(.glass)
+                            tab(option).adaptiveGlassButton()
                         }
                     }
                     .accessibilityIdentifier(prefix + option.0.rawValue)
@@ -63,7 +63,7 @@ struct PanelExpansionButton: View {
 extension View {
     /// A round glass button showing only its icon, with the minimum touch target.
     func glassIconButton() -> some View {
-        labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle)
+        labelStyle(.iconOnly).adaptiveGlassButton().buttonBorderShape(.circle)
             .frame(minWidth: 44, minHeight: 44)
     }
 }

@@ -143,8 +143,8 @@ struct PhotoInfoPanel: View {
                 .transition(.opacity)
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
-        .glassEffectID("information", in: glass)
+        .adaptiveGlassRect(cornerRadius: 20)
+        .adaptiveGlassID("information", in: glass)
     }
     private func toggleDetails() {
         onInteraction?()

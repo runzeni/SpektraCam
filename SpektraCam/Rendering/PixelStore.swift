@@ -9,8 +9,23 @@ import ObjectiveC
 /// does not grow the app's memory footprint with image size.
 nonisolated final class PixelStore: @unchecked Sendable {
     enum Format: Sendable {
-        case float, byte
-        var bytesPerPixel: Int { self == .float ? 16 : 4 }
+        case float, half, byte
+        var bytesPerPixel: Int {
+            switch self {
+            case .float: 16
+            case .half: 8
+            case .byte: 4
+            }
+        }
+        var isFloatingPoint: Bool { self != .byte }
+        var ciFormat: CIFormat {
+            switch self {
+            case .float: .RGBAf
+            case .half: .RGBAh
+            case .byte: .RGBA8
+            }
+        }
+        static var working: Self { RenderPrecision.resolved.usesHalfFloat ? .half : .float }
     }
     struct Failure: LocalizedError {
         var errorDescription: String? {
@@ -76,19 +91,34 @@ nonisolated final class PixelStore: @unchecked Sendable {
             owner.release()
             throw Failure()
         }
-        let float = format == .float
-        // Alpha is one everywhere, so the float layout matches Core Image's own RGBAf bitmaps.
-        let info: CGBitmapInfo =
-            float
-            ? [
+        let bitsPerComponent: Int
+        let bitsPerPixel: Int
+        let info: CGBitmapInfo
+        switch format {
+        case .float:
+            // Alpha is one everywhere, so the float layout matches Core Image's own RGBAf bitmaps.
+            bitsPerComponent = 32
+            bitsPerPixel = 128
+            info = [
                 .floatComponents, .byteOrder32Little,
                 CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
             ]
-            : CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue)
+        case .half:
+            bitsPerComponent = 16
+            bitsPerPixel = 64
+            info = [
+                .floatComponents, .byteOrder16Little,
+                CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            ]
+        case .byte:
+            bitsPerComponent = 8
+            bitsPerPixel = 32
+            info = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue)
+        }
         guard
             let image = CGImage(
-                width: width, height: height, bitsPerComponent: float ? 32 : 8,
-                bitsPerPixel: float ? 128 : 32, bytesPerRow: rowBytes, space: colorSpace,
+                width: width, height: height, bitsPerComponent: bitsPerComponent,
+                bitsPerPixel: bitsPerPixel, bytesPerRow: rowBytes, space: colorSpace,
                 bitmapInfo: info, provider: provider, decode: nil, shouldInterpolate: false,
                 intent: .defaultIntent)
         else { throw Failure() }
@@ -110,7 +140,7 @@ nonisolated final class PixelStore: @unchecked Sendable {
         return CIImage(
             bitmapData: data, bytesPerRow: rowBytes,
             size: CGSize(width: width, height: rows.count),
-            format: format == .float ? .RGBAf : .RGBA8,
+            format: format.ciFormat,
             colorSpace: colorSpace ?? CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!)
     }
     /// Core Image input for any working bitmap; store-backed ones are never copied.
@@ -122,7 +152,7 @@ nonisolated final class PixelStore: @unchecked Sendable {
     /// working set stays independent of the image height.
     static func render(
         _ image: CIImage, width: Int, height: Int, context: CIContext, colorSpace: CGColorSpace,
-        format: Format = .float
+        format: Format = .working
     ) throws -> PixelStore {
         let store = try PixelStore(width: width, height: height, format: format)
         store.colorSpace = colorSpace
@@ -137,23 +167,31 @@ nonisolated final class PixelStore: @unchecked Sendable {
                     image, toBitmap: store.base.advanced(by: y * store.rowBytes),
                     rowBytes: store.rowBytes,
                     bounds: CGRect(x: 0, y: height - y - rows, width: width, height: rows),
-                    format: format == .float ? .RGBAf : .RGBA8, colorSpace: colorSpace)
+                    format: format.ciFormat, colorSpace: colorSpace)
             }
             y += rows
         }
         return store
     }
 
-    /// Copy a rectangle of float pixels into a packed destination with the given row pitch.
+    /// Copy a rectangle of float pixels into a packed 32-bit float destination with row pitch `w * 16`.
     func read(x: Int, y: Int, width w: Int, height h: Int, into target: UnsafeMutableRawPointer) {
-        precondition(format == .float && x >= 0 && y >= 0 && x + w <= width && y + h <= height)
+        precondition(format.isFloatingPoint && x >= 0 && y >= 0 && x + w <= width && y + h <= height)
         for row in 0..<h {
-            memcpy(
-                target.advanced(by: row * w * 16),
-                base.advanced(by: ((y + row) * width + x) * 16), w * 16)
+            let output = target.advanced(by: row * w * 16)
+            let input = base.advanced(by: ((y + row) * width + x) * format.bytesPerPixel)
+            if format == .float {
+                memcpy(output, input, w * 16)
+            } else {
+                var from = vImage_Buffer(
+                    data: input, height: 1, width: vImagePixelCount(w * 4), rowBytes: w * 8)
+                var to = vImage_Buffer(
+                    data: output, height: 1, width: vImagePixelCount(w * 4), rowBytes: w * 16)
+                vImageConvert_Planar16FtoPlanarF(&from, &to, vImage_Flags(kvImageNoFlags))
+            }
         }
     }
-    /// Write float RGBA rows. A byte store clamps and rounds, matching an 8-bit sRGB resolve.
+    /// Write float RGBA rows into this store's float, half-float, or 8-bit format.
     func write(
         x: Int, y: Int, width w: Int, height h: Int, from source: UnsafeRawPointer,
         sourceRowBytes: Int
@@ -162,9 +200,16 @@ nonisolated final class PixelStore: @unchecked Sendable {
         for row in 0..<h {
             let input = UnsafeMutableRawPointer(mutating: source.advanced(by: row * sourceRowBytes))
             let output = base.advanced(by: ((y + row) * width + x) * format.bytesPerPixel)
-            if format == .float {
+            switch format {
+            case .float:
                 memcpy(output, input, w * 16)
-            } else {
+            case .half:
+                var from = vImage_Buffer(
+                    data: input, height: 1, width: vImagePixelCount(w * 4), rowBytes: w * 16)
+                var to = vImage_Buffer(
+                    data: output, height: 1, width: vImagePixelCount(w * 4), rowBytes: w * 8)
+                vImageConvert_PlanarFtoPlanar16F(&from, &to, vImage_Flags(kvImageNoFlags))
+            case .byte:
                 var from = vImage_Buffer(
                     data: input, height: 1, width: vImagePixelCount(w * 4), rowBytes: w * 16)
                 var to = vImage_Buffer(
@@ -175,11 +220,23 @@ nonisolated final class PixelStore: @unchecked Sendable {
     }
     /// Finite colour and opaque alpha, checked without building a second copy.
     func isValid() -> Bool {
-        precondition(format == .float)
-        let values = base.assumingMemoryBound(to: SIMD4<Float>.self)
+        precondition(format.isFloatingPoint)
+        if format == .float {
+            let values = base.assumingMemoryBound(to: SIMD4<Float>.self)
+            for i in 0..<(width * height) {
+                let v = values[i]
+                if !(v.x.isFinite && v.y.isFinite && v.z.isFinite && v.w > 0.99) { return false }
+            }
+            return true
+        }
+        let values = base.assumingMemoryBound(to: SIMD4<UInt16>.self)
         for i in 0..<(width * height) {
             let v = values[i]
-            if !(v.x.isFinite && v.y.isFinite && v.z.isFinite && v.w > 0.99) { return false }
+            if (v.x & 0x7C00) == 0x7C00 || (v.y & 0x7C00) == 0x7C00 || (v.z & 0x7C00) == 0x7C00
+                || v.w < 0x3BEB || v.w >= 0x7C00
+            {
+                return false
+            }
         }
         return true
     }

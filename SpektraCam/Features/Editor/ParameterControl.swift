@@ -61,7 +61,7 @@ struct ParameterControl: View {
                         Image(systemName: "chevron.up.chevron.down").font(.caption2)
                     }.fixedSize(horizontal: false, vertical: true)
                 }
-                .buttonStyle(.glassProminent).foregroundStyle(.onAccent).tint(Color.accentColor)
+                .adaptiveGlassButton(prominent: true).foregroundStyle(.onAccent).tint(Color.accentColor)
                 .accessibilityLabel(definition.title)
                 .accessibilityValue(choiceTitle(session.recipe.choice(definition.id)))
                 .accessibilityIdentifier(definition.id)
@@ -231,16 +231,24 @@ struct DefaultSlider: UIViewRepresentable {
         let configuration = [
             bounds.lowerBound, bounds.upperBound, defaultValue, fillOrigin ?? defaultValue,
         ]
+        let neutral = position(fillOrigin ?? defaultValue)
         if context.coordinator.configuration != configuration {
-            slider.trackConfiguration = .init(
-                allowsTickValuesOnly: false, neutralValue: position(fillOrigin ?? defaultValue),
-                ticks: [])
+            if #available(iOS 26.0, *) {
+                slider.trackConfiguration = .init(
+                    allowsTickValuesOnly: false, neutralValue: neutral,
+                    ticks: [])
+            } else {
+                (slider as? PrecisionSlider)?.neutralOrigin = neutral
+            }
             (slider as? PrecisionSlider)?.defaultTick = position(defaultValue)
             context.coordinator.configuration = configuration
         }
         slider.minimumValue = 0
         slider.maximumValue = 1
-        if !slider.isTracking { slider.setValue(position(value), animated: false) }
+        if !slider.isTracking {
+            slider.setValue(position(value), animated: false)
+            slider.setNeedsLayout()
+        }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UISlider, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 100, height: 32)
@@ -248,25 +256,69 @@ struct DefaultSlider: UIViewRepresentable {
     /// UIKit couples configured ticks to magnetic stops. A marker view keeps fine straightening continuous.
     final class PrecisionSlider: UISlider {
         var defaultTick: Float? { didSet { setNeedsLayout() } }
+        var neutralOrigin: Float? { didSet { updateLegacyTrackColors(); setNeedsLayout() } }
         var adjustAccessibility: ((Int) -> Void)?
         override func accessibilityIncrement() { adjustAccessibility?(1) }
         override func accessibilityDecrement() { adjustAccessibility?(-1) }
         private let marker = UIView()
+        private let neutralFill = UIView()
+        override var tintColor: UIColor! {
+            didSet { updateLegacyTrackColors() }
+        }
+        override func setValue(_ value: Float, animated: Bool) {
+            super.setValue(value, animated: animated)
+            if neutralOrigin != nil { setNeedsLayout() }
+        }
         override init(frame: CGRect) {
             super.init(frame: frame)
+            neutralFill.isUserInteractionEnabled = false
+            neutralFill.isAccessibilityElement = false
+            neutralFill.isHidden = true
+            addSubview(neutralFill)
             marker.backgroundColor = .tertiaryLabel
             marker.isUserInteractionEnabled = false
             marker.isAccessibilityElement = false
             addSubview(marker)
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        private func updateLegacyTrackColors() {
+            guard let origin = neutralOrigin, origin > 0.001 else {
+                if neutralOrigin != nil {
+                    minimumTrackTintColor = nil
+                    maximumTrackTintColor = nil
+                }
+                neutralFill.isHidden = true
+                return
+            }
+            minimumTrackTintColor = .secondarySystemFill
+            maximumTrackTintColor = .secondarySystemFill
+            neutralFill.backgroundColor = tintColor
+        }
         override func layoutSubviews() {
             super.layoutSubviews()
+            let track = trackRect(forBounds: bounds)
+            let thumbView = subviews.last {
+                $0 !== marker && $0 !== neutralFill && $0.bounds.height >= 16
+            }
+            if let origin = neutralOrigin, origin > 0.001 {
+                updateLegacyTrackColors()
+                let anchorX = thumbRect(forBounds: bounds, trackRect: track, value: origin).midX
+                let currentX = thumbRect(forBounds: bounds, trackRect: track, value: value).midX
+                let minX = min(anchorX, currentX)
+                let width = abs(currentX - anchorX)
+                neutralFill.isHidden = width < 0.5
+                neutralFill.layer.cornerRadius = track.height / 2
+                neutralFill.frame = CGRect(
+                    x: minX, y: track.minY, width: width, height: track.height)
+                if let thumbView { insertSubview(neutralFill, belowSubview: thumbView) }
+            } else {
+                neutralFill.isHidden = true
+            }
             marker.isHidden = defaultTick == nil
             if let value = defaultTick {
-                let track = trackRect(forBounds: bounds)
                 let thumb = thumbRect(forBounds: bounds, trackRect: track, value: value)
                 marker.frame = CGRect(x: thumb.midX - 0.5, y: track.midY - 3, width: 1, height: 6)
+                if let thumbView { insertSubview(marker, belowSubview: thumbView) }
             }
         }
     }
@@ -293,6 +345,7 @@ struct DefaultSlider: UIViewRepresentable {
             parent.onEditingChanged(false)
         }
         @objc func changed(_ slider: UISlider) {
+            if (slider as? PrecisionSlider)?.neutralOrigin != nil { slider.setNeedsLayout() }
             let raw =
                 parent.bounds.lowerBound + Double(slider.value)
                 * (parent.bounds.upperBound - parent.bounds.lowerBound)
@@ -383,15 +436,15 @@ private struct NumericEntry: View {
                 Spacer(minLength: 4)
                 Button(String(localized: "control.reset_to_default", defaultValue: "Reset to Default"),
                        systemImage: "arrow.counterclockwise") { set(defaultValue) }
-                    .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle)
+                    .labelStyle(.iconOnly).adaptiveGlassButton().buttonBorderShape(.circle)
                 if (minimum ?? -1) < 0 {
                     Button(String(localized: "control.change_sign", defaultValue: "Change Sign"), systemImage: "plusminus") {
                         text = text.hasPrefix("-") ? String(text.dropFirst()) : "-" + text
                     }
-                    .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle)
+                    .labelStyle(.iconOnly).adaptiveGlassButton().buttonBorderShape(.circle)
                 }
                 Button(String(localized: "common.done", defaultValue: "Done"), action: commit)
-                    .buttonStyle(.glassProminent).foregroundStyle(.onAccent).disabled(parsed == nil)
+                    .adaptiveGlassButton(prominent: true).foregroundStyle(.onAccent).disabled(parsed == nil)
                     .accessibilityIdentifier("numeric.done")
             }
             HStack(spacing: 10) {
@@ -428,7 +481,7 @@ private struct NumericEntry: View {
                systemImage: systemImage) {
             set((parsed ?? value) + direction * step)
         }
-        .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.large)
+        .labelStyle(.iconOnly).adaptiveGlassButton().buttonBorderShape(.circle).controlSize(.large)
         .buttonRepeatBehavior(.enabled)
     }
 }

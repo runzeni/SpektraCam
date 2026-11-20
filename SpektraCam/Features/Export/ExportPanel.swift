@@ -99,7 +99,7 @@ struct ExportPanel: View {
             }
             .disabled(saving)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                GlassEffectContainer(spacing: 8) {
+                AdaptiveGlassContainer(spacing: 8) {
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 12) {
                             shareButton
@@ -173,7 +173,7 @@ struct ExportPanel: View {
                                 localized: "export.save_to_photos", defaultValue: "Save to Photos"))
             }.padding(.vertical, 4)
         }
-        .buttonStyle(.glassProminent).foregroundStyle(.onAccent).disabled(url == nil || saving || saved)
+        .adaptiveGlassButton(prominent: true).foregroundStyle(.onAccent).disabled(url == nil || saving || saved)
         .accessibilityIdentifier("export.save")
     }
     private var shareButton: some View {
@@ -184,7 +184,7 @@ struct ExportPanel: View {
             ).padding(.vertical, 4)
                 .foregroundStyle(url == nil || saving ? Color.secondary : Color.primary)
         }
-        .buttonStyle(.glass).disabled(url == nil || saving)
+        .adaptiveGlassButton().disabled(url == nil || saving)
         .accessibilityIdentifier("export.share")
     }
     private func saveToPhotos() {

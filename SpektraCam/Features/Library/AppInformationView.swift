@@ -15,6 +15,7 @@ struct AppInformationView: View {
     var importFiles: (() -> Void)? = nil
     @AppStorage(PreviewQuality.libraryKey) private var libraryMaximum = PreviewQuality.defaultMaximum
     @AppStorage(PreviewQuality.editorKey) private var editorMaximum = PreviewQuality.defaultMaximum
+    @AppStorage(RenderPrecision.storageKey) private var renderPrecision = RenderPrecision.automatic.rawValue
     @AppStorage(EditorDefaults.halationKey) private var defaultHalation = true
     @AppStorage(EditorDefaults.grainKey) private var defaultGrain = true
     @AppStorage(EditorDefaults.monochromeGrainKey) private var defaultMonochromeGrain = false
@@ -106,6 +107,36 @@ struct AppInformationView: View {
                             defaultValue:
                                 "Export uses the original. Preview quality does not reduce the stored photo."
                         ))
+                    Picker(
+                        String(
+                            localized: "about.render_precision",
+                            defaultValue: "Rendering pipeline"),
+                        selection: $renderPrecision
+                    ) {
+                        Text(
+                            String(
+                                localized: "about.render_precision.auto",
+                                defaultValue: "Automatic")
+                        ).tag(RenderPrecision.automatic.rawValue)
+                        Text(
+                            String(
+                                localized: "about.render_precision.16bit",
+                                defaultValue: "16-bit float")
+                        ).tag(RenderPrecision.float16.rawValue)
+                        Text(
+                            String(
+                                localized: "about.render_precision.32bit",
+                                defaultValue: "32-bit float")
+                        ).tag(RenderPrecision.float32.rawValue)
+                    }
+                    .id(accent)
+                    .accessibilityIdentifier("about.renderPrecision")
+                    footnote(
+                        String(
+                            localized: "about.render_precision_note",
+                            defaultValue:
+                                "Automatic uses 16-bit float on lower-memory devices to save memory while keeping highlight headroom; 32-bit float uses maximum precision."
+                        ))
                 }
                 Section(String(localized: "about.new_edit_defaults", defaultValue: "New edit defaults")) {
                     Toggle(String(localized: "effects.halation", defaultValue: "Halation"), isOn: $defaultHalation)
@@ -143,6 +174,7 @@ struct AppInformationView: View {
                         ))
                 }
             }
+            .listSectionSpacing(.compact)
             .navigationTitle(String(localized: "about.about", defaultValue: "About"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -157,7 +189,7 @@ struct AppInformationView: View {
 
     private func previewPicker(_ title: String, selection: Binding<Int>, identifier: String) -> some View {
         Picker(title, selection: selection) {
-            ForEach(PreviewQuality.choices, id: \.self) { Text(verbatim: "\($0) px").tag($0) }
+            ForEach(PreviewQuality.choices, id: \.self) { Text(verbatim: "\($0.formatted()) px").tag($0) }
         }
         .id(accent)  // A menu picker keeps the tint it was built with.
         .accessibilityIdentifier(identifier)

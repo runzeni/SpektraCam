@@ -4,7 +4,6 @@ import SwiftUI
 /// Library keeps its prominent floating camera control.
 struct PhotoWorkspaceCameraToolbar: ToolbarContent {
     var body: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) { CameraButton() }
-            .sharedBackgroundVisibility(.hidden)
+        AdaptiveToolbarItem(placement: .topBarTrailing, background: .hidden) { CameraButton() }
     }
 }

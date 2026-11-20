@@ -152,7 +152,7 @@ struct LibraryView: View {
                         }
                         .accessibilityIdentifier("library.filter").disabled(working)
                     }
-                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                    AdaptiveToolbarSpacer(.fixed, placement: .topBarTrailing)
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             selecting.toggle()
@@ -287,7 +287,7 @@ struct LibraryView: View {
                             .accessibilityHint(String(localized: "library.from_photos", defaultValue: "From Photos"))
                         }
                     }
-                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
                     ToolbarItem(placement: .bottomBar) {
                         Button {
                             showLUTs = true
@@ -314,7 +314,7 @@ struct LibraryView: View {
                             .tint(Color.accentColor).accessibilityIdentifier("camera.open")
                         }
                     }
-                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
                     ToolbarItem(placement: .bottomBar) {
                         Button(
                             String(localized: "common.delete", defaultValue: "Delete"),
@@ -494,7 +494,7 @@ struct LibraryView: View {
                             }
                         }
                     }
-                    .defaultScrollAnchor(.top, for: .initialOffset)
+                    .adaptiveInitialTopScrollAnchor()
                     .onChange(of: scrollRevision) { _, _ in
                         proxy.scrollTo("library.latest", anchor: .top)
                         handledCameraRequest = scrollToLatestRequest

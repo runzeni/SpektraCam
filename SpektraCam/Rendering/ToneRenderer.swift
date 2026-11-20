@@ -15,9 +15,15 @@ nonisolated enum ToneRenderer {
     }
     static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
     private static let display = CGColorSpace(name: CGColorSpace.sRGB)!
-    private static let context = CIContext(options: [
+    private static let context32 = CIContext(options: [
         .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false,
     ])
+    private static let context16 = CIContext(options: [
+        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAh, .cacheIntermediates: false,
+    ])
+    private static var context: CIContext {
+        RenderPrecision.resolved.usesHalfFloat ? context16 : context32
+    }
     private static let gpu = try? GradeKernel()
 
     /// Versioned code-value curve; older grades retain their original formula.
@@ -96,6 +102,8 @@ nonisolated enum ToneRenderer {
             else { throw Failure.render }
             return CIImage(cgImage: strip)
         }
+        let storeFormat = PixelStore.Format.working
+        let pixelBytes = storeFormat.bytesPerPixel
         func fill(_ base: UnsafeMutableRawPointer) throws {
             defer { gpu.releaseStrips() }
             for y in stride(from: 0, to: height, by: 128) {
@@ -107,16 +115,17 @@ nonisolated enum ToneRenderer {
                         luts: luts,
                         residual: residual.map { (try part($0.0, y, rows), try part($0.1, y, rows)) },
                         monochromeResidual: monochromeResidual, normalizationEV: normalizationEV,
-                        into: base.advanced(by: y * width * 16))
+                        format: storeFormat,
+                        into: base.advanced(by: y * width * pixelBytes))
                 }
             }
         }
         if PixelStore.isLarge(width: width, height: height) {
-            let store = try PixelStore(width: width, height: height, format: .float)
+            let store = try PixelStore(width: width, height: height, format: storeFormat)
             try fill(store.base)
             return try store.image(colorSpace: linear)
         }
-        var pixels = Data(count: width * height * 16)
+        var pixels = Data(count: width * height * pixelBytes)
         try pixels.withUnsafeMutableBytes { try fill($0.baseAddress!) }
         return try PhotoColorBridge.workingImage(
             pixels, width: width, height: height, encoded: false)
@@ -157,10 +166,17 @@ nonisolated enum ToneRenderer {
 /// One cached native compute pass; no pixel-array round trip during a grading drag.
 nonisolated private final class GradeKernel: @unchecked Sendable {
     private let device: MTLDevice, queue: MTLCommandQueue, pipeline: MTLComputePipelineState
-    private let context = CIContext(options: [
+    private let context32 = CIContext(options: [
         .workingColorSpace: ToneRenderer.linear, .workingFormat: CIFormat.RGBAf,
         .cacheIntermediates: false,
     ])
+    private let context16 = CIContext(options: [
+        .workingColorSpace: ToneRenderer.linear, .workingFormat: CIFormat.RGBAh,
+        .cacheIntermediates: false,
+    ])
+    private var context: CIContext {
+        RenderPrecision.resolved.usesHalfFloat ? context16 : context32
+    }
     private let lock = NSLock()
     private var input: MTLTexture?, output: MTLTexture?, cachedImage: CGImage?
     private var residualTextures: [MTLTexture] = []
@@ -226,7 +242,8 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
         guard
             let frame = context.createCGImage(
                 result, from: CGRect(x: 0, y: 0, width: image.width, height: image.height),
-                format: .RGBAf, colorSpace: ToneRenderer.linear, deferred: false)
+                format: RenderPrecision.resolved.ciFormat, colorSpace: ToneRenderer.linear,
+                deferred: false)
         else {
             cachedImage = nil
             throw ToneRenderer.Failure.render
@@ -237,7 +254,7 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
     func render(
         strip: CIImage, width: Int, height: Int, tone: EditRecipe.Tone,
         luts: [CubeLUT.Application], residual: (CIImage, CIImage)?, monochromeResidual: Bool,
-        normalizationEV: Double, into target: UnsafeMutableRawPointer
+        normalizationEV: Double, format: PixelStore.Format, into target: UnsafeMutableRawPointer
     ) throws {
         // Strips of one image share their textures; the caller releases them after the last one.
         lock.lock()
@@ -247,8 +264,8 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
             residual: residual.map { [(nil, $0.0), (nil, $0.1)] }, tone: tone, luts: luts,
             monochromeResidual: monochromeResidual, normalizationEV: normalizationEV)
         context.render(
-            result, toBitmap: target, rowBytes: width * 16,
-            bounds: CGRect(x: 0, y: 0, width: width, height: height), format: .RGBAf,
+            result, toBitmap: target, rowBytes: width * format.bytesPerPixel,
+            bounds: CGRect(x: 0, y: 0, width: width, height: height), format: format.ciFormat,
             colorSpace: ToneRenderer.linear)
     }
     func releaseStrips() {
@@ -269,9 +286,11 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
         residual: [(key: CGImage?, image: CIImage)]?, tone: EditRecipe.Tone,
         luts: [CubeLUT.Application], monochromeResidual: Bool, normalizationEV: Double
     ) throws -> CIImage {
-        if input?.width != width || input?.height != height {
+        let textureFormat: MTLPixelFormat =
+            RenderPrecision.resolved.usesHalfFloat ? .rgba16Float : .rgba32Float
+        if input?.width != width || input?.height != height || input?.pixelFormat != textureFormat {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-                pixelFormat: .rgba32Float, width: width, height: height,
+                pixelFormat: textureFormat, width: width, height: height,
                 mipmapped: false)
             descriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
             descriptor.storageMode = .private
@@ -292,9 +311,9 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
         }
         var residualInputs = [input, input]
         if let residual {
-            if residualTextures.isEmpty {
+            if residualTextures.isEmpty || residualTextures.first?.pixelFormat != textureFormat {
                 let d = MTLTextureDescriptor.texture2DDescriptor(
-                    pixelFormat: .rgba32Float, width: width, height: height,
+                    pixelFormat: textureFormat, width: width, height: height,
                     mipmapped: false)
                 // Core Image can use a compute encoder to fill these textures.
                 d.usage = [.shaderRead, .shaderWrite, .renderTarget]

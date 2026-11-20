@@ -1,5 +1,18 @@
 import Metal
 
+extension MTLCompileOptions {
+    nonisolated static var safeMath: MTLCompileOptions {
+        let options = MTLCompileOptions()
+        if #available(iOS 18.0, macOS 15.0, *) {
+            options.mathMode = .safe
+            options.mathFloatingPointFunctions = .precise
+        } else {
+            options.fastMathEnabled = false
+        }
+        return options
+    }
+}
+
 extension MTLComputeCommandEncoder {
     /// Uniform threadgroups work on every Metal device, including Simulator GPUs that do not
     /// support nonuniform dispatch. Kernels must guard the logical bounds before accessing data.

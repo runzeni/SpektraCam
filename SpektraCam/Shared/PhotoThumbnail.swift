@@ -11,7 +11,7 @@ private struct PhotoActionStyle: ViewModifier {
     func body(content: Content) -> some View {
         content.labelStyle(PhotoActionLabelStyle())
             .font(.system(size: 17, weight: .medium))
-            .controlSize(.regular).buttonStyle(.glass).buttonBorderShape(.circle)
+            .controlSize(.regular).adaptiveGlassButton().buttonBorderShape(.circle)
             .frame(width: 44, height: 44)
     }
 }
@@ -20,6 +20,14 @@ extension View {
 }
 
 /// Reuse the root camera presentation from the library, photo and editor.
+private struct CameraActionKey: EnvironmentKey { static let defaultValue: (() -> Void)? = nil }
+extension EnvironmentValues {
+    var openCamera: (() -> Void)? {
+        get { self[CameraActionKey.self] }
+        set { self[CameraActionKey.self] = newValue }
+    }
+}
+
 struct CameraButton: View {
     var prominent = false
     @Environment(\.openCamera) private var openCamera
@@ -27,7 +35,7 @@ struct CameraButton: View {
         Group {
             if prominent {
                 action.labelStyle(PhotoActionLabelStyle(side: 24))
-                    .buttonStyle(.glassProminent).controlSize(.large).tint(Color.accentColor)
+                    .adaptiveGlassButton(prominent: true).controlSize(.large).tint(Color.accentColor)
                     .foregroundStyle(.onAccent)
                     .frame(width: 52, height: 52)
             } else {

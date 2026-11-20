@@ -85,12 +85,12 @@ struct DarkroomWorkspace: View {
             onLoupeInspect: { loupeRect = $0 },
             showLoupe: $showLoupe)
         .overlay(alignment: .top) {
-            if pending { ProgressView().padding(12).glassEffect().accessibilityIdentifier("darkroom.edge.rendering") }
+            if pending { ProgressView().padding(12).adaptiveGlassDefault().accessibilityIdentifier("darkroom.edge.rendering") }
             if let failure {
                 VStack(spacing: 6) {
                     Text(failure).font(.caption)
                     Button(String(localized: "common.retry", defaultValue: "Retry")) { retry += 1 }
-                }.padding(12).glassEffect().accessibilityIdentifier("darkroom.edge.failure")
+                }.padding(12).adaptiveGlassDefault().accessibilityIdentifier("darkroom.edge.failure")
             }
         }
         .task(id: Request(recipe: renderKey, suspended: suspended, retry: retry, interacting: interacting)) {

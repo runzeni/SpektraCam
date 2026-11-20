@@ -14,9 +14,7 @@ actor MetalStages {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw Failure.unavailable
         }
-        let options = MTLCompileOptions()
-        options.mathMode = .safe
-        options.mathFloatingPointFunctions = .precise
+        let options = MTLCompileOptions.safeMath
         let library = try device.makeLibrary(source: source, options: options)
         guard let curve = library.makeFunction(name: "density_curves"),
             let spectral = library.makeFunction(name: "spectral_xyz")

@@ -34,6 +34,9 @@ nonisolated struct ImportedPhoto: Sendable {
             let description = PhotoSource.describe(data, typeHint: typeHint),
             let source = PhotoSource.imageSource(data, typeHint: description.type),
             let preview = neutralPreview.flatMap({ PhotoSource.preview($0, maximum: maximum) })
+                ?? (maximum <= thumbnailMaximumPixelSize
+                    ? PhotoSource.embeddedThumbnail(source, description: description, maximum: maximum)
+                    : nil)
                 ?? PhotoSource.preview(data, description: description, maximum: maximum)
         else { return nil }
         // Materialize ImageIO's lazy provider before UI and renderer share it.

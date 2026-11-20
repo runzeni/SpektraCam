@@ -310,11 +310,14 @@ actor LibraryFiles {
 
 /// Captures stay in Application Support until their library index commit succeeds.
 nonisolated struct CameraInbox: Sendable {
+    private static let supportedExtensions: Set<String> = ["dng", "heic", "jpg", "jpeg"]
     let directory: URL
     init(root: URL) { directory = root.appendingPathComponent("CameraInbox", isDirectory: true) }
-    func store(_ data: Data) throws -> URL {
+    func store(_ data: Data, fileExtension: String = "dng") throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("dng")
+        let ext = Self.supportedExtensions.contains(fileExtension.lowercased())
+            ? fileExtension.lowercased() : "dng"
+        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
         try data.write(to: url, options: .atomic)
         return url
     }
@@ -323,7 +326,7 @@ nonisolated struct CameraInbox: Sendable {
         return try FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
         )
-        .filter { $0.pathExtension.lowercased() == "dng" }.sorted {
+        .filter { Self.supportedExtensions.contains($0.pathExtension.lowercased()) }.sorted {
             $0.lastPathComponent < $1.lastPathComponent
         }
     }

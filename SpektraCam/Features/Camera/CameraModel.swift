@@ -10,7 +10,17 @@ import UIKit
     private(set) var state = State.starting
     private(set) var source: CameraPreviewSource?
     private(set) var formats: [CameraFormat] = []
-    var format = CameraFormat.proRAW
+    @ObservationIgnored private var applyingConfiguration = false
+    @ObservationIgnored private var preferredFormat = CameraFormat.proRAW
+    var format = CameraFormat.proRAW {
+        didSet {
+            guard !applyingConfiguration, format != oldValue else { return }
+            preferredFormat = format
+            let selected = format
+            let flash = flashOn && flashAvailable
+            Task { await service.prepare(format: selected, flash: flash) }
+        }
+    }
     private(set) var busy = false
     private(set) var outputReady = false
     private(set) var savedCount = 0
@@ -37,6 +47,10 @@ import UIKit
             if UserDefaults.standard.bool(forKey: Self.rememberFlashKey) {
                 UserDefaults.standard.set(flashOn, forKey: Self.flashKey)
             }
+            guard !applyingConfiguration, flashOn != oldValue else { return }
+            let selected = format
+            let flash = flashOn && flashAvailable
+            Task { await service.prepare(format: selected, flash: flash) }
         }
     }
     @ObservationIgnored private var importTask: Task<Void, Never>?
@@ -47,15 +61,19 @@ import UIKit
     private var wantsActive = false
     private var starting = false
     private var closed = false
+    @ObservationIgnored private var activeSaves = 0
     @ObservationIgnored private var backgroundTask = UIBackgroundTaskIdentifier.invalid
+
     init(library: PhotoLibrary) {
         self.library = library
         if UserDefaults.standard.bool(forKey: Self.rememberFlashKey) {
+            applyingConfiguration = true
             flashOn = UserDefaults.standard.bool(forKey: Self.flashKey)
+            applyingConfiguration = false
         }
     }
-    /// A capture is possible again as soon as its file is written; importing does not block it.
-    /// Only a failed import with captures still waiting holds the shutter.
+    /// Shutter unlocks as soon as exposure completes; background ISP fusion and library import
+    /// continue behind the next shot while `outputReady` reflects AVFoundation's readiness.
     var canCapture: Bool {
         !closed && wantsActive && !held && state == .ready && outputReady && !busy
             && (saveFailure == nil || pendingCount == 0)
@@ -160,38 +178,62 @@ import UIKit
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #if DEBUG && targetEnvironment(simulator)
             if Self.demo {
-                try? await Task.sleep(for: .milliseconds(120))
+                try? await Task.sleep(for: .milliseconds(80))
                 savedCount += 1
                 busy = false
                 return
             }
         #endif
-        beginCaptureTask()
+        beginSaveSlot()
         do {
-            _ = try await service.takePhoto(
+            try await service.takePhoto(
                 format: format, rotation: source?.captureRotation ?? 90,
                 inbox: CameraInbox(root: library.files.root), location: location.captureLocation,
-                flash: flashOn && flashAvailable)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                flash: flashOn && flashAvailable
+            ) { [weak self, library] outcome in
+                if let self {
+                    self.handleStoredCapture(outcome)
+                } else if case .success = outcome {
+                    // Camera closed while ISP was finishing: import the durable inbox file anyway.
+                    Task { @MainActor in _ = try? await library.recoverCaptures() }
+                }
+            }
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             busy = false
-            scheduleImport()
         } catch {
             saveFailure = error.localizedDescription
             busy = false
-            endCaptureTask()
+            endSaveSlot()
+        }
+    }
+    private func handleStoredCapture(_ outcome: Result<URL, Error>) {
+        switch outcome {
+        case .success:
+            scheduleImport()
+        case .failure(let error):
+            saveFailure = error.localizedDescription
+            endSaveSlot()
         }
     }
     /// The capture is already safe in the inbox. Import it behind the next shot, one at a time.
     private func scheduleImport() {
         let previous = importTask
-        importTask = Task {
+        let library = self.library
+        importTask = Task { @MainActor [weak self] in
             await previous?.value
             do {
-                savedCount += try await library.recoverCaptures()
-                saveFailure = nil
-            } catch { saveFailure = error.localizedDescription }
-            pendingCount = (try? await library.files.pendingCaptures().count) ?? 0
-            endCaptureTask()
+                let recovered = try await library.recoverCaptures()
+                if let self {
+                    self.savedCount += recovered
+                    self.saveFailure = nil
+                }
+            } catch {
+                self?.saveFailure = error.localizedDescription
+            }
+            if let self {
+                self.pendingCount = (try? await library.files.pendingCaptures().count) ?? 0
+                self.endSaveSlot()
+            }
         }
     }
     func retryImport() async {
@@ -205,6 +247,8 @@ import UIKit
         pendingCount = (try? await library.files.pendingCaptures().count) ?? 0
     }
     private func apply(_ configuration: CameraService.Configuration) {
+        applyingConfiguration = true
+        defer { applyingConfiguration = false }
         source = configuration.source
         formats = configuration.formats
         lenses = configuration.lenses
@@ -215,7 +259,14 @@ import UIKit
         exposureBias = configuration.exposureBias
         exposureRange = configuration.exposureRange
         flashAvailable = configuration.flashAvailable
-        if !formats.contains(format), let first = formats.first { format = first }
+        if formats.contains(preferredFormat) {
+            format = preferredFormat
+        } else if !formats.contains(format), let first = formats.first {
+            format = first
+        }
+        let selected = format
+        let flash = flashOn && flashAvailable
+        Task { await service.prepare(format: selected, flash: flash) }
     }
     func selectLens(_ lens: CameraLens, macro: Bool = false) async {
         guard !busy, state == .ready else { return }
@@ -237,6 +288,12 @@ import UIKit
     }
     func setHighResolution(_ enabled: Bool) async {
         guard !busy, state == .ready else { return }
+        #if DEBUG && targetEnvironment(simulator)
+            if Self.demo {
+                highResolution = enabled
+                return
+            }
+        #endif
         busy = true
         defer { busy = false }
         do { apply(try await service.setHighResolution(enabled)) } catch {
@@ -284,12 +341,18 @@ import UIKit
             await selectLens(lens)
         }
     }
-    private func beginCaptureTask() {
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Save RAW Photo") { [weak self] in
-            Task { @MainActor in self?.endCaptureTask() }
+    private func beginSaveSlot() {
+        activeSaves += 1
+        guard backgroundTask == .invalid else { return }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Save Camera Photo") { [weak self] in
+            Task { @MainActor in self?.forceEndBackgroundTask() }
         }
     }
-    private func endCaptureTask() {
+    private func endSaveSlot() {
+        activeSaves = max(0, activeSaves - 1)
+        if activeSaves == 0 { forceEndBackgroundTask() }
+    }
+    private func forceEndBackgroundTask() {
         guard backgroundTask != .invalid else { return }
         UIApplication.shared.endBackgroundTask(backgroundTask)
         backgroundTask = .invalid
@@ -298,25 +361,35 @@ import UIKit
         /// A stand-in camera for layout checks: every control is live, the viewfinder is empty.
         static let demo = ProcessInfo.processInfo.arguments.contains("--ui-test-camera-demo")
         private func applyDemo() {
-            if ProcessInfo.processInfo.arguments.contains("--ui-test-camera-no-raw") {
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("--ui-test-camera-no-raw") {
                 lenses = []
                 formats = []
                 outputReady = false
                 state = .rawUnsupported
                 return
             }
-            let bayerOnly = ProcessInfo.processInfo.arguments.contains("--ui-test-camera-bayer-only")
+            let bayerOnly = args.contains("--ui-test-camera-bayer-only")
+            let regularOnly = args.contains("--ui-test-camera-regular-only")
             lenses = [
-                CameraLens(id: "13", millimeters: 13, front: false, macro: true, primary: false),
+                CameraLens(id: "13", millimeters: 13, front: false, macro: !regularOnly, primary: false),
                 CameraLens(id: "24", millimeters: 24, front: false, macro: false, primary: true),
                 CameraLens(id: "120", millimeters: 120, front: false, macro: false, primary: false),
                 CameraLens(id: "front", millimeters: 23, front: true, macro: false, primary: false),
             ]
-            if bayerOnly { lenses = lenses.filter { $0.primary || $0.id == "120" } }
+            if bayerOnly {
+                lenses = lenses.filter { $0.primary || $0.id == "120" }
+            } else if regularOnly {
+                lenses = lenses.filter { $0.id != "120" }
+            }
             if selectedLens == nil { selectedLens = lenses.first(where: \.primary) }
-            formats = bayerOnly ? [.bayerRAW] : CameraFormat.allCases
+            applyingConfiguration = true
+            formats =
+                regularOnly ? [.heic] : (bayerOnly ? [.bayerRAW] : [.proRAW, .bayerRAW, .heic])
             if !formats.contains(format), let first = formats.first { format = first }
-            maximumMegapixels = 48
+            preferredFormat = format
+            applyingConfiguration = false
+            maximumMegapixels = regularOnly ? 24 : 48
             flashAvailable = selectedLens?.front != true
             outputReady = true
             readings = CameraReadings(
@@ -327,7 +400,9 @@ import UIKit
     #endif
     func close() async {
         if !UserDefaults.standard.bool(forKey: Self.rememberFlashKey) {
+            applyingConfiguration = true
             flashOn = false
+            applyingConfiguration = false
             UserDefaults.standard.removeObject(forKey: Self.flashKey)
         }
         closed = true

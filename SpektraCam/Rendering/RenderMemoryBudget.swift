@@ -83,17 +83,21 @@ nonisolated enum RenderMemoryBudget {
         guard pixels <= UInt64(device.maxBufferLength / 16) else { throw Failure() }
         // Full-frame graph storage plus CPU input; decode and pointwise grade have separate lifetimes.
         // Pointwise grading uses 128-row strips, including LUT/noise references.
+        let halfFloat = RenderPrecision.resolved.usesHalfFloat
         var estimate = recipe.look.enabled
-            ? pixels * (recipe.look.mode == .lut ? 192 : 176) + 96 * 1024 * 1024
-            : pixels * 80 + 32 * 1024 * 1024
+            ? pixels * (recipe.look.mode == .lut ? (halfFloat ? 144 : 192) : (halfFloat ? 152 : 176))
+                + (halfFloat ? 64 : 96) * 1024 * 1024
+            : pixels * (halfFloat ? 48 : 80) + 32 * 1024 * 1024
         // The support graph plus an optional retained center/paper bitmap. No mask bitmap.
-        if recipe.filmEdgeLayout != nil { estimate += pixels * 64 }
-        if recipe.look.enabled && recipe.look.mode == .spektrafilm && recipe.mix < 1 { estimate += pixels * 32 }
+        if recipe.filmEdgeLayout != nil { estimate += pixels * (halfFloat ? 36 : 64) }
+        if recipe.look.enabled && recipe.look.mode == .spektrafilm && recipe.mix < 1 {
+            estimate += pixels * (halfFloat ? 16 : 32)
+        }
         if recipe.look.enabled && recipe.monochromeGrain && recipe.flag("film_render.grain.active") {
             estimate += pixels * 32
         }
         if max(width, height) <= 2048 && !recipe.tone.outputStage.isIdentity {
-            estimate += pixels * 48
+            estimate += pixels * (halfFloat ? 24 : 48)
         }
         let transforms = try diffusionTransformBytes(
             width: width, height: height, recipe: recipe, pixelPitchMicrometers: pixelPitchMicrometers)
@@ -105,8 +109,9 @@ nonisolated enum RenderMemoryBudget {
                 min(MetalFilmPipeline.Tiling.fitting(available: allowance).tileEdge, max(width, height)))
             let graph: UInt64 = recipe.look.enabled ? edge * edge * 16 * 14 : 0
             // A film edge that composites a separately graded centre also holds its gate mask.
-            let perPixel: UInt64 = recipe.filmEdgeLayout == nil ? 12 : 18
-            let tiled = graph + pixels * perPixel + 160 * 1024 * 1024
+            let perPixel: UInt64 =
+                recipe.filmEdgeLayout == nil ? (halfFloat ? 8 : 12) : (halfFloat ? 12 : 18)
+            let tiled = graph + pixels * perPixel + (halfFloat ? 112 : 160) * 1024 * 1024
             guard allowOvercommit || tiled < allowance else {
                 throw Failure(estimated: tiled, available: allowance)
             }

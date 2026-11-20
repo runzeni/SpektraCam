@@ -12,9 +12,7 @@ actor MetalDiffusion {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw Failure.unavailable
         }
-        let options = MTLCompileOptions()
-        options.mathMode = .safe
-        options.mathFloatingPointFunctions = .precise
+        let options = MTLCompileOptions.safeMath
         let library = try device.makeLibrary(source: source, options: options)
         self.device = device
         self.queue = queue

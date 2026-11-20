@@ -372,16 +372,16 @@ struct FormulaLibraryView: View {
                     }
                     .disabled(working).accessibilityIdentifier("formula.import")
                 }
-                ToolbarSpacer(.flexible, placement: .bottomBar)
-                ToolbarItem(placement: .bottomBar) {
+                AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
+                AdaptiveToolbarItem(placement: .bottomBar, background: .hidden) {
                     Text(
                         String(
                             localized: "formula.item_count",
                             defaultValue: "\(formulae.items.count) formulae")
                     )
                     .font(.footnote).foregroundStyle(.secondary)
-                }.sharedBackgroundVisibility(.hidden)
-                ToolbarSpacer(.flexible, placement: .bottomBar)
+                }
+                AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
                 ToolbarItem(placement: .bottomBar) {
                     Button(
                         String(localized: "common.delete", defaultValue: "Delete"),

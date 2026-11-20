@@ -42,19 +42,19 @@ struct CameraView: View {
                     .labelStyle(.iconOnly).buttonBorderShape(.circle)
                     .disabled(model.busy).accessibilityIdentifier("camera.close")
                 }
-                ToolbarSpacer(.fixed, placement: .topBarLeading)
-                ToolbarItem(placement: .topBarLeading) {
+                AdaptiveToolbarSpacer(.fixed, placement: .topBarLeading)
+                AdaptiveToolbarItem(placement: .topBarLeading, background: .visible) {
                     formatControl.frame(width: 84, height: 32).accessibilityIdentifier(
                         "camera.format")
-                }.sharedBackgroundVisibility(.visible)
+                }
                 ToolbarItem(placement: .principal) {
                     CameraHistogram(model: model).frame(width: 100, height: 32)
                         .opacity(ready ? 1 : 0)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                AdaptiveToolbarItem(placement: .topBarTrailing, background: .visible) {
                     CameraExposureReadout(model: model).frame(width: 84, height: 32)
                         .accessibilityIdentifier("camera.exposureInfo")
-                }.sharedBackgroundVisibility(.visible)
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 14) {
@@ -157,8 +157,8 @@ struct CameraView: View {
             .padding(.horizontal, layout == .stacked ? 6 : 12)
             // Hardware capture follows the same readiness as the shutter. A held camera has
             // no running session, so volume buttons retain their system behavior until resumed.
-            .onCameraCaptureEvent(isEnabled: scenePhase == .active && model.canCapture) { event in
-                if event.phase == .ended { Task { await model.takePhoto() } }
+            .adaptiveCameraCaptureEvent(isEnabled: scenePhase == .active && model.canCapture) {
+                Task { await model.takePhoto() }
             }
     }
 
@@ -206,7 +206,7 @@ struct CameraView: View {
             } actions: {
                 Button(String(localized: "camera.open_settings", defaultValue: "Open Settings")) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                }.buttonStyle(.glass)
+                }.adaptiveGlassButton()
             }
         case .failed(let message):
             ContentUnavailableView {
@@ -218,7 +218,7 @@ struct CameraView: View {
             } actions: {
                 Button(String(localized: "common.retry", defaultValue: "Retry")) {
                     Task { await model.setActive(true) }
-                }.buttonStyle(.glass)
+                }.adaptiveGlassButton()
             }
         }
     }
@@ -251,10 +251,10 @@ struct CameraView: View {
                     Button(String(localized: "camera.retry_import", defaultValue: "Retry Import")) {
                         Task { await model.retryImport() }
                     }
-                    .buttonStyle(.glass).disabled(model.busy)
+                    .adaptiveGlassButton().disabled(model.busy)
                     .accessibilityIdentifier("camera.retryImport")
                 }
-            }.padding().glassEffect(in: .rect(cornerRadius: 20))
+            }.padding().adaptiveGlassRect(cornerRadius: 20)
         }
     }
 
@@ -296,7 +296,7 @@ struct CameraView: View {
             }
         }
         .buttonStyle(.plain).padding(4)
-        .glassEffect(.regular, in: .capsule)
+        .adaptiveGlassCapsule()
         .disabled(model.busy).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
@@ -344,7 +344,7 @@ struct CameraView: View {
                 .foregroundStyle(model.held ? Color.black : Color.primary)
                 .fixedSize().rotationEffect(turn).frame(width: 52, height: 52)
                 .background { if model.held { Circle().fill(Color.accentColor) } }
-                .glassEffect(.regular.interactive(), in: .circle)
+                .adaptiveGlassCircle(interactive: true)
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
@@ -399,27 +399,37 @@ struct CameraView: View {
         .buttonStyle(ShutterStyle(busy: model.busy, animates: !reduceMotion))
         // On hold, the shutter wakes the camera.
         .disabled(!(model.canCapture || model.held))
-        .accessibilityLabel(String(localized: "camera.take_raw_photo", defaultValue: "Take RAW Photo"))
+        .accessibilityLabel(
+            model.format.isRAW
+                ? String(localized: "camera.take_raw_photo", defaultValue: "Take RAW Photo")
+                : String(localized: "camera.take_photo", defaultValue: "Take Photo")
+        )
         .accessibilityIdentifier("camera.shutter")
     }
 
     private var megapixels: Int {
-        model.format == .proRAW && model.highResolution ? model.maximumMegapixels : 12
+        model.format.supportsResolutionChoice && model.highResolution ? model.maximumMegapixels : 12
     }
     // Bayer RAW dimensions come from the sensor, not a universal 12 MP promise.
-    private var formatSummary: String { model.format == .proRAW ? "PRO \(megapixels)" : "RAW" }
+    private var formatSummary: String {
+        model.format.badge(
+            megapixels: megapixels, highResolution: model.highResolution,
+            maximumMegapixels: model.maximumMegapixels)
+    }
     @ViewBuilder private var formatControl: some View {
         if !model.formats.isEmpty {
             Menu {
                 if model.formats.count > 1 {
                     Picker(
-                        String(localized: "camera.raw_format", defaultValue: "RAW Format"),
+                        model.formats.allSatisfy(\.isRAW)
+                            ? String(localized: "camera.raw_format", defaultValue: "RAW Format")
+                            : String(localized: "camera.capture_format", defaultValue: "Format"),
                         selection: $model.format
                     ) {
                         ForEach(model.formats) { Text($0.title).tag($0) }
                     }
                 }
-                if model.maximumMegapixels > 12 && model.format == .proRAW {
+                if model.maximumMegapixels > 12 && model.format.supportsResolutionChoice {
                     Picker(
                         String(localized: "camera.resolution", defaultValue: "Resolution"),
                         selection: Binding(
@@ -439,7 +449,10 @@ struct CameraView: View {
                 Text(verbatim: formatSummary).font(.caption.weight(.semibold)).monospacedDigit()
             }
             .disabled(model.busy).accessibilityIdentifier("camera.format")
-            .accessibilityLabel(model.format == .proRAW ? model.format.title + ", \(megapixels) MP" : model.format.title)
+            .accessibilityLabel(
+                model.format.supportsResolutionChoice
+                    && (model.format == .proRAW || model.highResolution)
+                    ? model.format.title + ", \(megapixels) MP" : model.format.title)
         } else {
             Text("DNG").font(.caption.weight(.semibold)).accessibilityLabel(
                 String(localized: "camera.dng_raw", defaultValue: "DNG RAW"))
@@ -509,7 +522,21 @@ private struct CameraHoldScreen: View {
 private struct CameraRoundControl: ViewModifier {
     func body(content: Content) -> some View {
         content.frame(width: 44, height: 44)
-            .glassEffect(.regular.interactive(), in: .circle).contentShape(.circle)
+            .adaptiveGlassCircle(interactive: true).contentShape(.circle)
+    }
+}
+
+private extension View {
+    @ViewBuilder func adaptiveCameraCaptureEvent(
+        isEnabled: Bool, action: @escaping () -> Void
+    ) -> some View {
+        if #available(iOS 18.0, *) {
+            onCameraCaptureEvent(isEnabled: isEnabled) { event in
+                if event.phase == .ended { action() }
+            }
+        } else {
+            self
+        }
     }
 }
 
@@ -542,13 +569,5 @@ private struct ShutterStyle: ButtonStyle {
             .opacity(enabled ? 1 : 0.35)
             .animation(animates ? .snappy(duration: 0.15) : nil, value: configuration.isPressed)
             .contentShape(.circle)
-    }
-}
-
-private struct CameraActionKey: EnvironmentKey { static let defaultValue: (() -> Void)? = nil }
-extension EnvironmentValues {
-    var openCamera: (() -> Void)? {
-        get { self[CameraActionKey.self] }
-        set { self[CameraActionKey.self] = newValue }
     }
 }

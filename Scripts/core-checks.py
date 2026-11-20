@@ -68,12 +68,13 @@ for key, (files, arguments) in checks.items():
  if 'LibraryImages' in files and 'ImageRequestPool' not in files:
   files.append('ImageRequestPool')
 checks['image-requests'] = (['ImageRequestPool'], [])
-checks['editor-session-benchmark'] = (list(dict.fromkeys(checks['processed-export'][0] + ['EditorSession','Log','EditorDefaults','PhotoHistogram','LUTLibrary','PhotoCanvas','PhotoInfoPanel'])), ['.'])
+checks['editor-session-benchmark'] = (list(dict.fromkeys(checks['library'][0] + ['EditorSession','Log','PhotoHistogram','PhotoCanvas','PhotoInfoPanel','PasteLookSheet','FormulaViews','FormulaCard','FormulaCode','FormulaProcess','FormulaSharing','FailureAlert','PhotoThumbnail','LUTPanel','PanelTabs','AppAccent','AdaptiveToggle','ParameterControl','PlatformCompatibility'])), ['.'])
 checks['editor-benchmark'] = (checks['processed-export'][0], ['.'])
 checks['lut-grain'] = (checks['processed-export'][0], ['.'])
 checks['film-edge'] = (list(dict.fromkeys(checks['processed-export'][0] + ['PrintCompositor', 'FilmEdgeRenderer', 'BatchPhotoExporter'])), ['.'])
 checks['darkroom-orientation'] = (list(dict.fromkeys(checks['processed-export'][0] + ['PrintCompositor', 'FilmEdgeRenderer'])), ['.'])
 checks['darkroom'] = (list(dict.fromkeys(checks['export'][0] + checks['recipe'][0] + ['PrintCompositor'])), [])
+checks['precision'] = (checks['library'][0], ['.'])
 for files, arguments in checks.values():
  if any(f.startswith('Metal') or f == 'ToneRenderer' for f in files) and 'MetalDispatch' not in files: files.append('MetalDispatch')
  if any(f in files for f in ['MetalFilmPipeline','SourceImageRenderer','ToneRenderer']) and 'PixelStore' not in files: files.append('PixelStore')
@@ -96,7 +97,7 @@ if args.simulator:
  if env.get('SPEKTRACAM_SIMULATOR_ID'): booted=[d for d in booted if d==env['SPEKTRACAM_SIMULATOR_ID']]
  if not booted: raise SystemExit('Boot a Simulator before using --simulator.')
  simulator = [simctl,'spawn',booted[0]]
- compiler += ['-target',platform.machine()+'-apple-ios26.0-simulator']
+ compiler += ['-target',platform.machine()+'-apple-ios17.0-simulator','-default-isolation','MainActor']
 for name in args.checks or [key for key in checks if not key.startswith('metal-') and not key.endswith('-benchmark') and key not in ['raw-input','processed-export','stress-export','bypass','tone-response']]:
  files,arguments=checks[name];binary=out/(name+'-checks'+('-simulator' if args.simulator else ''))
  subprocess.run(compiler+(['-O','-assert-config','Debug'] if args.optimized else ['-O'] if name.endswith('-benchmark') and not args.debug_benchmarks else [])+[str(sources[f]) for f in files]+[str(root/'Scripts'/(name+'-checks.swift')),'-o',str(binary)],env=env,check=True)

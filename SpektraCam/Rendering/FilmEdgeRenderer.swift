@@ -6,8 +6,34 @@ import simd
 /// Shared by editor previews and every export caller. The paper/table never enter this stage.
 nonisolated enum FilmEdgeRenderer {
     private static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
-    private static let context = CIContext(options: [.workingColorSpace: linear,
-        .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false])
+    private static let context32 = CIContext(options: [
+        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false,
+    ])
+    private static let context16 = CIContext(options: [
+        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAh, .cacheIntermediates: false,
+    ])
+    private static var context: CIContext {
+        RenderPrecision.resolved.usesHalfFloat ? context16 : context32
+    }
+
+    @inline(__always) private static func halfToFloat(_ h: UInt16) -> Float {
+        let sign = UInt32(h & 0x8000) << 16
+        let exp = UInt32((h >> 10) & 0x1F)
+        let mant = UInt32(h & 0x03FF)
+        if exp == 0 {
+            if mant == 0 { return Float(bitPattern: sign) }
+            let v = Float(mant) * 0x1p-24
+            return sign == 0 ? v : -v
+        }
+        if exp == 31 {
+            return Float(bitPattern: sign | 0x7F80_0000 | (mant << 13))
+        }
+        return Float(bitPattern: sign | ((exp + 112) << 23) | (mant << 13))
+    }
+
+    @inline(__always) private static func halfPixel(_ p: SIMD4<UInt16>) -> SIMD4<Float> {
+        SIMD4(halfToFloat(p.x), halfToFloat(p.y), halfToFloat(p.z), halfToFloat(p.w))
+    }
 
     /// Covered paper is the output reference white, independent of scanner glare, LUTs and
     /// grading. Keep the exposure-space blade simulation; anchor its covered side after tone
@@ -95,45 +121,61 @@ nonisolated enum FilmEdgeRenderer {
         let width = region?.w ?? geometry.width, height = region?.h ?? geometry.height
         let left = Double(region?.x ?? 0), top = Double(region?.y ?? 0)
         let store = region != nil || PixelStore.isLarge(width: width, height: height)
-            ? try PixelStore(width: width, height: height, format: .float) : nil
+            ? try PixelStore(width: width, height: height, format: .working) : nil
         var pixels = Array(repeating: SIMD4<Float>.zero, count: store == nil ? width * height : 0)
-        func fill(_ source: UnsafePointer<SIMD4<Float>>, _ target: UnsafeMutablePointer<SIMD4<Float>>) throws {
-            let mm = geometry.millimetersPerPixel
-            let cx = Double(geometry.width) / 2, cy = Double(geometry.height) / 2
-            let bands = max(1, min(height / 32, ProcessInfo.processInfo.activeProcessorCount * 4))
-            nonisolated(unsafe) let source = source, target = target
-            DispatchQueue.concurrentPerform(iterations: bands) { band in
-                for y in (band * height / bands)..<((band + 1) * height / bands) {
-                    for x in 0..<width {
-                        let (fx, fy) = geometry.film(left + Double(x) + 0.5, top + Double(y) + 0.5)
-                        let px = cx + fx / mm, py = cy + fy / mm
-                        let sx = min(max((px - geometry.gate.minX) / geometry.gate.width * Double(input.width) - 0.5, 0), Double(input.width - 1))
-                        let sy = min(max((py - geometry.gate.minY) / geometry.gate.height * Double(input.height) - 0.5, 0), Double(input.height - 1))
-                        let x0 = Int(sx), x1 = min(x0 + 1, input.width - 1), fx0 = Float(sx - Double(x0))
-                        let y0 = Int(sy), y1 = min(y0 + 1, input.height - 1), fy0 = Float(sy - Double(y0))
-                        let a = source[y0 * input.width + x0] * (1 - fx0) + source[y0 * input.width + x1] * fx0
-                        let b = source[y1 * input.width + x0] * (1 - fx0) + source[y1 * input.width + x1] * fx0
-                        target[y * width + x] = a * (1 - fy0) + b * fy0
+        let mm = geometry.millimetersPerPixel
+        let cx = Double(geometry.width) / 2, cy = Double(geometry.height) / 2
+        let bands = max(1, min(height / 32, ProcessInfo.processInfo.activeProcessorCount * 4))
+        let inStore = input.store
+        let halfSource = inStore?.format == .half
+        nonisolated(unsafe) let rawSource = inStore?.base
+        return try input.pixels.withUnsafeBufferPointer { arrayBuffer in
+            nonisolated(unsafe) let arrayPtr = arrayBuffer.baseAddress
+            @inline(__always) func sample(_ index: Int) -> SIMD4<Float> {
+                if let rawSource {
+                    if halfSource {
+                        return halfPixel(rawSource.assumingMemoryBound(to: SIMD4<UInt16>.self)[index])
+                    }
+                    return rawSource.assumingMemoryBound(to: SIMD4<Float>.self)[index]
+                }
+                return arrayPtr![index]
+            }
+            @inline(__always) func computeRow(_ y: Int, into rowPtr: UnsafeMutablePointer<SIMD4<Float>>) {
+                for x in 0..<width {
+                    let (fx, fy) = geometry.film(left + Double(x) + 0.5, top + Double(y) + 0.5)
+                    let px = cx + fx / mm, py = cy + fy / mm
+                    let sx = min(max((px - geometry.gate.minX) / geometry.gate.width * Double(input.width) - 0.5, 0), Double(input.width - 1))
+                    let sy = min(max((py - geometry.gate.minY) / geometry.gate.height * Double(input.height) - 0.5, 0), Double(input.height - 1))
+                    let x0 = Int(sx), x1 = min(x0 + 1, input.width - 1), fx0 = Float(sx - Double(x0))
+                    let y0 = Int(sy), y1 = min(y0 + 1, input.height - 1), fy0 = Float(sy - Double(y0))
+                    let a = sample(y0 * input.width + x0) * (1 - fx0) + sample(y0 * input.width + x1) * fx0
+                    let b = sample(y1 * input.width + x0) * (1 - fx0) + sample(y1 * input.width + x1) * fx0
+                    rowPtr[x] = a * (1 - fy0) + b * fy0
+                }
+            }
+            if let store {
+                DispatchQueue.concurrentPerform(iterations: bands) { band in
+                    var row = [SIMD4<Float>](repeating: .zero, count: width)
+                    row.withUnsafeMutableBufferPointer { buf in
+                        for y in (band * height / bands)..<((band + 1) * height / bands) {
+                            computeRow(y, into: buf.baseAddress!)
+                            store.write(x: 0, y: y, width: width, height: 1, from: buf.baseAddress!, sourceRowBytes: width * 16)
+                        }
+                    }
+                }
+            } else {
+                pixels.withUnsafeMutableBufferPointer { target in
+                    nonisolated(unsafe) let out = target.baseAddress!
+                    DispatchQueue.concurrentPerform(iterations: bands) { band in
+                        for y in (band * height / bands)..<((band + 1) * height / bands) {
+                            computeRow(y, into: out.advanced(by: y * width))
+                        }
                     }
                 }
             }
             try Task.checkCancellation()
+            return .init(pixels: pixels, width: width, height: height, store: store)
         }
-        func read(_ body: (UnsafePointer<SIMD4<Float>>) throws -> Void) throws {
-            if let source = input.store {
-                try body(UnsafePointer(source.base.assumingMemoryBound(to: SIMD4<Float>.self)))
-            } else {
-                try input.pixels.withUnsafeBufferPointer { try body($0.baseAddress!) }
-            }
-        }
-        if let store {
-            try read { try fill($0, store.base.assumingMemoryBound(to: SIMD4<Float>.self)) }
-        } else {
-            try pixels.withUnsafeMutableBufferPointer { target in
-                try read { try fill($0, target.baseAddress!) }
-            }
-        }
-        return .init(pixels: pixels, width: width, height: height, store: store)
     }
 
     /// Creative cross-family / LUT / partial-Mix choices keep the developed center untouched.
@@ -168,15 +210,13 @@ nonisolated enum FilmEdgeRenderer {
                 result, width: geometry.width, height: geometry.height, context: context,
                 colorSpace: linear)
             if needsPass {
-                var view = UnsafeMutableBufferPointer(
-                    start: store.base.assumingMemoryBound(to: SIMD4<Float>.self),
-                    count: geometry.width * geometry.height)
-                try applyCenterDamage(&view, mask: mask, geometry: geometry, paperPrint: paperPrint)
+                try applyCenterDamage(store, mask: mask, geometry: geometry, paperPrint: paperPrint)
             }
             return try store.image(colorSpace: linear)
         }
+        let workingFormat = RenderPrecision.resolved.ciFormat
         guard needsPass else {
-            guard let image = context.createCGImage(result, from: canvas, format: .RGBAf, colorSpace: linear, deferred: false)
+            guard let image = context.createCGImage(result, from: canvas, format: workingFormat, colorSpace: linear, deferred: false)
             else { throw PhotoExporter.Failure.render }
             return image
         }
@@ -190,7 +230,7 @@ nonisolated enum FilmEdgeRenderer {
         }
         let data = pixels.withUnsafeBytes { Data($0) }
         let damaged = CIImage(bitmapData: data, bytesPerRow: w * 16, size: CGSize(width: w, height: h), format: .RGBAf, colorSpace: linear)
-        guard let image = context.createCGImage(damaged, from: canvas, format: .RGBAf, colorSpace: linear, deferred: false)
+        guard let image = context.createCGImage(damaged, from: canvas, format: workingFormat, colorSpace: linear, deferred: false)
         else { throw PhotoExporter.Failure.render }
         return image
     }
@@ -244,14 +284,78 @@ nonisolated enum FilmEdgeRenderer {
         }
         if let store = input.store {
             // The framed source is kept between frames; never expose it in place.
-            let copy = try PixelStore(width: w, height: h, format: .float)
-            copy.base.copyMemory(from: store.base, byteCount: store.length)
-            try expose(copy.base.assumingMemoryBound(to: SIMD4<Float>.self))
+            let copy = try PixelStore(width: w, height: h, format: store.format)
+            let bands = max(1, min(h, ProcessInfo.processInfo.activeProcessorCount * 4))
+            DispatchQueue.concurrentPerform(iterations: bands) { band in
+                var row = [SIMD4<Float>](repeating: .zero, count: w)
+                row.withUnsafeMutableBufferPointer { buf in
+                    for y in (band * h / bands)..<((band + 1) * h / bands) {
+                        store.read(x: 0, y: y, width: w, height: 1, into: buf.baseAddress!)
+                        let py = gate.minY + (Double(y) + 0.5) / Double(h) * gate.height
+                        for x in 0..<w {
+                            let px = gate.minX + (Double(x) + 0.5) / Double(w) * gate.width
+                            let e = geometry.exposureFields(filmX: (px - cx) * mm, filmY: (py - cy) * mm)
+                            let light = leakTint * Float(e.front + e.back) + fogTint * Float(e.fog)
+                            if light == .zero { continue }
+                            let p = buf[x], v = SIMD3(p.x, p.y, p.z)
+                            let c = simd_clamp(v, .zero, SIMD3(repeating: 0.999))
+                            let lifted = SIMD3(linearized(c.x), linearized(c.y), linearized(c.z)) + 0.184 * light
+                            let lit = v + SIMD3(shouldered(lifted.x), shouldered(lifted.y), shouldered(lifted.z)) - c
+                            buf[x] = SIMD4(lit.x, lit.y, lit.z, p.w)
+                        }
+                        copy.write(x: 0, y: y, width: w, height: 1, from: buf.baseAddress!, sourceRowBytes: w * 16)
+                    }
+                }
+            }
+            try Task.checkCancellation()
             return .init(pixels: [], width: w, height: h, store: copy)
         }
         var pixels = input.pixels
         try pixels.withUnsafeMutableBufferPointer { try expose($0.baseAddress!) }
         return .init(pixels: pixels, width: w, height: h)
+    }
+
+    static func applyCenterDamage(_ store: PixelStore, mask: [Float],
+                                  geometry: FilmEdgeGeometry, paperPrint: Bool) throws {
+        let w = geometry.width, h = geometry.height
+        let paperWhite = SIMD3<Float>(repeating: 0.8), scanLight = SIMD3<Float>(repeating: 0.77)
+        let sw = FilmEdgeGeometry.scatterWeights, weights = SIMD3<Float>(Float(sw.x), Float(sw.y), Float(sw.z))
+        let crossing = geometry.distress.scratchesInImage && geometry.distress.scratches > 0
+        let bands = max(1, min(h, ProcessInfo.processInfo.activeProcessorCount * 4))
+        DispatchQueue.concurrentPerform(iterations: bands) { band in
+            var row = [SIMD4<Float>](repeating: .zero, count: w)
+            row.withUnsafeMutableBufferPointer { buf in
+                for y in (band * h / bands)..<((band + 1) * h / bands) {
+                    store.read(x: 0, y: y, width: w, height: 1, into: buf.baseAddress!)
+                    var changed = false
+                    for x in 0..<w {
+                        let g = mask[y * w + x]
+                        if g <= 0 { continue }
+                        let p = buf[x]
+                        var v = SIMD3(p.x, p.y, p.z)
+                        let scratch = crossing ? geometry.scratchFields(x: x, y: y) : FilmEdgeGeometry.ScratchFields()
+                        let dust = Float(geometry.dustOcclusion(x: x, y: y)) * g
+                        let scatter = Float(scratch.scatter) * g * weights
+                        let cut = SIMD3<Float>(Float(scratch.removal.x), Float(scratch.removal.y), Float(scratch.removal.z)) * g
+                        if paperPrint {
+                            v = v * (1 - dust) + paperWhite * dust
+                            v = v + (paperWhite - v) * scatter
+                            v = v * (1 - cut)
+                        } else {
+                            v = v * (1 - dust) * (1 - scatter)
+                            v = v + (scanLight - v) * cut
+                        }
+                        if v == SIMD3(p.x, p.y, p.z) { continue }
+                        buf[x] = SIMD4(v.x, v.y, v.z, 1)
+                        changed = true
+                    }
+                    if changed {
+                        store.write(x: 0, y: y, width: w, height: 1, from: buf.baseAddress!, sourceRowBytes: w * 16)
+                    }
+                }
+            }
+        }
+        try Task.checkCancellation()
     }
 
     /// A creative centre has no developed density to modulate, so apply the visible result of the

@@ -86,15 +86,14 @@ struct EditorView: View {
                     systemVerticalBar: systemVerticalBar,
                     openDarkroom: openDarkroom, export: { showExport = true })
             }
-            ToolbarItem(placement: .topBarLeading) {
+            AdaptiveToolbarItem(placement: .topBarLeading, background: .hidden) {
                 // Darkroom is the last step: back saves the edit and returns to the photo, like Close.
                 Button(closeTitle, systemImage: showDarkroom ? "chevron.left" : "xmark", action: finish)
                     .photoActionStyle()
                     .accessibilityLabel(closeTitle)
                 .accessibilityIdentifier(showDarkroom ? "darkroom.back" : "editor.back")
             }
-            .sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarLeading) {
+            AdaptiveToolbarItem(placement: .topBarLeading, background: .visible) {
                 Menu(
                     String(localized: "editor.history", defaultValue: "History"),
                     systemImage: "arrow.uturn.backward"
@@ -121,7 +120,6 @@ struct EditorView: View {
                 .accessibilityLabel(String(localized: "editor.history", defaultValue: "History"))
                 .accessibilityIdentifier("editor.history")
             }
-            .sharedBackgroundVisibility(.visible)
             PhotoWorkspaceCameraToolbar()
         }
         .task(id: session.isBusy) {
@@ -448,7 +446,7 @@ struct EditorView: View {
     }
     /// `height` is nil when the panel fills its column and has nothing to expand into.
     private func inspector(height: CGFloat?) -> some View {
-        GlassEffectContainer(spacing: 8) {
+        AdaptiveGlassContainer(spacing: 8) {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     switch activeTool {
@@ -483,7 +481,7 @@ struct EditorView: View {
                 .clipShape(height == nil ? AnyShape(.rect) : AnyShape(.rect.inset(by: -40)))
                 toolPanel.font(.footnote)
                     .frame(height: height).frame(maxHeight: height == nil ? .infinity : nil, alignment: .top)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 24))
+                    .adaptiveGlassRect(cornerRadius: 24)
             }
         }
     }
@@ -523,11 +521,11 @@ private struct EditorNavigationGuard: UIViewControllerRepresentable {
 
         func lock() {
             guard let navigationController else { return }
-            let recognizers = [
-                navigationController.interactivePopGestureRecognizer,
-                navigationController.interactiveContentPopGestureRecognizer,
-            ].compactMap { $0 }
-            for recognizer in recognizers {
+            var recognizers = [navigationController.interactivePopGestureRecognizer]
+            if #available(iOS 26.0, *) {
+                recognizers.append(navigationController.interactiveContentPopGestureRecognizer)
+            }
+            for recognizer in recognizers.compactMap({ $0 }) {
                 if !saved.contains(where: { $0.0 === recognizer }) {
                     saved.append((recognizer, recognizer.isEnabled))
                 }

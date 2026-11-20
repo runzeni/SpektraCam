@@ -41,7 +41,7 @@ struct PhotoFilmstrip: View {
             .scrollIndicators(.hidden)
             .frame(height: 72)
             .frame(maxWidth: CGFloat(photos.count * 50 + 10))
-            .glassEffect(in: .rect(cornerRadius: 16))
+            .adaptiveGlassRect(cornerRadius: 16)
             .accessibilityIdentifier("photo.filmstrip")
             .onAppear { proxy.scrollTo(selection, anchor: .center) }
             .onChange(of: selection) { _, id in

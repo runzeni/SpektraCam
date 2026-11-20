@@ -93,7 +93,11 @@ nonisolated enum PhotoSource {
                     data: data,
                     options: [
                         .applyOrientationProperty: true,
-                        .expandToHDR: false, .toneMapHDRtoSDR: false,
+                        .expandToHDR: false,
+                        .toneMapHDRtoSDR: {
+                            if #available(iOS 18.0, macOS 15.0, *) { return false }
+                            return true
+                        }(),
                     ])
             else { return nil }
             image = output
@@ -104,15 +108,21 @@ nonisolated enum PhotoSource {
     /// Materialize the tone-mapping operation before exporting pixels to a floating-point
     /// working buffer. A destination-dependent decode flag alone may leave HDR values intact.
     static func toSDR(_ image: CIImage) -> CIImage {
-        let headroom = image.contentHeadroom
-        guard headroom > 1 else { return image }
-        return image.applyingFilter(
-            "CIToneMapHeadroom",
-            parameters: [
-                "inputSourceHeadroom": headroom, "inputTargetHeadroom": 1.0,
-            ]
-        )
-        .settingContentHeadroom(1)
+        if #available(iOS 18.0, macOS 15.0, *) {
+            let headroom = image.contentHeadroom
+            guard headroom > 1 else { return image }
+            let mapped = image.applyingFilter(
+                "CIToneMapHeadroom",
+                parameters: [
+                    "inputSourceHeadroom": headroom, "inputTargetHeadroom": 1.0,
+                ]
+            )
+            if #available(iOS 26.0, macOS 26.0, *) {
+                return mapped.settingContentHeadroom(1)
+            }
+            return mapped
+        }
+        return image
     }
 
     static func resized(_ image: CIImage, maximum: Int) -> CIImage {
@@ -127,6 +137,29 @@ nonisolated enum PhotoSource {
                 x: image.extent.minX * scale, y: image.extent.minY * scale,
                 width: max(1, floor(image.extent.width * scale)),
                 height: max(1, floor(image.extent.height * scale))))
+    }
+
+    /// Decode an embedded RAW thumbnail on the CPU when it matches the sensor's aspect ratio
+    /// and meets `maximum`, avoiding a GPU CIRAWFilter demosaic while the camera is active.
+    static func embeddedThumbnail(
+        _ source: CGImageSource, description: Description, maximum: Int
+    ) -> CGImage? {
+        guard description.isRAW,
+            let thumb = CGImageSourceCreateThumbnailAtIndex(
+                source, 0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maximum,
+                ] as CFDictionary)
+        else { return nil }
+        let minRequired = min(maximum, max(description.width, description.height))
+        guard max(thumb.width, thumb.height) >= minRequired else { return nil }
+        let thumbAspect = Double(thumb.width) / Double(max(thumb.height, 1))
+        let fullAspect = Double(description.width) / Double(max(description.height, 1))
+        guard abs(thumbAspect - fullAspect) / max(fullAspect, 1e-4) < 0.025 else { return nil }
+        return thumb
     }
 
     static func preview(_ data: Data, description: Description, maximum: Int) -> CGImage? {

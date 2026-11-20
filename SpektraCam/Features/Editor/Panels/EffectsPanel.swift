@@ -32,7 +32,7 @@ struct EffectsPanel: View {
                     String(localized: "effects.use_stock_grain", defaultValue: "Use Stock Grain"),
                     systemImage: "arrow.counterclockwise"
                 ) { confirmStockGrain = true }
-                .buttonStyle(.glass).controlSize(.small).accessibilityIdentifier(
+                .adaptiveGlassButton().controlSize(.small).accessibilityIdentifier(
                     "grain.stockDefaults"
                 )
                 .confirmationDialog(

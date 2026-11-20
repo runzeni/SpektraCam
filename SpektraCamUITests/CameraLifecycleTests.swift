@@ -3,6 +3,11 @@ import XCTest
 
 /// Run unchanged on phone, Duo (both displays), and iPad (full screen and windowed).
 final class CameraLifecycleTests: XCTestCase {
+    override func tearDown() {
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .portrait }
+        super.tearDown()
+    }
+
     @MainActor func testPortraitRoundTrip() throws { try roundTrip(.portrait) }
     @MainActor func testLandscapeRoundTrip() throws { try roundTrip(.landscapeLeft) }
 
@@ -124,5 +129,75 @@ final class CameraLifecycleTests: XCTestCase {
         app.buttons["camera.close"].tap()
         app.buttons["library.info"].tap()
         XCTAssertTrue(app.buttons["about.importFiles"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor func testRegularOnlyCameraAndRenderPrecision() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 480, height: 360), format: format)
+            .image { context in
+                UIColor.darkGray.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 480, height: 360))
+            }
+        let photo = FileManager.default.temporaryDirectory.appendingPathComponent("regular-camera.png")
+        try XCTUnwrap(image.pngData()).write(to: photo)
+        defer { try? FileManager.default.removeItem(at: photo) }
+
+        let app = XCUIApplication(bundleIdentifier: "io.github.runzeni.spektracam")
+        app.launchArguments = [
+            "--ui-test-library", "--reset-test-library", "--ui-test-camera-demo",
+            "--ui-test-camera-regular-only", "--ui-test-import", photo.path,
+        ]
+        app.launch()
+        let cell = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'library.photo.'")).firstMatch
+        XCTAssertTrue(cell.waitForExistence(timeout: 30))
+
+        app.buttons["camera.open"].tap()
+        XCTAssertTrue(app.buttons["camera.lens.24"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.lens.13"].exists)
+        XCTAssertFalse(app.buttons["camera.lens.120"].exists)
+        XCTAssertTrue(app.buttons["camera.flip"].isEnabled)
+        XCTAssertTrue(app.buttons["camera.shutter"].isEnabled)
+        XCTAssertTrue(app.buttons["camera.format"].label.contains("HEIC"))
+
+        app.buttons["camera.shutter"].tap()
+        let savedBadge = app.descendants(matching: .any)["camera.saved"]
+        XCTAssertTrue(savedBadge.waitForExistence(timeout: 5))
+        app.buttons["camera.flip"].tap()
+        app.buttons["camera.flip"].tap()
+        XCTAssertTrue(app.buttons["camera.lens.24"].waitForExistence(timeout: 5))
+        app.buttons["camera.close"].tap()
+        XCTAssertTrue(app.buttons["camera.close"].waitForNonExistence(timeout: 10))
+
+        app.buttons["library.info"].tap()
+        XCTAssertTrue(app.navigationBars["About"].waitForExistence(timeout: 5))
+        let precision = app.buttons["about.renderPrecision"]
+        for _ in 0..<5 where !precision.isHittable { app.swipeUp() }
+        XCTAssertTrue(precision.waitForExistence(timeout: 5))
+        precision.tap()
+        app.buttons["16-bit float"].tap()
+        app.buttons["Done"].tap()
+
+        cell.tap()
+        XCTAssertTrue(app.buttons["photo.develop"].waitForExistence(timeout: 10))
+        app.buttons["photo.develop"].tap()
+        let film = app.buttons["develop.mode.spektrafilm"]
+        XCTAssertTrue(film.waitForExistence(timeout: 30))
+        film.tap()
+        XCTAssertTrue(app.images["Edited photo"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.activityIndicators["Rendering preview"].waitForNonExistence(timeout: 30))
+        app.buttons["editor.back"].tap()
+        XCTAssertTrue(app.buttons["photo.develop"].waitForExistence(timeout: 15))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        app.buttons["library.info"].tap()
+        XCTAssertTrue(app.navigationBars["About"].waitForExistence(timeout: 5))
+        for _ in 0..<5 where !precision.isHittable { app.swipeUp() }
+        XCTAssertTrue(precision.waitForExistence(timeout: 5))
+        precision.tap()
+        app.buttons["Automatic"].tap()
+        app.buttons["Done"].tap()
     }
 }

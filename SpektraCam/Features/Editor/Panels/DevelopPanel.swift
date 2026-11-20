@@ -160,8 +160,7 @@ struct DevelopPanel: View {
             VStack(spacing: 0) {
                 Group {
                     if selected {
-                        stockLabel(stock, selected: true).glassEffect(
-                            .regular.tint(.accentColor).interactive(), in: .rect(cornerRadius: 10))
+                        stockLabel(stock, selected: true).adaptiveGlassAccentSelection(cornerRadius: 10)
                     } else {
                         stockLabel(stock, selected: false)
                     }
@@ -187,7 +186,7 @@ struct DevelopPanel: View {
         -> some View
     {
         let matches = stocks.filter { $0.category == category }
-        return GlassEffectContainer(spacing: 2) {
+        return AdaptiveGlassContainer(spacing: 2) {
             LazyVStack(spacing: stockRowSpacing) {
                 ForEach(Array(matches.enumerated()), id: \.element.id) { index, stock in
                     if index > 0 && manufacturer(matches[index - 1]) != manufacturer(stock) {

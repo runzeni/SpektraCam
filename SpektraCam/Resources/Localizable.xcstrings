@@ -1235,24 +1235,6 @@
         }
       }
     },
-    "camera.dng_raw" : {
-      "comment" : "Camera interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "DNG RAW"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "DNG RAW"
-          }
-        }
-      }
-    },
     "camera.error.needs_device" : {
       "comment" : "Camera interface text.",
       "extractionState" : "manual",

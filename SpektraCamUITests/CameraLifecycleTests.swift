@@ -98,11 +98,22 @@ final class CameraLifecycleTests: XCTestCase {
         XCTAssertTrue(slider.waitForExistence(timeout: 10))
         slider.adjust(toNormalizedSliderPosition: 0.6)
         XCTAssertTrue(app.activityIndicators["Rendering preview"].waitForNonExistence(timeout: 30))
-        // Dismiss from inside the editor too; its navigation state must survive the camera.
+        // Dismiss from inside the editor too; its navigation state and landscape orientation must survive the camera.
         app.buttons["camera.open"].tap()
         XCTAssertTrue(app.buttons["camera.close"].waitForExistence(timeout: 10))
+        if min(app.windows.firstMatch.frame.width, app.windows.firstMatch.frame.height) <= 450 {
+            XCTAssertLessThan(app.windows.firstMatch.frame.width, app.windows.firstMatch.frame.height)
+        }
         app.buttons["camera.close"].tap()
         XCTAssertTrue(app.buttons["camera.close"].waitForNonExistence(timeout: 10))
+        if XCUIDevice.shared.orientation.isLandscape {
+            let restored = NSPredicate { _, _ in
+                let f = app.windows.firstMatch.frame
+                return f.width > f.height
+            }
+            expectation(for: restored, evaluatedWith: nil)
+            waitForExpectations(timeout: 5)
+        }
         app.buttons["editor.back"].tap()
         XCTAssertTrue(app.buttons["photo.develop"].waitForExistence(timeout: 15))
         let screenshot = XCTAttachment(screenshot: app.screenshot())

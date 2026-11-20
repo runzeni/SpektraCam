@@ -292,12 +292,13 @@ struct LibraryView: View {
                         Button {
                             showLUTs = true
                         } label: {
-                            if systemVerticalBar {
+                            if systemVerticalBar || selecting {
                                 Label(
                                     String(localized: "formula.formulae", defaultValue: "Formulae"),
                                     systemImage: "flask")
                             } else {
                                 Text(String(localized: "formula.formulae", defaultValue: "Formulae"))
+                                    .dynamicTypeSize(...DynamicTypeSize.xLarge)
                             }
                         }
                         .accessibilityHint(

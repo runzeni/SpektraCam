@@ -13,7 +13,7 @@ struct CameraView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isLandscape = false
-    @State private var locksPortrait = UIDevice.current.userInterfaceIdiom == .phone
+    @State private var locksPortrait = AppDelegate.defaultLocksCameraToPortrait
     @State private var glyphs = CameraGlyphRotation()
     private var glyphDegrees: Double { locksPortrait ? glyphs.degrees : 0 }
     private var turn: Angle { .degrees(glyphDegrees) }
@@ -101,8 +101,9 @@ struct CameraView: View {
             glyphs.start()
         }
         .onDisappear {
+            let lastOrientation = glyphs.lastDeviceOrientation
+            AppDelegate.setCameraActive(false, preferredDeviceOrientation: lastOrientation)
             glyphs.stop()
-            AppDelegate.setCameraActive(false)
             Task { await model.close() }
         }
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: glyphDegrees)
@@ -391,12 +392,12 @@ struct CameraView: View {
                             set: { value in Task { await model.setHighResolution(value) } }
                         )
                     ) {
-                        Text(String(localized: "camera.12_mp", defaultValue: "12 MP")).tag(false)
                         Text(
                             String(
                                 localized: "camera.max_mp",
                                 defaultValue: "Max (\(model.maximumMegapixels) MP)")
                         ).tag(true)
+                        Text(String(localized: "camera.12_mp", defaultValue: "12 MP")).tag(false)
                     }
                 }
             } label: {
@@ -408,8 +409,9 @@ struct CameraView: View {
                     && (model.format == .proRAW || model.highResolution)
                     ? model.format.title + ", \(megapixels) MP" : model.format.title)
         } else {
-            Text("DNG").font(.caption.weight(.semibold)).accessibilityLabel(
-                String(localized: "camera.dng_raw", defaultValue: "DNG RAW"))
+            Text(verbatim: "—").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .accessibilityLabel(
+                    String(localized: "camera.capture_format", defaultValue: "Format"))
         }
     }
 }

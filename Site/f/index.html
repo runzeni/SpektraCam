@@ -51,7 +51,7 @@
       <a class="button" id="open" data-t="open">Open in SpektraCam</a>
       <button id="save" type="button" data-t="save">Download Formula File</button>
     </div>
-    <p class="small" data-t="private">This formula is carried in the link itself. It was not uploaded, and this page sends nothing anywhere.</p>
+    <p class="small" data-t="private">Decoded locally from this link.</p>
   </section>
   <section id="problem" hidden>
     <h1 data-t="problemTitle">No formula here</h1>
@@ -64,7 +64,7 @@
 const zh = (navigator.language || "").toLowerCase().startsWith("zh");
 const text = zh ? {
   kicker: "SpektraCam 配方", open: "在 SpektraCam 中打开", save: "下载配方文件",
-  private: "此配方就包含在链接本身之中，没有上传到任何地方，本页面也不会发送任何数据。",
+  private: "直接从此链接在本地解码。",
   problemTitle: "这里没有配方", about: "是一款免费、开源的 iPhone 与 iPad 胶片模拟 App。",
   none: "此链接不包含配方。", broken: "此链接不完整或已损坏。", newer: "此配方需要更新版本的 SpektraCam。",
   old: "此浏览器无法读取配方。请在 SpektraCam 中打开链接。",

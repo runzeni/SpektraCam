@@ -618,10 +618,7 @@ actor CameraService {
         meter = nil
         sink.finish()
     }
-    private func finishCapture(
-        id: Int64, result: Result<URL, Error>,
-        onStored: @escaping @MainActor @Sendable (Result<URL, Error>) -> Void
-    ) async {
+    private func removeCapture(id: Int64) {
         captures.removeValue(forKey: id)
         if captures.isEmpty {
             let waiters = drainWaiters
@@ -630,6 +627,12 @@ actor CameraService {
             if stopRequested && session.isRunning { session.stopRunning() }
         }
         publishReadiness()
+    }
+    private func finishCapture(
+        id: Int64, result: Result<URL, Error>,
+        onStored: @escaping @MainActor @Sendable (Result<URL, Error>) -> Void
+    ) async {
+        removeCapture(id: id)
         await onStored(result)
     }
     /// Returns as soon as sensor exposure completes so the shutter unlocks immediately;
@@ -660,7 +663,10 @@ actor CameraService {
             let delegate = PhotoCapture(
                 id: id, expectsRAW: format.isRAW, fileExtension: format.fileExtension,
                 inbox: inbox, location: location, writeQueue: writeQueue,
-                exposureContinuation: continuation
+                exposureContinuation: continuation,
+                onAbort: { [weak self] captureID in
+                    Task { await self?.removeCapture(id: captureID) }
+                }
             ) { [weak self] captureID, outcome in
                 guard let self else {
                     Task { @MainActor in onStored(outcome) }
@@ -697,6 +703,7 @@ nonisolated private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDel
     private let location: CaptureLocation?
     private let writeQueue: DispatchQueue
     private var exposureContinuation: CheckedContinuation<Void, Error>?
+    private let onAbort: @Sendable (Int64) -> Void
     private let onComplete: @Sendable (Int64, Result<URL, Error>) -> Void
     private var writeResult: Result<URL, Error>?
     private let started = ProcessInfo.processInfo.systemUptime
@@ -705,6 +712,7 @@ nonisolated private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDel
         id: Int64, expectsRAW: Bool, fileExtension: String, inbox: CameraInbox,
         location: CaptureLocation?, writeQueue: DispatchQueue,
         exposureContinuation: CheckedContinuation<Void, Error>,
+        onAbort: @escaping @Sendable (Int64) -> Void,
         onComplete: @escaping @Sendable (Int64, Result<URL, Error>) -> Void
     ) {
         self.id = id
@@ -714,6 +722,7 @@ nonisolated private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDel
         self.location = location
         self.writeQueue = writeQueue
         self.exposureContinuation = exposureContinuation
+        self.onAbort = onAbort
         self.onComplete = onComplete
     }
 
@@ -774,8 +783,8 @@ nonisolated private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDel
         if let continuation = exposureContinuation {
             exposureContinuation = nil
             if let error {
+                onAbort(id)
                 continuation.resume(throwing: error)
-                onComplete(id, .failure(error))
                 return
             }
             continuation.resume()

@@ -255,6 +255,7 @@ final class EditorInteractionTests: XCTestCase {
         app.buttons["library.info"].tap()
         let library = app.buttons["about.libraryPreview"]
         let editor = app.buttons["about.editorPreview"]
+        for _ in 0..<3 where !editor.isHittable { app.swipeUp() }
         XCTAssertTrue(library.waitForExistence(timeout: 5))
         XCTAssertTrue(editor.exists)
         library.tap()
@@ -290,6 +291,7 @@ final class EditorInteractionTests: XCTestCase {
         // Restore defaults for other tests; these preferences are separate from the test library.
         app.buttons["library.select"].tap()
         app.buttons["library.info"].tap()
+        for _ in 0..<3 where !editor.isHittable { app.swipeUp() }
         app.buttons["about.libraryPreview"].tap(); app.buttons["1,080 px"].tap()
         app.buttons["about.editorPreview"].tap(); app.buttons["1,080 px"].tap()
     }
@@ -1336,6 +1338,15 @@ final class EditorInteractionTests: XCTestCase {
         image.name = "Native export options"
         image.lifetime = .keepAlways
         add(image)
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["4 × 6"].waitForExistence(timeout: 5))
+        app.buttons["4 × 6"].tap()
+        app.buttons["darkroom.export"].tap()
+        XCTAssertTrue(app.buttons["Print"].waitForExistence(timeout: 5))
+        app.buttons["Print"].tap()
+        XCTAssertLessThan(app.buttons["360 ppi"].frame.minX, app.buttons["300 ppi"].frame.minX)
+        XCTAssertLessThan(app.buttons["300 ppi"].frame.minX, app.buttons["240 ppi"].frame.minX)
+        app.buttons["Original"].tap()
     }
 
     @MainActor func testDarkroomLayoutHistoryAndReopening() {

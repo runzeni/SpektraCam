@@ -60,7 +60,7 @@ struct ExportPanel: View {
                 }
                 if exportsRAW {
                     Section {
-                        if !dimensions.isEmpty {
+                        if url != nil, !dimensions.isEmpty {
                             LabeledContent(String(localized: "export.output", defaultValue: "Output"),
                                            value: dimensions)
                                 .accessibilityIdentifier("export.output")
@@ -203,6 +203,7 @@ struct ExportPanel: View {
     private func prepareExport() async {
         let previousURL = url
         url = nil
+        dimensions = ""
         failure = nil
         saved = false
         saveFailure = nil

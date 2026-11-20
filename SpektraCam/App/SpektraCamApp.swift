@@ -6,9 +6,30 @@ struct SpektraCamApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
         WindowGroup {
-            ContentView().appAccent()
+            ContentView()
+                .appAccent()
+                .background(AppHingeProbe().allowsHitTesting(false))
         }
     }
+}
+
+/// Registers a root-level hinge observer on launch so iPhone Duo is recognized even when folded
+/// before `CameraView` is ever presented.
+private struct AppHingeProbe: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        if #available(iOS 27.1, *) {
+            let hinge = UIHingeInteraction { [weak view] _, update in
+                if update.hinge != nil {
+                    AppDelegate.setHasHinge(true, in: view?.window)
+                }
+            }
+            view.addInteraction(hinge)
+        }
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
 /// While the camera is open on a standard iPhone, the interface stays locked in portrait and
@@ -21,6 +42,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         guard hasHinge != hinged else { return }
         hasHinge = hinged
         if cameraActive { applyOrientationPolicy(in: window) }
+    }
+
+    static var defaultLocksCameraToPortrait: Bool {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window =
+            scenes.flatMap(\.windows).first(where: \.isKeyWindow)
+            ?? scenes.first?.windows.first
+        return locksCameraToPortrait(in: window)
     }
 
     /// True on all iPhones except iPhone Duo.
@@ -44,12 +73,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
     }
 
-    static func setCameraActive(_ active: Bool, in window: UIWindow? = nil) {
+    static func setCameraActive(
+        _ active: Bool, in window: UIWindow? = nil,
+        preferredDeviceOrientation: UIDeviceOrientation = .unknown
+    ) {
         cameraActive = active
-        applyOrientationPolicy(in: window)
+        applyOrientationPolicy(in: window, preferredDeviceOrientation: preferredDeviceOrientation)
     }
 
-    static func applyOrientationPolicy(in targetWindow: UIWindow? = nil) {
+    static func applyOrientationPolicy(
+        in targetWindow: UIWindow? = nil,
+        preferredDeviceOrientation: UIDeviceOrientation = .unknown
+    ) {
         let scenes: [UIWindowScene]
         if let scene = targetWindow?.windowScene {
             scenes = [scene]
@@ -71,8 +106,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             if lockPortrait {
                 scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in }
             } else {
+                let current = UIDevice.current.orientation
+                let effective =
+                    current.isValidInterfaceOrientation ? current : preferredDeviceOrientation
                 let desired: UIInterfaceOrientationMask
-                switch UIDevice.current.orientation {
+                switch effective {
                 case .landscapeLeft: desired = .landscapeRight
                 case .landscapeRight: desired = .landscapeLeft
                 case .portraitUpsideDown where UIDevice.current.userInterfaceIdiom == .pad:

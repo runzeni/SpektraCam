@@ -6,6 +6,7 @@ import UIKit
 /// device, glyphs are already upright.
 @MainActor @Observable final class CameraGlyphRotation {
     private(set) var degrees = 0.0
+    private(set) var lastDeviceOrientation = UIDeviceOrientation.unknown
     @ObservationIgnored private var observer: NSObjectProtocol?
 
     func start() {
@@ -17,10 +18,11 @@ import UIKit
         }
         update()
         // The first reading can arrive a moment after notifications are switched on.
-        Task {
+        Task { [weak self] in
             for _ in 0..<5 {
                 try? await Task.sleep(for: .milliseconds(120))
-                update()
+                guard let self, self.observer != nil else { return }
+                self.update()
             }
         }
     }
@@ -31,10 +33,18 @@ import UIKit
     }
     private func update() {
         switch UIDevice.current.orientation {
-        case .portrait: degrees = 0
-        case .landscapeLeft: degrees = 90
-        case .landscapeRight: degrees = -90
-        default: break  // Upside down, face up or face down: keep the last reading.
+        case .portrait:
+            degrees = 0
+            lastDeviceOrientation = .portrait
+        case .landscapeLeft:
+            degrees = 90
+            lastDeviceOrientation = .landscapeLeft
+        case .landscapeRight:
+            degrees = -90
+            lastDeviceOrientation = .landscapeRight
+        case .portraitUpsideDown:
+            lastDeviceOrientation = .portraitUpsideDown
+        default: break  // Face up or face down: keep the last reading.
         }
     }
 }

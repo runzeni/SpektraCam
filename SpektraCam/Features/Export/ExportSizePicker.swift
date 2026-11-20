@@ -34,21 +34,33 @@ struct ExportSizePicker: View {
         case .original:
             EmptyView()
         case .longEdge(let pixels):
+            let choices =
+                PhotoExporter.Size.longEdgePresets.contains(pixels)
+                ? PhotoExporter.Size.longEdgePresets
+                : (PhotoExporter.Size.longEdgePresets + [pixels]).sorted(by: >)
             Picker(String(localized: "export.size.long_edge", defaultValue: "Long edge"),
                    selection: Binding(get: { pixels }, set: { size = .longEdge($0) })) {
-                ForEach(PhotoExporter.Size.longEdgePresets, id: \.self) { Text(verbatim: "\($0) px").tag($0) }
+                ForEach(choices, id: \.self) { Text(verbatim: "\($0) px").tag($0) }
             }
             .accessibilityIdentifier("export.size.longEdge")
         case .percent(let percent):
+            let choices =
+                PhotoExporter.Size.percentPresets.contains(percent)
+                ? PhotoExporter.Size.percentPresets
+                : (PhotoExporter.Size.percentPresets + [percent]).sorted(by: >)
             Picker(String(localized: "export.size.percent", defaultValue: "Percent"),
                    selection: Binding(get: { percent }, set: { size = .percent($0) })) {
-                ForEach(PhotoExporter.Size.percentPresets, id: \.self) { Text(verbatim: "\($0) %").tag($0) }
+                ForEach(choices, id: \.self) { Text(verbatim: "\($0) %").tag($0) }
             }
             .pickerStyle(.segmented).accessibilityIdentifier("export.size.percent")
         case .print(let ppi):
+            let choices =
+                PhotoExporter.Size.ppiPresets.contains(ppi)
+                ? PhotoExporter.Size.ppiPresets
+                : (PhotoExporter.Size.ppiPresets + [ppi]).sorted(by: >)
             Picker(String(localized: "export.size.print", defaultValue: "Print"),
                    selection: Binding(get: { ppi }, set: { size = .print(ppi: $0) })) {
-                ForEach(PhotoExporter.Size.ppiPresets, id: \.self) { Text(verbatim: "\($0) ppi").tag($0) }
+                ForEach(choices, id: \.self) { Text(verbatim: "\($0) ppi").tag($0) }
             }
             .pickerStyle(.segmented).accessibilityIdentifier("export.size.print")
         }

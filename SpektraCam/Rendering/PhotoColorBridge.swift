@@ -7,8 +7,8 @@ import Foundation
 /// above 1.0 and bands shadows; IEEE 754 binary16 preserves ~16 stops of headroom at half memory.
 nonisolated enum RenderPrecision: String, CaseIterable, Identifiable, Sendable {
     case automatic = "auto"
-    case float16 = "float16"
     case float32 = "float32"
+    case float16 = "float16"
 
     static let storageKey = "render.precision"
     var id: String { rawValue }

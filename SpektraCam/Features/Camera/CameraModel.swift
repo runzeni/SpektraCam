@@ -61,8 +61,7 @@ import UIKit
     private var wantsActive = false
     private var starting = false
     private var closed = false
-    @ObservationIgnored private var activeSaves = 0
-    @ObservationIgnored private var backgroundTask = UIBackgroundTaskIdentifier.invalid
+    @ObservationIgnored private let saveAssertion = BackgroundSaveAssertion()
 
     init(library: PhotoLibrary) {
         self.library = library
@@ -184,7 +183,8 @@ import UIKit
                 return
             }
         #endif
-        beginSaveSlot()
+        let assertion = saveAssertion
+        assertion.begin()
         do {
             let ready = try await service.takePhoto(
                 format: format, rotation: source?.captureRotation ?? 90,
@@ -192,10 +192,15 @@ import UIKit
                 flash: flashOn && flashAvailable
             ) { [weak self, library] outcome in
                 if let self {
-                    self.handleStoredCapture(outcome)
+                    self.handleStoredCapture(outcome, assertion: assertion)
                 } else if case .success = outcome {
                     // Camera closed while ISP was finishing: import the durable inbox file anyway.
-                    Task { @MainActor in _ = try? await library.recoverCaptures() }
+                    Task { @MainActor in
+                        defer { assertion.end() }
+                        _ = try? await library.recoverCaptures()
+                    }
+                } else {
+                    assertion.end()
                 }
             }
             outputReady = ready
@@ -204,27 +209,30 @@ import UIKit
         } catch CameraFailure.notReady {
             outputReady = false
             busy = false
-            endSaveSlot()
+            assertion.end()
         } catch {
             saveFailure = error.localizedDescription
             busy = false
-            endSaveSlot()
+            assertion.end()
         }
     }
-    private func handleStoredCapture(_ outcome: Result<URL, Error>) {
+    private func handleStoredCapture(
+        _ outcome: Result<URL, Error>, assertion: BackgroundSaveAssertion
+    ) {
         switch outcome {
         case .success:
-            scheduleImport()
+            scheduleImport(assertion: assertion)
         case .failure(let error):
             saveFailure = error.localizedDescription
-            endSaveSlot()
+            assertion.end()
         }
     }
     /// The capture is already safe in the inbox. Import it behind the next shot, one at a time.
-    private func scheduleImport() {
+    private func scheduleImport(assertion: BackgroundSaveAssertion) {
         let previous = importTask
         let library = self.library
         importTask = Task { @MainActor [weak self] in
+            defer { assertion.end() }
             await previous?.value
             do {
                 let recovered = try await library.recoverCaptures()
@@ -237,7 +245,6 @@ import UIKit
             }
             if let self {
                 self.pendingCount = (try? await library.files.pendingCaptures().count) ?? 0
-                self.endSaveSlot()
             }
         }
     }
@@ -357,22 +364,6 @@ import UIKit
             await selectLens(lens)
         }
     }
-    private func beginSaveSlot() {
-        activeSaves += 1
-        guard backgroundTask == .invalid else { return }
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Save Camera Photo") { [weak self] in
-            Task { @MainActor in self?.forceEndBackgroundTask() }
-        }
-    }
-    private func endSaveSlot() {
-        activeSaves = max(0, activeSaves - 1)
-        if activeSaves == 0 { forceEndBackgroundTask() }
-    }
-    private func forceEndBackgroundTask() {
-        guard backgroundTask != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(backgroundTask)
-        backgroundTask = .invalid
-    }
     #if DEBUG && targetEnvironment(simulator)
         /// A stand-in camera for layout checks: every control is live, the viewfinder is empty.
         static let demo = ProcessInfo.processInfo.arguments.contains("--ui-test-camera-demo")
@@ -441,5 +432,38 @@ import UIKit
         state = .paused
         location.setActive(false)
         await service.shutdown()
+    }
+}
+
+/// Reference-counted background save assertion retained across capture and inbox recovery so
+/// dismissing `CameraView` mid-save never leaks or prematurely ends `UIBackgroundTaskIdentifier`.
+@MainActor private final class BackgroundSaveAssertion {
+    private var activeCount = 0
+    private var task = UIBackgroundTaskIdentifier.invalid
+
+    func begin() {
+        activeCount += 1
+        guard task == .invalid else { return }
+        task = UIApplication.shared.beginBackgroundTask(withName: "Save Camera Photo") { [weak self] in
+            Task { @MainActor in self?.forceEnd() }
+        }
+    }
+
+    func end() {
+        activeCount = max(0, activeCount - 1)
+        if activeCount == 0 { forceEnd() }
+    }
+
+    private func forceEnd() {
+        guard task != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(task)
+        task = .invalid
+    }
+
+    deinit {
+        let remaining = task
+        if remaining != .invalid {
+            Task { @MainActor in UIApplication.shared.endBackgroundTask(remaining) }
+        }
     }
 }

@@ -252,13 +252,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Export uses the original. Preview quality does not reduce the stored photo."
+            "value" : "Preview only; exports use the original."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "导出始终使用原图。预览画质不影响已存储的照片。"
+            "value" : "仅用于预览，导出使用原图。"
           }
         }
       }
@@ -288,13 +288,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No accounts, ads or tracking. Photos, edits and LUTs stay on this device."
+            "value" : "Photos, edits, formulae and LUTs stay on this device."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "没有账户、广告或跟踪。照片、编辑和 LUT 仅保留在此设备上。"
+            "value" : "照片、编辑、配方和 LUT 均保存在此设备上。"
           }
         }
       }
@@ -342,13 +342,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "SpektraCam uses abbreviated aliases for film and print simulation profiles derived from Andrea Volpato’s spektrafilm project. These simulations draw on published technical data and modelling assumptions; they do not reproduce or guarantee the appearance or performance of physical films, papers or processing workflows. SpektraCam is not affiliated with, sponsored by or endorsed by the manufacturers of the referenced materials."
+            "value" : "Film and print profiles are approximate simulations from spektrafilm based on published data, independent of any manufacturer."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "SpektraCam 使用简写别名标识源自 Andrea Volpato 的 spektrafilm 项目的胶片与印相模拟配置。这些模拟基于公开技术资料及建模假设，不保证重现实物胶片、相纸或冲洗流程的外观与性能。SpektraCam 与所参考材料的制造商无关联，亦未获其赞助或认可。"
+            "value" : "胶片与印相配置源自 spektrafilm，基于公开资料提供近似模拟，独立于任何厂商。"
           }
         }
       }
@@ -943,24 +943,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "清除已准备的文件"
-          }
-        }
-      }
-    },
-    "batch.memory_policy" : {
-      "comment" : "Preview and batch export interface text. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Photos export one at a time. If a photo needs more memory, the others continue. Choose a smaller size to retry failed photos; completed photos will not export again."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "照片将逐张导出。如果某张照片内存不足，其余照片仍会继续导出。请选择较小尺寸以重试失败的照片；已完成的照片不会重复导出。"
           }
         }
       }
@@ -1825,24 +1807,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RAW 格式"
-          }
-        }
-      }
-    },
-    "camera.raw_needs_device" : {
-      "comment" : "Camera interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RAW capture needs a physical device."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拍摄 RAW 照片需要使用实体设备。"
           }
         }
       }
@@ -5206,24 +5170,6 @@
         }
       }
     },
-    "export.color_space" : {
-      "comment" : "Export interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Color space"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "色彩空间"
-          }
-        }
-      }
-    },
     "export.error.decode" : {
       "comment" : "Photo exporter interface text.",
       "extractionState" : "manual",
@@ -5476,24 +5422,6 @@
         }
       }
     },
-    "export.sdr_srgb_8_bit" : {
-      "comment" : "Export interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SDR · sRGB · 8-bit"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SDR · sRGB · 8 位"
-          }
-        }
-      }
-    },
     "export.share" : {
       "comment" : "Export interface text.",
       "extractionState" : "manual",
@@ -5548,24 +5476,6 @@
         }
       }
     },
-    "export.size.long_edge_note" : {
-      "comment" : "Export interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Longest side in pixels. Never enlarged."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "以像素计的最长边，不会放大。"
-          }
-        }
-      }
-    },
     "export.size.original" : {
       "comment" : "Export interface text.",
       "extractionState" : "manual",
@@ -5580,24 +5490,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "原始"
-          }
-        }
-      }
-    },
-    "export.size.original_note" : {
-      "comment" : "Export interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Every pixel of the crop, film edge and paper. Never enlarged."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留裁切、片边和相纸的全部像素，不会放大。"
           }
         }
       }
@@ -5634,24 +5526,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "相纸"
-          }
-        }
-      }
-    },
-    "export.size.print_note" : {
-      "comment" : "Export interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The paper size at this resolution. Never enlarged."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按此分辨率输出相纸尺寸，不会放大。"
           }
         }
       }
@@ -10510,24 +10384,6 @@
         }
       }
     },
-    "formula.save.framing_note" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Crop and rotation are never saved in a formula."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "配方不会存储裁切与旋转。"
-          }
-        }
-      }
-    },
     "formula.strip_hint" : {
       "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
       "extractionState" : "manual",
@@ -11247,23 +11103,6 @@
         }
       }
     },
-    "about.remember_flash_note" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When off, flash turns off when you leave the camera."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭后，退出相机时会关闭闪光灯。"
-          }
-        }
-      }
-    },
     "export.file" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11311,23 +11150,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "原始 RAW"
-          }
-        }
-      }
-    },
-    "export.original_raw_note" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The original capture, with its metadata and full resolution."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留完整分辨率和元数据的原始拍摄文件。"
           }
         }
       }
@@ -11699,13 +11521,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatic uses 16-bit float on lower-memory devices to save memory while keeping highlight headroom; 32-bit float uses maximum precision."
+            "value" : "Automatic uses 16-bit float on lower-memory devices and 32-bit float otherwise."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“自动”会在内存较小的设备上使用 16 位浮点以节省内存并保留高光宽容度；32 位浮点使用最高精度。"
+            "value" : "“自动”在较小内存设备上使用 16 位浮点，其余设备使用 32 位浮点。"
           }
         }
       }

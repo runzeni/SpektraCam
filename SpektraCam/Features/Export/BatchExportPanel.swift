@@ -23,11 +23,13 @@ struct BatchExportPanel: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
+                Section(String(localized: "export.size", defaultValue: "Size")) {
                     if let reason = model.stopReason, !model.running {
                         Text(reason).font(.footnote).foregroundStyle(.secondary)
                     }
                     ExportSizePicker(size: Binding(get: { size }, set: { storedSize = $0.rawValue }))
+                }.disabled(model.running || model.remainingCount == 0)
+                Section(String(localized: "export.format", defaultValue: "Format")) {
                     Picker(
                         String(localized: "export.format", defaultValue: "Format"),
                         selection: $format
@@ -46,21 +48,8 @@ struct BatchExportPanel: View {
                                 .tag(0.85)
                         }.pickerStyle(.segmented)
                     }
-                    Text(
-                        String(
-                            localized: "export.sdr_srgb_8_bit", defaultValue: "SDR · sRGB · 8-bit")
-                    )
-                    .font(.caption).foregroundStyle(.secondary)
                 }.disabled(model.running || model.remainingCount == 0)
                 Section {
-                    Text(
-                        String(
-                            localized: "batch.memory_policy",
-                            defaultValue:
-                                "Photos export one at a time. If a photo needs more memory, the others continue. Choose a smaller size to retry failed photos; completed photos will not export again."
-                        )
-                    )
-                    .font(.footnote).foregroundStyle(.secondary)
                     if model.running {
                         ProgressView(
                             value: Double(model.completedCount), total: Double(model.items.count))

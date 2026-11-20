@@ -153,8 +153,8 @@ struct SaveFormulaSheet: View {
                 } footer: {
                     Text(
                         String(
-                            localized: "formula.save.framing_note",
-                            defaultValue: "Crop and rotation are never saved in a formula."))
+                            localized: "look.paste.framing_note",
+                            defaultValue: "Crop and rotation stay with each photo."))
                 }
             }
             .navigationTitle(String(localized: "formula.new", defaultValue: "New Formula"))

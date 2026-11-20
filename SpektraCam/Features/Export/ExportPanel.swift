@@ -60,17 +60,21 @@ struct ExportPanel: View {
                 }
                 if exportsRAW {
                     Section {
-                        Text(String(localized: "export.original_raw_note",
-                            defaultValue: "The original capture, with its metadata and full resolution."))
-                            .font(.footnote).foregroundStyle(.secondary)
+                        if !dimensions.isEmpty {
+                            LabeledContent(String(localized: "export.output", defaultValue: "Output"),
+                                           value: dimensions)
+                                .accessibilityIdentifier("export.output")
+                        }
                         exportStatus
                     }
                 } else {
-                    Section {
+                    Section(String(localized: "export.size", defaultValue: "Size")) {
                         ExportSizePicker(size: Binding(get: { size }, set: { storedSize = $0.rawValue }), allowsPrint: hasPaper)
                         LabeledContent(String(localized: "export.output", defaultValue: "Output"),
-                                       value: url != nil ? dimensions : expected)
+                                       value: url != nil && !dimensions.isEmpty ? dimensions : expected)
                             .accessibilityIdentifier("export.output")
+                    }
+                    Section(String(localized: "export.format", defaultValue: "Format")) {
                         Picker(
                             String(localized: "export.format", defaultValue: "Format"),
                             selection: $format
@@ -89,14 +93,11 @@ struct ExportPanel: View {
                                     .tag(0.85)
                             }.pickerStyle(.segmented)
                         }
-                        LabeledContent(
-                            String(localized: "export.color_space", defaultValue: "Color space"),
-                            value: String(
-                                localized: "export.sdr_srgb_8_bit", defaultValue: "SDR · sRGB · 8-bit"))
                         exportStatus
                     }
                 }
             }
+            .listSectionSpacing(.compact)
             .disabled(saving)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 AdaptiveGlassContainer(spacing: 8) {
@@ -236,7 +237,8 @@ struct ExportPanel: View {
                 return
             }
             url = result.0
-            dimensions = ExportSizePicker.describe(width: result.1, height: result.2)
+            dimensions = result.1 > 0 && result.2 > 0
+                ? ExportSizePicker.describe(width: result.1, height: result.2) : ""
         } catch {
             guard !Task.isCancelled else { return }
             failure = error.localizedDescription

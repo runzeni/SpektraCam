@@ -4,64 +4,46 @@ Effective 17 November 2026 · 生效日期：2026 年 11 月 17 日
 
 ## English
 
-SpektraCam is a free, open-source photo editor and RAW camera. It has no accounts, no ads, no analytics and no tracking. The developer does not collect, receive or store any of your data.
+SpektraCam is a free, open-source on-device photo editor and camera. Your photos, edits, formulae, LUTs and settings stay on your device unless you export or share them yourself.
 
-**What stays on your device**
+**On-device storage**
 
-- Photos you import or capture, your edits, and the LUT files you add are stored only inside the app on your device. They leave it only when you export, share or save them yourself.
-- Settings such as preview quality and default effects are stored in the app's preferences on your device.
-- Saved formulae also stay on your device. If you choose to share one, its file, link or Formula Card carries the settings and any note you wrote. A card may include a photo you choose. Formula links and QR codes contain the formula after `#`; it is decoded locally, and the fragment is not part of the request to the GitHub Pages website. LUT files are excluded from links and codes, and are shared with a formula file only when you explicitly choose to include them.
+- Imported or captured photos, edits, formulae, LUT files and app preferences are stored locally inside the app container.
+- Shared formulae include the selected parameters and optional note (plus a chosen photo on a Formula Card, or LUT files when you choose to bundle them). Formula links and QR codes store the payload after `#` and decode locally on your device.
 
 **Permissions**
 
-- **Camera** — to take RAW photos. Captures are saved to the app's own library.
-- **Location (optional, while using the app)** — to write the capture location into photos you take with SpektraCam. If you decline, the camera works the same and no location is recorded.
-- **Add to Photos** — to save an exported image to your photo library when you choose Save to Photos. SpektraCam does not read your photo library; imports use the system photo picker, which shares only the items you select.
+- **Camera** — to capture photos into the app library.
+- **Location (optional, while using the app)** — to record capture coordinates in photos taken with the camera.
+- **Add to Photos** — to save exported images when you tap Save to Photos. Photo imports use the system picker, which provides only the items you select.
 
-**The one network request**
+**Reverse geocoding**
 
-When a photo contains GPS coordinates and you open it in the viewer, SpektraCam asks Apple's MapKit geocoding service for a place name to show above the photo. That request sends the photo's coordinates to Apple and is handled under [Apple's privacy policy](https://www.apple.com/legal/privacy/). Nothing else in the app contacts a server, and the developer receives nothing from this request. Photos without coordinates never trigger it.
+When you open a geotagged photo in the viewer, MapKit looks up a place name from Apple's geocoding service under [Apple's privacy policy](https://www.apple.com/legal/privacy/).
 
-**Diagnostics**
+**Diagnostics and contact**
 
-If you have chosen to share analytics with developers in iOS Settings, or you install a TestFlight build, Apple may provide the developer with anonymous crash and usage diagnostics. This is controlled by your system settings, not by the app.
-
-**Children**
-
-SpektraCam does not collect personal information from anyone, including children.
-
-**Changes and contact**
-
-Changes to this policy are published at this address, with the history kept in the project's public repository. Questions: open an issue at <https://github.com/runzeni/SpektraCam/issues>.
+Crash or usage diagnostics are provided only through Apple's opt-in iOS or TestFlight system settings. Policy updates are published in the public repository; for questions, open an issue at <https://github.com/runzeni/SpektraCam/issues>.
 
 ## 简体中文
 
-SpektraCam 是一款免费、开源的照片编辑器与 RAW 相机。App 没有账户、广告、分析统计或跟踪。开发者不会收集、接收或存储你的任何数据。
+SpektraCam 是一款免费开源的本地照片编辑与拍摄应用。除你主动导出或共享外，所有照片、编辑、配方、LUT 与设置均保存在你的设备上。
 
-**保留在设备上的内容**
+**本地存储**
 
-- 你导入或拍摄的照片、所做的编辑，以及添加的 LUT 文件，仅存储在设备上的 App 内。只有在你自行导出、共享或存储时，这些内容才会离开 App。
-- 预览画质、默认效果等设置存储在设备上的 App 偏好设置中。
-- 保存的配方同样保留在设备上。只有在你主动共享时，配方文件、链接或配方卡才会携带设置及你写下的备注。配方卡可以包含你选择的照片。配方链接与二维码将配方放在 `#` 之后，在本地解码；该片段不会随网页请求发送到 GitHub Pages。链接与二维码不包含 LUT 文件；只有你明确选择附带 LUT 时，配方文件才会携带它们。
+- 导入或拍摄的照片、编辑参数、配方、LUT 文件与应用偏好均保存在设备本地的应用容器内。
+- 共享配方时仅包含所选参数与可选备注（配方卡可包含你选择的照片；选择附带 LUT 时才会打包对应文件）。配方链接与二维码将编码放在 `#` 之后，在本地解码。
 
 **权限**
 
-- **相机**：用于拍摄 RAW 照片。拍摄的照片存储在 App 自己的图库中。
-- **位置（可选，仅在使用 App 期间）**：用于为使用 SpektraCam 拍摄的照片写入拍摄位置。拒绝授权不影响拍摄，也不会记录位置。
-- **添加到“照片”**：仅在你选择“存储到‘照片’”时，用于将导出的图像存入照片图库。SpektraCam 不会读取你的照片图库；导入通过系统照片选择器完成，App 只能访问你选中的项目。
+- **相机**：用于拍摄照片并存入应用图库。
+- **位置（可选，使用期间）**：用于为应用相机拍摄的照片写入地理坐标。
+- **添加到“照片”**：在你轻点“存储到‘照片’”时将导出图像写入系统图库。导入照片通过系统照片选择器完成，仅访问你选中的项目。
 
-**唯一的网络请求**
+**地点名称解析**
 
-当照片包含 GPS 坐标且你在查看器中打开它时，SpektraCam 会向 Apple 的 MapKit 地理编码服务查询地名，以显示在照片上方。该请求会将照片坐标发送给 Apple，并受 [Apple 隐私政策](https://www.apple.com/legal/privacy/zh-cn/)约束。除此之外，App 不会连接任何服务器，开发者也不会从该请求中获得任何信息。不含坐标的照片不会触发此请求。
+在查看器中打开带地理坐标的照片时，应用会通过 Apple 的 MapKit 服务查询地点名称，受 [Apple 隐私政策](https://www.apple.com/legal/privacy/zh-cn/)约束。
 
-**诊断信息**
+**诊断与联系**
 
-如果你在 iOS 设置中选择了与开发者共享分析数据，或安装了 TestFlight 版本，Apple 可能会向开发者提供匿名的崩溃与使用诊断信息。这由系统设置控制，而非由 App 控制。
-
-**儿童**
-
-SpektraCam 不收集任何人的个人信息，包括儿童。
-
-**变更与联系方式**
-
-本政策的变更会发布在此地址，修改历史保留在项目的公开代码仓库中。如有疑问，请在 <https://github.com/runzeni/SpektraCam/issues> 提交 issue。
+崩溃与使用诊断仅由你在 iOS 系统设置或 TestFlight 中主动开启的 Apple 系统机制提供。政策更新发布在公开代码仓库中；如有问题，请在 <https://github.com/runzeni/SpektraCam/issues> 提交 issue。

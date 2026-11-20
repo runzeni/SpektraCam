@@ -48,7 +48,11 @@ actor OriginalRAWExporter {
             try Task.checkCancellation()
             if let folder { try? FileManager.default.removeItem(at: folder) }
             folder = directory
-            return (output, width, height)
+            if width > 0 && height > 0 { return (output, width, height) }
+            let info = (try? Data(contentsOf: output, options: .mappedIfSafe)).flatMap {
+                PhotoSource.describe($0, typeHint: type)
+            }
+            return (output, info?.width ?? 0, info?.height ?? 0)
         } catch {
             try? FileManager.default.removeItem(at: directory)
             throw error
@@ -99,9 +103,9 @@ nonisolated enum PhotoExporter {
         /// A paper layout at this many pixels per inch of the sheet.
         case print(ppi: Int)
         static let full = Self.original, large = Self.longEdge(4096), medium = Self.longEdge(2048), small = Self.longEdge(1080)
-        static let longEdgePresets = [1080, 2048, 3000, 4096, 6000]
-        static let percentPresets = [25, 50, 75]
-        static let ppiPresets = [240, 300, 360]
+        static let longEdgePresets = [6000, 4096, 3000, 2048, 1080]
+        static let percentPresets = [75, 50, 25]
+        static let ppiPresets = [360, 300, 240]
 
         /// The longest output edge for a picture whose native long edge is `native`; nil keeps
         /// it native. `paperLongInches` is the sheet's long side for `.print`, if there is one.

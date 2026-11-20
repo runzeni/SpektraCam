@@ -93,8 +93,6 @@ struct AppInformationView: View {
                     .onChange(of: rememberFlash) { _, enabled in
                         if !enabled { UserDefaults.standard.removeObject(forKey: "camera.flashOn") }
                     }
-                    footnote(String(localized: "about.remember_flash_note",
-                        defaultValue: "When off, flash turns off when you leave the camera."))
                     previewPicker(
                         String(localized: "about.library_preview", defaultValue: "Library preview"),
                         selection: $libraryMaximum, identifier: "about.libraryPreview")
@@ -104,8 +102,7 @@ struct AppInformationView: View {
                     footnote(
                         String(
                             localized: "about.preview_quality_note",
-                            defaultValue:
-                                "Export uses the original. Preview quality does not reduce the stored photo."
+                            defaultValue: "Preview only; exports use the original."
                         ))
                     Picker(
                         String(
@@ -120,14 +117,14 @@ struct AppInformationView: View {
                         ).tag(RenderPrecision.automatic.rawValue)
                         Text(
                             String(
-                                localized: "about.render_precision.16bit",
-                                defaultValue: "16-bit float")
-                        ).tag(RenderPrecision.float16.rawValue)
-                        Text(
-                            String(
                                 localized: "about.render_precision.32bit",
                                 defaultValue: "32-bit float")
                         ).tag(RenderPrecision.float32.rawValue)
+                        Text(
+                            String(
+                                localized: "about.render_precision.16bit",
+                                defaultValue: "16-bit float")
+                        ).tag(RenderPrecision.float16.rawValue)
                     }
                     .id(accent)
                     .accessibilityIdentifier("about.renderPrecision")
@@ -135,7 +132,7 @@ struct AppInformationView: View {
                         String(
                             localized: "about.render_precision_note",
                             defaultValue:
-                                "Automatic uses 16-bit float on lower-memory devices to save memory while keeping highlight headroom; 32-bit float uses maximum precision."
+                                "Automatic uses 16-bit float on lower-memory devices and 32-bit float otherwise."
                         ))
                 }
                 Section(String(localized: "about.new_edit_defaults", defaultValue: "New edit defaults")) {
@@ -151,7 +148,7 @@ struct AppInformationView: View {
                         String(
                             localized: "about.privacy_summary",
                             defaultValue:
-                                "No accounts, ads or tracking. Photos, edits and LUTs stay on this device."))
+                                "Photos, edits, formulae and LUTs stay on this device."))
                     Link(
                         String(localized: "about.privacy_policy", defaultValue: "Privacy Policy"),
                         destination: AppLinks.privacy
@@ -170,7 +167,7 @@ struct AppInformationView: View {
                         String(
                             localized: "about.simulation_disclaimer",
                             defaultValue:
-                                "SpektraCam uses abbreviated aliases for film and print simulation profiles derived from Andrea Volpato’s spektrafilm project. These simulations draw on published technical data and modelling assumptions; they do not reproduce or guarantee the appearance or performance of physical films, papers or processing workflows. SpektraCam is not affiliated with, sponsored by or endorsed by the manufacturers of the referenced materials."
+                                "Film and print profiles are approximate simulations from spektrafilm based on published data, independent of any manufacturer."
                         ))
                 }
             }

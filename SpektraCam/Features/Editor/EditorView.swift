@@ -53,6 +53,13 @@ struct EditorView: View {
                 .padding(.horizontal, 8)
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if layout == .stacked && !systemVerticalBar {
+                EditorBottomBar(
+                    activeTool: toolSelection, darkroomActive: showDarkroom,
+                    openDarkroom: openDarkroom, export: { showExport = true })
+            }
+        }
         .background(PhotoTheme.canvas)
         .onGeometryChange(for: WorkspaceLayout.self) { WorkspaceLayout($0.size) } action: { layout = $0 }
         .onSystemVerticalBar { systemVerticalBar = $0 }
@@ -79,11 +86,11 @@ struct EditorView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbar {
-            // A wide space has its own tool rail, unless the system already keeps a bar on the side.
-            if layout == .stacked || systemVerticalBar {
+            // System vertical bars (iPhone Duo) host plain title+symbol items directly;
+            // stacked and wide spaces without a system bar use EditorBottomBar / EditorToolRail.
+            if systemVerticalBar {
                 EditorToolbar(
                     activeTool: toolSelection, darkroomActive: showDarkroom,
-                    systemVerticalBar: systemVerticalBar,
                     openDarkroom: openDarkroom, export: { showExport = true })
             }
             AdaptiveToolbarItem(placement: .topBarLeading, background: .hidden) {

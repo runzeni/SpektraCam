@@ -1,8 +1,10 @@
 import AVKit
 import SwiftUI
+import UIKit
 
-/// RAW camera. The viewfinder stays clear; every control sits around it, with the shutter and
-/// the LVF hold under the right thumb.
+/// Camera workspace. Standard iPhones lock the display to portrait and rotate glyphs in place;
+/// iPad and iPhone Duo rotate freely while keeping the same bottom control layout and compact
+/// shutter-centered exposure slider.
 struct CameraView: View {
     @State private var model: CameraModel
     let onLibrary: () -> Void
@@ -10,14 +12,10 @@ struct CameraView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var layout = WorkspaceLayout.stacked
+    @State private var isLandscape = false
+    @State private var locksPortrait = UIDevice.current.userInterfaceIdiom == .phone
     @State private var glyphs = CameraGlyphRotation()
-    /// False once the system has refused to hold the interface in portrait.
-    @State private var portraitHeld = true
-    /// Degrees that turn a symbol or label upright in the hand; the control itself never moves.
-    /// Only when the interface is really held in portrait: a refused hold, or a space wider
-    /// than tall, means the interface has followed the device and glyphs are already upright.
-    private var glyphDegrees: Double { portraitHeld && layout == .stacked ? glyphs.degrees : 0 }
+    private var glyphDegrees: Double { locksPortrait ? glyphs.degrees : 0 }
     private var turn: Angle { .degrees(glyphDegrees) }
 
     init(library: PhotoLibrary, onLibrary: @escaping () -> Void) {
@@ -59,10 +57,9 @@ struct CameraView: View {
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 14) {
                     importFailure
-                    // The same optics row in every window shape. Equal side controls and
-                    // independent centering keep lens selection in the same predictable place.
                     Group {
-                        exposureControl
+                        // Keep exposure adjustment centered with the shutter at portrait length.
+                        exposureControl.frame(maxWidth: 360)
                         ZStack {
                             HStack {
                                 flashButton
@@ -73,47 +70,20 @@ struct CameraView: View {
                         }
                     }
                     .disabled(!ready)
-                    if layout == .stacked {
-                        ZStack {
-                            HStack {
-                                libraryButton
-                                Spacer()
-                                holdButton
-                            }
-                            shutterSlot
+                    ZStack {
+                        HStack {
+                            libraryButton
+                            Spacer()
+                            holdButton
                         }
+                        shutterButton
                     }
                 }
                 .padding(.horizontal, 20).padding(.bottom, 12)
             }
-            .safeAreaInset(edge: .trailing) {
-                // Wider than tall: the shutter column moves under the thumb on the trailing edge.
-                if layout == .sideBySide {
-                    VStack {
-                        libraryButton
-                        Spacer(minLength: 0)
-                        holdButton
-                    }
-                    .frame(width: 78)
-                    .overlay { shutterSlot }
-                    .padding(.vertical).padding(.trailing, 12)
-                }
-            }
         }
-        .overlayPreferenceValue(CameraShutterBounds.self) { anchor in
-            if let anchor {
-                GeometryReader { proxy in
-                    let slot = proxy[anchor]
-                    // The slot supplies the edge placement; the full presentation supplies
-                    // the center axis. Neither accessory widths nor system bars can shift it.
-                    shutterButton.position(
-                        x: layout == .stacked ? proxy.size.width / 2 : slot.midX,
-                        y: layout == .sideBySide ? proxy.size.height / 2 : slot.midY)
-                }
-                .ignoresSafeArea(.container)
-            }
-        }
-        .onGeometryChange(for: WorkspaceLayout.self) { WorkspaceLayout($0.size) } action: { layout = $0 }
+        .background(CameraOrientationBridge(locksPortrait: $locksPortrait).allowsHitTesting(false))
+        .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { isLandscape = $0 }
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled(model.busy)
         .task {
@@ -127,22 +97,12 @@ struct CameraView: View {
             if phase != .inactive { Task { await model.setActive(phase == .active) } }
         }
         .onAppear {
-            AppDelegate.lockPortrait(true) { portraitHeld = false }
+            AppDelegate.setCameraActive(true)
             glyphs.start()
-        }
-        .task(id: layout) {
-            // The window is the evidence. If it is still wider than tall once a rotation would
-            // have finished, the display did not take the hold: let go of it, so the app never
-            // claims portrait-only while it is shown in landscape.
-            guard layout == .sideBySide, portraitHeld else { return }
-            try? await Task.sleep(for: .milliseconds(700))
-            guard !Task.isCancelled, layout == .sideBySide else { return }
-            portraitHeld = false
-            AppDelegate.lockPortrait(false)
         }
         .onDisappear {
             glyphs.stop()
-            AppDelegate.lockPortrait(false)
+            AppDelegate.setCameraActive(false)
             Task { await model.close() }
         }
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: glyphDegrees)
@@ -151,10 +111,10 @@ struct CameraView: View {
     // MARK: Viewfinder
 
     private var viewfinder: some View {
-        CameraViewfinder(model: model, landscape: layout == .sideBySide) {
+        CameraViewfinder(model: model, landscape: !locksPortrait && isLandscape) {
             if !ready { status }
         }
-            .padding(.horizontal, layout == .stacked ? 6 : 12)
+            .padding(.horizontal, !locksPortrait && isLandscape ? 12 : 6)
             // Hardware capture follows the same readiness as the shutter. A held camera has
             // no running session, so volume buttons retain their system behavior until resumed.
             .adaptiveCameraCaptureEvent(isEnabled: scenePhase == .active && model.canCapture) {
@@ -179,8 +139,8 @@ struct CameraView: View {
                 systemImage: "camera",
                 description: Text(
                     String(
-                        localized: "camera.raw_needs_device",
-                        defaultValue: "RAW capture needs a physical device."))
+                        localized: "camera.error.needs_device",
+                        defaultValue: "Camera capture needs a physical device."))
             )
             .accessibilityIdentifier("camera.unavailable")
         case .rawUnsupported:
@@ -224,12 +184,6 @@ struct CameraView: View {
     }
 
     // MARK: Controls
-
-    private var shutterSlot: some View {
-        Color.clear.frame(width: 78, height: 78)
-            .anchorPreference(key: CameraShutterBounds.self, value: .bounds) { $0 }
-            .allowsHitTesting(false)
-    }
 
     private var exposureControl: some View {
         CameraExposureControl(
@@ -460,10 +414,79 @@ struct CameraView: View {
     }
 }
 
-private struct CameraShutterBounds: PreferenceKey {
-    nonisolated static var defaultValue: Anchor<CGRect>? { nil }
-    nonisolated static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-        value = nextValue() ?? value
+/// Observes window traits and hinge hardware so standard iPhones enforce portrait orientation
+/// throughout modal presentation while iPad and iPhone Duo remain unlocked.
+private struct CameraOrientationBridge: UIViewControllerRepresentable {
+    @Binding var locksPortrait: Bool
+
+    func makeUIViewController(context: Context) -> Controller {
+        Controller(onUpdate: { if locksPortrait != $0 { locksPortrait = $0 } })
+    }
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.onUpdate = { if locksPortrait != $0 { locksPortrait = $0 } }
+    }
+
+    final class Controller: UIViewController {
+        var onUpdate: (Bool) -> Void
+        private var lastLocked: Bool?
+
+        init(onUpdate: @escaping (Bool) -> Void) {
+            self.onUpdate = onUpdate
+            super.init(nibName: nil, bundle: nil)
+        }
+        @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+        override func loadView() {
+            let view = HostingView()
+            view.isUserInteractionEnabled = false
+            view.onWindowChange = { [weak self] in self?.refresh() }
+            if #available(iOS 27.1, *) {
+                let hinge = UIHingeInteraction { [weak self] _, update in
+                    guard let self else { return }
+                    if update.hinge != nil {
+                        AppDelegate.setHasHinge(true, in: self.view.window)
+                    }
+                    self.refresh()
+                }
+                view.addInteraction(hinge)
+            }
+            self.view = view
+        }
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]) {
+                (self: Self, _) in self.refresh()
+            }
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            AppDelegate.setCameraActive(true, in: view.window)
+            refresh()
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            AppDelegate.applyOrientationPolicy(in: view.window)
+            refresh()
+        }
+
+        func refresh() {
+            guard let window = viewIfLoaded?.window else { return }
+            let locked = AppDelegate.locksCameraToPortrait(in: window)
+            guard lastLocked != locked else { return }
+            lastLocked = locked
+            Task { @MainActor [weak self] in self?.onUpdate(locked) }
+        }
+    }
+
+    private final class HostingView: UIView {
+        var onWindowChange: (() -> Void)?
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            onWindowChange?()
+        }
     }
 }
 

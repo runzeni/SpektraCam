@@ -41,15 +41,26 @@ final class CameraLifecycleTests: XCTestCase {
             XCTAssertTrue(app.buttons["camera.lens.24"].waitForExistence(timeout: 10))
             XCTAssertTrue(shutter.isEnabled)
             let window = app.windows.firstMatch.frame
-            if window.width > window.height && window.width >= 560 {
-                XCTAssertEqual(shutter.frame.midY, window.midY, accuracy: 1, "Landscape shutter is off center")
-            } else {
-                XCTAssertEqual(shutter.frame.midX, window.midX, accuracy: 1, "Portrait shutter is off center")
+            if min(window.width, window.height) <= 450 {
+                XCTAssertLessThan(window.width, window.height, "Standard iPhone camera must stay locked to portrait")
             }
+            let library = app.buttons["camera.library"].frame
+            let holdButton = app.buttons["camera.hold"].frame
+            let exposure = app.sliders["camera.exposure"].frame
+            // Across phone, Duo, and iPad, the bottom row keeps Library · Shutter · LVF aligned,
+            // and the exposure slider stays centered with the shutter at compact portrait length.
+            XCTAssertLessThan(library.maxX, shutter.frame.minX)
+            XCTAssertGreaterThan(holdButton.minX, shutter.frame.maxX)
+            XCTAssertEqual(library.midY, shutter.frame.midY, accuracy: 1)
+            XCTAssertEqual(holdButton.midY, shutter.frame.midY, accuracy: 1)
+            XCTAssertEqual((library.minX + holdButton.maxX) / 2, shutter.frame.midX, accuracy: 2)
+            XCTAssertEqual(exposure.midX, shutter.frame.midX, accuracy: 2, "Exposure slider drifted from shutter center")
+            XCTAssertLessThanOrEqual(exposure.width, 260, "Exposure slider stretched beyond portrait length")
             let flash = app.buttons["camera.flash"].frame
             let flip = app.buttons["camera.flip"].frame
             XCTAssertEqual(app.buttons["camera.lens.24"].frame.midY, flash.midY, accuracy: 1)
             XCTAssertEqual(flip.midY, flash.midY, accuracy: 1)
+            XCTAssertLessThan(flash.maxY, shutter.frame.minY)
             app.buttons["camera.hold"].tap()
             let hold = app.descendants(matching: .any)["camera.hold.screen"]
             XCTAssertTrue(hold.waitForExistence(timeout: 5))

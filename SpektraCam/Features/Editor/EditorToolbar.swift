@@ -28,12 +28,12 @@ enum EditorTool: String, CaseIterable, Identifiable {
     }
 }
 
-/// Photo tools stay in one group; the trailing action opens Darkroom or exports its print.
+/// System side-bar items for workspaces where the OS renders a vertical bar (e.g. iPhone Duo).
+/// Stacked portrait workspaces use `EditorBottomBar` so narrow 375 pt screens never collapse
+/// tools into an un-expandable `UIToolbar` overflow dot.
 struct EditorToolbar: ToolbarContent {
     @Binding var activeTool: EditorTool?
     var darkroomActive = false
-    /// The system stacks plain title-and-symbol items in its side bar; labelled tiles stay in a row.
-    var systemVerticalBar = false
     let openDarkroom: () -> Void
     let export: () -> Void
     @Environment(\.appAccent) private var accent
@@ -44,9 +44,6 @@ struct EditorToolbar: ToolbarContent {
     }
     private var actionSymbol: String { darkroomActive ? "square.and.arrow.up" : "lightbulb" }
     @ToolbarContentBuilder var body: some ToolbarContent {
-        if systemVerticalBar { plainItems } else { tiles }
-    }
-    @ToolbarContentBuilder private var plainItems: some ToolbarContent {
         ToolbarItemGroup(placement: .bottomBar) {
             ForEach(EditorTool.allCases) { tool in
                 Button(tool.title, systemImage: tool.symbolName) {
@@ -63,37 +60,69 @@ struct EditorToolbar: ToolbarContent {
                 .accessibilityIdentifier(darkroomActive ? "darkroom.export" : "editor.export")
         }
     }
-    @ToolbarContentBuilder private var tiles: some ToolbarContent {
-        ToolbarItem(placement: .bottomBar) {
-            ControlGroup {
-                ForEach(EditorTool.allCases) { tool in
-                    Button {
-                        activeTool = activeTool == tool ? nil : tool
-                    } label: {
-                        toolLabel(tool.title, symbol: tool.symbolName, selected: activeTool == tool)
-                    }
-                    .accessibilityAddTraits(activeTool == tool ? .isSelected : [])
-                    .accessibilityIdentifier("editor.tool." + tool.rawValue)
-                    .accessibilityShowsLargeContentViewer {
-                        Label(tool.title, systemImage: tool.symbolName)
-                    }
-                }
-            }.controlGroupStyle(.navigation).controlSize(.small)
+}
+
+/// Bottom tool pills for stacked portrait workspaces without a system vertical bar.
+/// Every tool keeps at least a 44 × 48 pt touch area across 320–440+ pt widths without UIToolbar overflow.
+struct EditorBottomBar: View {
+    @Binding var activeTool: EditorTool?
+    var darkroomActive = false
+    let openDarkroom: () -> Void
+    let export: () -> Void
+    private var actionTitle: String {
+        darkroomActive
+            ? String(localized: "common.export", defaultValue: "Export")
+            : String(localized: "darkroom.title", defaultValue: "Darkroom")
+    }
+    private var actionSymbol: String { darkroomActive ? "square.and.arrow.up" : "lightbulb" }
+    var body: some View {
+        AdaptiveGlassContainer(spacing: 10) {
+            HStack(spacing: 10) {
+                toolsPill
+                actionPill
+            }
+            .buttonStyle(.plain)
         }
-        AdaptiveToolbarSpacer(.fixed, placement: .bottomBar)
-        ToolbarItem(placement: .bottomBar) {
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var toolsPill: some View {
+        HStack(spacing: 2) {
+            ForEach(EditorTool.allCases) { tool in toolButton(tool) }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .adaptiveGlassCapsule(interactive: true)
+    }
+
+    private func toolButton(_ tool: EditorTool) -> some View {
+        let selected = activeTool == tool
+        return Button {
+            activeTool = selected ? nil : tool
+        } label: {
+            EditorToolLabel(title: tool.title, symbol: tool.symbolName, selected: selected)
+                .frame(minWidth: 44, maxWidth: 58).frame(height: 48)
+                .contentShape(Rectangle())
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("editor.tool." + tool.rawValue)
+        .accessibilityShowsLargeContentViewer { Label(tool.title, systemImage: tool.symbolName) }
+    }
+
+    private var actionPill: some View {
+        HStack(spacing: 0) {
             Button(action: darkroomActive ? export : openDarkroom) {
-                toolLabel(actionTitle, symbol: actionSymbol, selected: false)
+                EditorToolLabel(title: actionTitle, symbol: actionSymbol, selected: false)
+                    .frame(minWidth: 54).frame(height: 48)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(actionTitle)
             .accessibilityIdentifier(darkroomActive ? "darkroom.export" : "editor.export")
-            .accessibilityShowsLargeContentViewer {
-                Label(actionTitle, systemImage: actionSymbol)
-            }
+            .accessibilityShowsLargeContentViewer { Label(actionTitle, systemImage: actionSymbol) }
         }
-    }
-    private func toolLabel(_ title: String, symbol: String, selected: Bool) -> some View {
-        EditorToolLabel(title: title, symbol: symbol, selected: selected)
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .adaptiveGlassCapsule(interactive: true)
     }
 }
 
@@ -118,6 +147,7 @@ struct EditorToolRail: View {
                             activeTool = activeTool == tool ? nil : tool
                         } label: {
                             EditorToolLabel(title: tool.title, symbol: tool.symbolName, selected: activeTool == tool)
+                                .frame(width: 48, height: 44).contentShape(Rectangle())
                         }
                         .accessibilityAddTraits(activeTool == tool ? .isSelected : [])
                         .accessibilityIdentifier("editor.tool." + tool.rawValue)
@@ -128,6 +158,7 @@ struct EditorToolRail: View {
                 .adaptiveGlassRect(cornerRadius: 28, interactive: true)
                 Button(action: darkroomActive ? export : openDarkroom) {
                     EditorToolLabel(title: actionTitle, symbol: actionSymbol, selected: false)
+                        .frame(width: 48, height: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel(actionTitle)
                 .accessibilityIdentifier(darkroomActive ? "darkroom.export" : "editor.export")
@@ -154,6 +185,5 @@ struct EditorToolLabel: View {
         }
         .foregroundStyle(selected ? Color.accentColor : accent.idle)
         .dynamicTypeSize(...DynamicTypeSize.large)
-        .frame(width: 44, height: 44).contentShape(.rect)
     }
 }

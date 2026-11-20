@@ -141,7 +141,7 @@ struct CameraViewfinder<Status: SwiftUI.View>: SwiftUI.View {
             RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.12), lineWidth: 1)
                 .allowsHitTesting(false)
         }
-        .frame(maxWidth: .infinity, maxHeight: landscape ? .infinity : nil)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: model.selectedLens?.id) { _, _ in focusPoint = nil }
         .task(id: focusRevision) {
             try? await Task.sleep(for: .seconds(4))

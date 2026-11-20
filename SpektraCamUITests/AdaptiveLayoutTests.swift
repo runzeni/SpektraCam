@@ -109,11 +109,10 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertTrue(screen.waitForExistence(timeout: 5))
         screen.tap()
         XCTAssertTrue(screen.waitForNonExistence(timeout: 5))
-        // Taller than wide, the EV slider sits on the screen's centre line.
-        let window = app.windows.firstMatch.frame
-        if window.height > window.width {
-            XCTAssertEqual(app.sliders["camera.exposure"].frame.midX, window.midX, accuracy: 2)
-        }
+        // In every orientation, the EV slider stays centered above the shutter at portrait length.
+        let exposure = app.sliders["camera.exposure"].frame
+        XCTAssertEqual(exposure.midX, shutter.frame.midX, accuracy: 2)
+        XCTAssertLessThanOrEqual(exposure.width, 260)
         // A live camera must still let go: Close returns to a working library.
         app.buttons["camera.close"].tap()
         XCTAssertTrue(app.buttons["library.import"].waitForExistence(timeout: 10))

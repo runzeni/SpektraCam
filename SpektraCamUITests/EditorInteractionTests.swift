@@ -1297,12 +1297,17 @@ final class EditorInteractionTests: XCTestCase {
         XCTAssertTrue(app.buttons["darkroom.export"].waitForExistence(timeout: 5))
         app.buttons["darkroom.export"].tap()
         XCTAssertTrue(app.buttons["Long edge"].waitForExistence(timeout: 5))
+        app.buttons["Percent"].tap()
+        XCTAssertLessThan(app.buttons["75 %"].frame.minX, app.buttons["50 %"].frame.minX)
+        XCTAssertLessThan(app.buttons["50 %"].frame.minX, app.buttons["25 %"].frame.minX)
         app.buttons["Long edge"].tap()
         // The output size is known before the file renders.
         let output = app.descendants(matching: .any)["export.output"]
         XCTAssertTrue(output.waitForExistence(timeout: 5))
         app.buttons["PNG"].tap()
         app.buttons["JPEG"].tap()
+        XCTAssertLessThan(app.buttons["Maximum"].frame.minX, app.buttons["High"].frame.minX)
+        XCTAssertLessThan(app.buttons["High"].frame.minX, app.buttons["Standard"].frame.minX)
         app.buttons["Standard"].tap()
         let save = app.buttons["export.save"]
         XCTAssertTrue(save.waitForExistence(timeout: 45))

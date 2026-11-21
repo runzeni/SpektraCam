@@ -28,16 +28,18 @@ nonisolated enum CameraFormat: String, CaseIterable, Identifiable, Sendable {
             "JPEG"
         }
     }
-    func badge(megapixels: Int, highResolution: Bool, maximumMegapixels: Int) -> String {
+    func badge(
+        megapixels: Int, highResolution: Bool, maximumMegapixels: Int, standardMegapixels: Int = 12
+    ) -> String {
         switch self {
         case .proRAW:
             "PRO \(megapixels)"
         case .bayerRAW:
             "RAW"
         case .heic:
-            highResolution && maximumMegapixels > 12 ? "HEIC \(megapixels)" : "HEIC"
+            highResolution && maximumMegapixels > standardMegapixels ? "HEIC \(megapixels)" : "HEIC"
         case .jpeg:
-            highResolution && maximumMegapixels > 12 ? "JPEG \(megapixels)" : "JPEG"
+            highResolution && maximumMegapixels > standardMegapixels ? "JPEG \(megapixels)" : "JPEG"
         }
     }
 }
@@ -137,6 +139,17 @@ actor CameraService {
         events = channel.stream
         sink = channel.continuation
     }
+    struct CaptureStoredResult: @unchecked Sendable {
+        let url: URL
+        let requestedDimensions: CMVideoDimensions
+        let resolvedDimensions: CMVideoDimensions
+        let deliveredWidth: Int
+        let deliveredHeight: Int
+        let thumbnail: CGImage?
+        let exposureMs: Double
+        let serializationMs: Double
+        let writeMs: Double
+    }
     struct Configuration: Sendable {
         let source: CameraPreviewSource
         let formats: [CameraFormat]
@@ -144,10 +157,36 @@ actor CameraService {
         let selectedLens: CameraLens
         let macro: Bool
         let highResolution: Bool
+        let standardMegapixels: Int
         let maximumMegapixels: Int
         let exposureBias: Double
         let exposureRange: ClosedRange<Double>
         let flashAvailable: Bool
+    }
+    nonisolated static func nominalMegapixels(_ dimensions: CMVideoDimensions) -> Int {
+        let pixels = Int64(dimensions.width) * Int64(dimensions.height)
+        switch pixels {
+        case 45_000_000...52_000_000: return 48
+        case 21_000_000...27_000_000: return 24
+        case 10_000_000...14_000_000: return 12
+        default: return max(1, Int((Double(pixels) / 1_000_000).rounded()))
+        }
+    }
+    nonisolated static func selectableDimensions(from supported: [CMVideoDimensions]) -> [CMVideoDimensions] {
+        let sorted = supported.sorted {
+            Int64($0.width) * Int64($0.height) < Int64($1.width) * Int64($1.height)
+        }
+        guard !sorted.isEmpty else { return [] }
+        let hasStandard = sorted.contains {
+            (10_000_000...14_000_000).contains(Int64($0.width) * Int64($0.height))
+        }
+        // Without isAutoDeferredPhotoDeliveryEnabled, 24 MP (5712x4284) cannot be delivered
+        // reliably alongside a 12 MP base tier; keep genuinely immediate tiers (e.g. 12 MP & 48 MP).
+        let filtered = sorted.filter { dims in
+            let px = Int64(dims.width) * Int64(dims.height)
+            return !(hasStandard && (21_000_000...27_000_000).contains(px))
+        }
+        return filtered.isEmpty ? sorted : filtered
     }
     func start() async throws -> Configuration {
         guard !closed else { throw CancellationError() }
@@ -173,13 +212,16 @@ actor CameraService {
         guard let source, let activeLens, let device = devices[activeLens.id] else {
             throw CameraFailure.configuration
         }
+        let selectable = Self.selectableDimensions(
+            from: device.activeFormat.supportedMaxPhotoDimensions)
+        let standardDims = selectable.first ?? output.maxPhotoDimensions
+        let maximumDims = selectable.last ?? maximumDimensions()
         return Configuration(
             source: source, formats: CameraFormat.allCases.filter { formats[$0] != nil },
             lenses: lenses, selectedLens: activeLens, macro: macro, highResolution: highResolution,
-            maximumMegapixels: Int(
-                (Double(maximumDimensions().width) * Double(maximumDimensions().height) / 1_000_000)
-                    .rounded()
-            ), exposureBias: Double(device.exposureTargetBias),
+            standardMegapixels: Self.nominalMegapixels(standardDims),
+            maximumMegapixels: Self.nominalMegapixels(maximumDims),
+            exposureBias: Double(device.exposureTargetBias),
             exposureRange: max(
                 -3, Double(device.minExposureTargetBias))...min(
                     3, Double(device.maxExposureTargetBias)),
@@ -278,9 +320,8 @@ actor CameraService {
         if output.isAppleProRAWEnabled != supportsProRAW {
             output.isAppleProRAWEnabled = supportsProRAW
         }
-        let dimensions = device.activeFormat.supportedMaxPhotoDimensions.sorted(by: {
-            Int64($0.width) * Int64($0.height) < Int64($1.width) * Int64($1.height)
-        })
+        let dimensions = Self.selectableDimensions(
+            from: device.activeFormat.supportedMaxPhotoDimensions)
         if let selected = highResolution ? dimensions.last : dimensions.first,
             output.maxPhotoDimensions.width != selected.width
                 || output.maxPhotoDimensions.height != selected.height
@@ -339,13 +380,16 @@ actor CameraService {
     /// Query only after attaching a video input and the photo output to the session.
     private func availableFormats() -> [CameraFormat: FormatSpec] {
         var result: [CameraFormat: FormatSpec] = [:]
-        // Keep the first matching entry; AVFoundation orders preferred pixel formats first.
-        for value in output.availableRawPhotoPixelFormatTypes {
-            if result[.proRAW] == nil, AVCapturePhotoOutput.isAppleProRAWPixelFormat(value) {
-                result[.proRAW] = .raw(value)
-            }
-            if result[.bayerRAW] == nil, AVCapturePhotoOutput.isBayerRAWPixelFormat(value) {
-                result[.bayerRAW] = .raw(value)
+        if output.availableRawPhotoFileTypes.contains(.dng) {
+            let dngRawTypes = Set(output.supportedRawPhotoPixelFormatTypes(for: .dng))
+            // Keep the first matching entry; AVFoundation orders preferred pixel formats first.
+            for value in output.availableRawPhotoPixelFormatTypes where dngRawTypes.contains(value) {
+                if result[.proRAW] == nil, AVCapturePhotoOutput.isAppleProRAWPixelFormat(value) {
+                    result[.proRAW] = .raw(value)
+                }
+                if result[.bayerRAW] == nil, AVCapturePhotoOutput.isBayerRAWPixelFormat(value) {
+                    result[.bayerRAW] = .raw(value)
+                }
             }
         }
         let fileTypes = output.availablePhotoFileTypes
@@ -488,8 +532,14 @@ actor CameraService {
             self.macro = macro && lens.macro
             return try configuration()
         }
-        let input = try inputs[id] ?? AVCaptureDeviceInput(device: device)
-        inputs[id] = input
+        let previousMacro = self.macro
+        let input: AVCaptureDeviceInput
+        do {
+            input = try inputs[id] ?? AVCaptureDeviceInput(device: device)
+            inputs[id] = input
+        } catch {
+            throw error
+        }
         session.beginConfiguration()
         defer {
             session.commitConfiguration()
@@ -504,10 +554,12 @@ actor CameraService {
             activeLens = lens
             self.macro = macro && lens.macro
         } catch {
-            lenses.removeAll { $0.id == id }
             if session.inputs.contains(input) { session.removeInput(input) }
-            if session.canAddInput(previous) { session.addInput(previous) }
-            try? configureOutput(device: previous.device, macro: self.macro)
+            if !session.inputs.contains(previous), session.canAddInput(previous) {
+                session.addInput(previous)
+            }
+            self.macro = previousMacro
+            try? configureOutput(device: previous.device, macro: previousMacro)
             throw error
         }
         return try configuration()
@@ -629,8 +681,8 @@ actor CameraService {
         publishReadiness()
     }
     private func finishCapture(
-        id: Int64, result: Result<URL, Error>,
-        onStored: @escaping @MainActor @Sendable (Result<URL, Error>) -> Void
+        id: Int64, result: Result<CaptureStoredResult, Error>,
+        onStored: @escaping @MainActor @Sendable (Result<CaptureStoredResult, Error>) -> Void
     ) async {
         removeCapture(id: id)
         await onStored(result)
@@ -640,7 +692,7 @@ actor CameraService {
     func takePhoto(
         format: CameraFormat, rotation: CGFloat, inbox: CameraInbox, location: CaptureLocation?,
         flash: Bool = false,
-        onStored: @escaping @MainActor @Sendable (Result<URL, Error>) -> Void
+        onStored: @escaping @MainActor @Sendable (Result<CaptureStoredResult, Error>) -> Void
     )
         async throws -> Bool
     {
@@ -659,9 +711,11 @@ actor CameraService {
         }
         connection.videoRotationAngle = angle
         let id = settings.uniqueID
+        let requestedDimensions = settings.maxPhotoDimensions
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let delegate = PhotoCapture(
                 id: id, expectsRAW: format.isRAW, fileExtension: format.fileExtension,
+                requestedDimensions: requestedDimensions,
                 inbox: inbox, location: location, writeQueue: writeQueue,
                 exposureContinuation: continuation,
                 onAbort: { [weak self] captureID in
@@ -699,25 +753,28 @@ nonisolated private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDel
     private let id: Int64
     private let expectsRAW: Bool
     private let fileExtension: String
+    private let requestedDimensions: CMVideoDimensions
     private let inbox: CameraInbox
     private let location: CaptureLocation?
     private let writeQueue: DispatchQueue
     private var exposureContinuation: CheckedContinuation<Void, Error>?
     private let onAbort: @Sendable (Int64) -> Void
-    private let onComplete: @Sendable (Int64, Result<URL, Error>) -> Void
-    private var writeResult: Result<URL, Error>?
+    private let onComplete: @Sendable (Int64, Result<CameraService.CaptureStoredResult, Error>) -> Void
+    private var writeResult: Result<CameraService.CaptureStoredResult, Error>?
     private let started = ProcessInfo.processInfo.systemUptime
+    private var exposureMs = 0.0
 
     init(
-        id: Int64, expectsRAW: Bool, fileExtension: String, inbox: CameraInbox,
-        location: CaptureLocation?, writeQueue: DispatchQueue,
+        id: Int64, expectsRAW: Bool, fileExtension: String, requestedDimensions: CMVideoDimensions,
+        inbox: CameraInbox, location: CaptureLocation?, writeQueue: DispatchQueue,
         exposureContinuation: CheckedContinuation<Void, Error>,
         onAbort: @escaping @Sendable (Int64) -> Void,
-        onComplete: @escaping @Sendable (Int64, Result<URL, Error>) -> Void
+        onComplete: @escaping @Sendable (Int64, Result<CameraService.CaptureStoredResult, Error>) -> Void
     ) {
         self.id = id
         self.expectsRAW = expectsRAW
         self.fileExtension = fileExtension
+        self.requestedDimensions = requestedDimensions
         self.inbox = inbox
         self.location = location
         self.writeQueue = writeQueue
@@ -736,12 +793,13 @@ nonisolated private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDel
         _ output: AVCapturePhotoOutput,
         didCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings
     ) {
+        exposureMs = (ProcessInfo.processInfo.systemUptime - started) * 1000
         if let continuation = exposureContinuation {
             exposureContinuation = nil
             continuation.resume()
         }
         Log.camera.debug(
-            "Exposure complete (\(self.fileExtension)): \(ProcessInfo.processInfo.systemUptime - self.started) s")
+            "Exposure complete (\(self.fileExtension)): \(Int(self.exposureMs.rounded())) ms")
     }
 
     func photoOutput(
@@ -753,6 +811,7 @@ nonisolated private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDel
             return
         }
         if expectsRAW && !photo.isRawPhoto { return }
+        let serializationStarted = ProcessInfo.processInfo.systemUptime
         guard
             let data = location == nil
                 ? photo.fileDataRepresentation() : photo.fileDataRepresentation(with: self)
@@ -760,19 +819,56 @@ nonisolated private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDel
             writeResult = .failure(expectsRAW ? CameraFailure.noData : CameraFailure.noPhotoData)
             return
         }
+        let serializationMs = (ProcessInfo.processInfo.systemUptime - serializationStarted) * 1000
         let inbox = inbox
         let ext = fileExtension
-        let started = started
-        let dimensions =
+        let requested = requestedDimensions
+        let resolved =
             photo.isRawPhoto
             ? photo.resolvedSettings.rawPhotoDimensions : photo.resolvedSettings.photoDimensions
+        let exposureMs = exposureMs
+        let previewThumb = photo.previewCGImageRepresentation()
         writeQueue.async {
-            let outcome = Result { try inbox.store(data, fileExtension: ext) }
+            let writeStarted = ProcessInfo.processInfo.systemUptime
+            let (deliveredW, deliveredH, sourceThumb) = Self.inspectEncodedHeader(
+                data, needsThumbnail: previewThumb == nil)
+            let outcome = Result<CameraService.CaptureStoredResult, Error> {
+                let url = try inbox.store(data, fileExtension: ext)
+                let writeMs = (ProcessInfo.processInfo.systemUptime - writeStarted) * 1000
+                Log.camera.debug(
+                    "Capture \(ext.uppercased()) req=\(requested.width)×\(requested.height) res=\(resolved.width)×\(resolved.height) file=\(deliveredW)×\(deliveredH) exp=\(Int(exposureMs.rounded()))ms ser=\(Int(serializationMs.rounded()))ms write=\(Int(writeMs.rounded()))ms"
+                )
+                return CameraService.CaptureStoredResult(
+                    url: url, requestedDimensions: requested, resolvedDimensions: resolved,
+                    deliveredWidth: deliveredW > 0 ? deliveredW : Int(resolved.width),
+                    deliveredHeight: deliveredH > 0 ? deliveredH : Int(resolved.height),
+                    thumbnail: previewThumb ?? sourceThumb,
+                    exposureMs: exposureMs, serializationMs: serializationMs, writeMs: writeMs)
+            }
             self.writeResult = outcome
-            Log.camera.debug(
-                "Capture \(ext.uppercased()) \(dimensions.width)×\(dimensions.height) saved: \(ProcessInfo.processInfo.systemUptime - started) s"
-            )
         }
+    }
+
+    private static func inspectEncodedHeader(_ data: Data, needsThumbnail: Bool) -> (Int, Int, CGImage?) {
+        guard
+            let source = CGImageSourceCreateWithData(
+                data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { return (0, 0, nil) }
+        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let width = props?[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let height = props?[kCGImagePropertyPixelHeight] as? Int ?? 0
+        let thumb: CGImage? =
+            needsThumbnail
+            ? CGImageSourceCreateThumbnailAtIndex(
+                source, 0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 160,
+                    kCGImageSourceShouldCacheImmediately: true,
+                ] as CFDictionary)
+            : nil
+        return (width, height, thumb)
     }
 
     func photoOutput(

@@ -14,6 +14,7 @@ actor LibraryImages {
     nonisolated let resources: FilmRenderResources
     private let exportOwner = UUID()
     private let lowMemoryDevice: Bool
+    private let decodeLimiter: DecodeLimiter
 
     init(files: LibraryFiles, directory: URL) {
         self.files = files
@@ -21,6 +22,7 @@ actor LibraryImages {
         resources = FilmRenderResources(directory: directory)
         let physicalMemory = ProcessInfo.processInfo.physicalMemory
         lowMemoryDevice = physicalMemory < 5_800_000_000
+        decodeLimiter = DecodeLimiter(limit: physicalMemory < 5_000_000_000 ? 4 : 8)
         if physicalMemory < 3_800_000_000 {
             // 2–3 GB devices (e.g. older base iPads): bound caches tightly to avoid jetsam.
             thumbnails.totalCostLimit = 16 * 1024 * 1024
@@ -66,40 +68,52 @@ actor LibraryImages {
         let key = "\(scope)\(photo.id)-\(photo.renderKey)-\(thumbnail)-\(maximum)" as NSString
         let memory = thumbnail ? thumbnails : previews
         if let image = memory.object(forKey: key) { return image }
-        let files = self.files
-        let diskDecode = Task.detached(priority: .userInitiated) {
-            files.cachedImage(photo, thumbnail: thumbnail, maximum: maximum)
+        try await decodeLimiter.acquire()
+        let diskImage: CGImage?
+        do {
+            let files = self.files
+            let diskDecode = Task.detached(priority: .userInitiated) {
+                files.cachedImage(photo, thumbnail: thumbnail, maximum: maximum)
+            }
+            diskImage = await withTaskCancellationHandler {
+                await diskDecode.value
+            } onCancel: {
+                diskDecode.cancel()
+            }
         }
-        let diskImage = await withTaskCancellationHandler {
-            await diskDecode.value
-        } onCancel: {
-            diskDecode.cancel()
-        }
-        try Task.checkCancellation()
-        if let image = memory.object(forKey: key) { return image }
-        if let image = diskImage {
-            memory.setObject(image, forKey: key, cost: image.width * image.height * 4)
-            return image
+        if let diskImage {
+            await decodeLimiter.release()
+            try Task.checkCancellation()
+            if let image = memory.object(forKey: key) { return image }
+            memory.setObject(diskImage, forKey: key, cost: diskImage.width * diskImage.height * 4)
+            return diskImage
         }
         let image: CGImage
-        if !photo.hasEdits {
-            image = try await files.originalImage(photo, thumbnail: thumbnail, maximum: maximum)
-        } else {
-            let previous = tail?.task
-            let id = UUID()
-            let job = Task {
-                if let previous { _ = await previous.result }
-                try Task.checkCancellation()
-                return try await self.rebuild(photo, thumbnail: thumbnail, maximum: maximum)
+        do {
+            try Task.checkCancellation()
+            if !photo.hasEdits {
+                image = try await files.originalImage(photo, thumbnail: thumbnail, maximum: maximum)
+                await decodeLimiter.release()
+            } else {
+                await decodeLimiter.release()
+                let previous = tail?.task
+                let id = UUID()
+                let job = Task {
+                    if let previous { _ = await previous.result }
+                    try Task.checkCancellation()
+                    return try await self.rebuild(photo, thumbnail: thumbnail, maximum: maximum)
+                }
+                tail = (id, job)
+                defer { if tail?.id == id { tail = nil } }
+                image = try await withTaskCancellationHandler {
+                    try await job.value
+                } onCancel: {
+                    job.cancel()
+                }
             }
-            tail = (id, job)
-            defer { if tail?.id == id { tail = nil } }
-            let preview = try await withTaskCancellationHandler {
-                try await job.value
-            } onCancel: {
-                job.cancel()
-            }
-            image = preview
+        } catch {
+            if !photo.hasEdits { await decodeLimiter.release() }
+            throw error
         }
         try Task.checkCancellation()
         memory.setObject(image, forKey: key, cost: image.width * image.height * 4)
@@ -165,6 +179,7 @@ actor LibraryImages {
         PhotoSource.clearCaches()
         SourceImageRenderer.clearCaches()
         ToneRenderer.clearCaches()
+        ToneRenderer.purgeGradeResources()
         FilmEdgeRenderer.clearCaches()
     }
     func trimForBackground() async {
@@ -188,4 +203,54 @@ actor LibraryImages {
         }
     }
     func endExport() async { await requests.resume(owner: exportOwner) }
+}
+
+private actor DecodeLimiter {
+    private let limit: Int
+    private var active = 0
+    private var waiters: [(id: UUID, continuation: CheckedContinuation<Void, Error>)] = []
+    private var cancelledIDs: Set<UUID> = []
+
+    init(limit: Int) { self.limit = max(1, limit) }
+
+    func acquire() async throws {
+        try Task.checkCancellation()
+        if active < limit {
+            active += 1
+            return
+        }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                enqueue(id, continuation)
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
+    }
+
+    private func enqueue(_ id: UUID, _ continuation: CheckedContinuation<Void, Error>) {
+        if cancelledIDs.remove(id) != nil {
+            continuation.resume(throwing: CancellationError())
+        } else {
+            waiters.append((id, continuation))
+        }
+    }
+
+    private func cancel(_ id: UUID) {
+        if let index = waiters.firstIndex(where: { $0.id == id }) {
+            waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        } else {
+            cancelledIDs.insert(id)
+        }
+    }
+
+    func release() {
+        while !waiters.isEmpty {
+            let next = waiters.removeFirst()
+            next.continuation.resume()
+            return
+        }
+        active = max(0, active - 1)
+    }
 }

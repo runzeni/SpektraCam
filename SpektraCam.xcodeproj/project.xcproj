@@ -63,7 +63,7 @@
         "INFOPLIST_FILE": "Configuration/SpektraCam-Info.plist",
         "INFOPLIST_KEY_CFBundleDisplayName": "SpektraCam",
         "INFOPLIST_KEY_ITSAppUsesNonExemptEncryption": "NO",
-        "INFOPLIST_KEY_NSCameraUsageDescription": "Take RAW photos and save them in the app library.",
+        "INFOPLIST_KEY_NSCameraUsageDescription": "Take photos and save them in your SpektraCam library.",
         "INFOPLIST_KEY_NSLocationWhenInUseUsageDescription": "Add the capture location to photos taken with SpektraCam.",
         "INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription": "Save edited photos to your photo library.",
         "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",

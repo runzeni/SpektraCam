@@ -113,8 +113,9 @@ struct CameraView: View {
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled(model.busy)
         .task {
-            await model.retryImport()
+            let recovery = Task { await model.retryImport(includeQuarantined: false) }
             await model.setActive(scenePhase != .background)
+            _ = await recovery.value
             await model.monitor()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -222,7 +223,19 @@ struct CameraView: View {
     }
 
     @ViewBuilder private var importFailure: some View {
-        if let failure = model.saveFailure {
+        if let resolutionNotice = model.resolutionNotice {
+            Text(resolutionNotice)
+                .font(.caption.weight(.medium))
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .adaptiveGlassCapsule()
+                .accessibilityIdentifier("camera.resolutionNotice")
+        }
+        if let failure = model.writeFailure ?? model.transientFailure {
+            Text(failure)
+                .font(.footnote)
+                .padding().adaptiveGlassRect(cornerRadius: 20)
+        }
+        if let failure = model.importFailure {
             VStack(spacing: 8) {
                 Text(failure).font(.footnote)
                 if model.pendingCount > 0 {
@@ -232,7 +245,7 @@ struct CameraView: View {
                             defaultValue: "The capture is kept on this device.")
                     ).font(.footnote)
                     Button(String(localized: "camera.retry_import", defaultValue: "Retry Import")) {
-                        Task { await model.retryImport() }
+                        Task { await model.retryImport(includeQuarantined: true) }
                     }
                     .adaptiveGlassButton().disabled(model.busy)
                     .accessibilityIdentifier("camera.retryImport")
@@ -345,9 +358,15 @@ struct CameraView: View {
         Button(action: onLibrary) {
             Group {
                 if let photo = model.library.photos.last {
-                    PhotoThumbnail(photo: photo, images: model.library.images, showsBadges: false)
+                    PhotoThumbnail(
+                        photo: photo, images: model.library.images, showsBadges: false,
+                        placeholder: model.provisionalThumbnail)
+                } else if let provisional = model.provisionalThumbnail {
+                    Image(uiImage: provisional).resizable().scaledToFill()
                 } else {
                     Image(systemName: "photo.on.rectangle")
+                        .font(.system(size: 18, weight: .medium)).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.white.opacity(0.12))
                 }
             }
             .rotationEffect(turn).frame(width: 52, height: 52).clipShape(.rect(cornerRadius: 12))
@@ -391,13 +410,15 @@ struct CameraView: View {
     }
 
     private var megapixels: Int {
-        model.format.supportsResolutionChoice && model.highResolution ? model.maximumMegapixels : 12
+        model.format.supportsResolutionChoice && model.highResolution
+            ? model.maximumMegapixels : model.standardMegapixels
     }
     // Bayer RAW dimensions come from the sensor, not a universal 12 MP promise.
     private var formatSummary: String {
         model.format.badge(
             megapixels: megapixels, highResolution: model.highResolution,
-            maximumMegapixels: model.maximumMegapixels)
+            maximumMegapixels: model.maximumMegapixels,
+            standardMegapixels: model.standardMegapixels)
     }
     @ViewBuilder private var formatControl: some View {
         if !model.formats.isEmpty {
@@ -412,7 +433,9 @@ struct CameraView: View {
                         ForEach(model.formats) { Text($0.title).tag($0) }
                     }
                 }
-                if model.maximumMegapixels > 12 && model.format.supportsResolutionChoice {
+                if model.maximumMegapixels > model.standardMegapixels
+                    && model.format.supportsResolutionChoice
+                {
                     Picker(
                         String(localized: "camera.resolution", defaultValue: "Resolution"),
                         selection: Binding(
@@ -422,10 +445,14 @@ struct CameraView: View {
                     ) {
                         Text(
                             String(
-                                localized: "camera.max_mp",
-                                defaultValue: "Max (\(model.maximumMegapixels) MP)")
+                                localized: "camera.up_to_mp",
+                                defaultValue: "Up to \(model.maximumMegapixels) MP")
                         ).tag(true)
-                        Text(String(localized: "camera.12_mp", defaultValue: "12 MP")).tag(false)
+                        Text(
+                            String(
+                                localized: "camera.standard_mp",
+                                defaultValue: "\(model.standardMegapixels) MP")
+                        ).tag(false)
                     }
                 }
             } label: {

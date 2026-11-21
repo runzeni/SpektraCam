@@ -34,13 +34,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Take RAW photos and save them in the app library."
+            "value" : "Take photos and save them in your SpektraCam library."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "用于拍摄 RAW 照片，并将其存储到 App 图库。"
+            "value" : "用于拍摄照片，并将其存储到 SpektraCam 图库。"
           }
         }
       }

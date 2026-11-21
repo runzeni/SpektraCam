@@ -307,7 +307,7 @@ import OSLog
         if processingChanged || geometryChanged { renderGeometry() }
     }
     var detailProvider: PhotoScrollView.DetailProvider {
-        { [weak self] visible, longEdge in
+        PhotoScrollView.DetailProvider { [weak self] visible, longEdge in
             await self?.detail(visible: visible, longEdge: longEdge)
         }
     }

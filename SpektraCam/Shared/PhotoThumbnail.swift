@@ -9,10 +9,21 @@ private struct PhotoActionLabelStyle: LabelStyle {
 }
 private struct PhotoActionStyle: ViewModifier {
     func body(content: Content) -> some View {
-        content.labelStyle(PhotoActionLabelStyle())
-            .font(.system(size: 17, weight: .medium))
-            .controlSize(.regular).adaptiveGlassButton().buttonBorderShape(.circle)
-            .frame(width: 44, height: 44)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            content.labelStyle(PhotoActionLabelStyle())
+                .font(.system(size: 17, weight: .medium))
+                .controlSize(.regular).adaptiveGlassButton().buttonBorderShape(.circle)
+                .frame(width: 44, height: 44)
+        } else {
+            content.labelStyle(PhotoActionLabelStyle())
+                .font(.system(size: 17, weight: .medium))
+                .controlSize(.regular)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .foregroundStyle(Color.primary)
+                .background(.regularMaterial, in: .circle)
+                .frame(width: 44, height: 44)
+        }
     }
 }
 extension View {
@@ -72,12 +83,17 @@ struct PhotoThumbnail: View {
     let photo: LibraryPhoto
     let images: LibraryImages
     var showsBadges = true
-    @State private var image: UIImage?
+    var placeholder: UIImage? = nil
+    @State private var loaded: (id: UUID, image: UIImage)?
     @State private var failed = false
+    private var displayedImage: UIImage? {
+        if let loaded, loaded.id == photo.id { return loaded.image }
+        return placeholder
+    }
     var body: some View {
         Color(uiColor: .secondarySystemBackground)
             .overlay {
-                if let image {
+                if let image = displayedImage {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else if failed {
                     Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
@@ -96,13 +112,18 @@ struct PhotoThumbnail: View {
             }
             .task(id: "\(photo.id)-\(photo.renderKey)") {
                 failed = false
+                if let cached = await images.cachedThumbnail(photo) {
+                    guard !Task.isCancelled else { return }
+                    loaded = (photo.id, UIImage(cgImage: cached))
+                    return
+                }
                 do {
                     let frame = try await images.image(photo, thumbnail: true)
                     try Task.checkCancellation()
-                    image = UIImage(cgImage: frame)
+                    loaded = (photo.id, UIImage(cgImage: frame))
                 } catch { if !Task.isCancelled { failed = true } }
             }
-            .onDisappear { image = nil }
+            .onDisappear { loaded = nil }
             .accessibilityHidden(true)
     }
 }

@@ -16,6 +16,7 @@ actor BatchPhotoExporter {
     private let directory: URL
     private let luts: URL
     private let resources: FilmRenderResources
+    private var admittedPlans: [UUID: (size: PhotoExporter.Size, recipe: EditRecipe, plan: RenderMemoryBudget.Plan)] = [:]
     init(directory: URL, luts: URL, resources: FilmRenderResources) {
         self.directory = directory
         self.luts = luts
@@ -36,18 +37,23 @@ actor BatchPhotoExporter {
         do {
             if let recipe {
                 let prefersDeep = PhotoSource.prefersDeepPipeline(at: item.source)
-                try RenderPrecision.$activeSourcePrefersDeep.withValue(prefersDeep) {
+                let plan = try RenderPrecision.$activeSourcePrefersDeep.withValue(prefersDeep) {
                     try RenderMemoryBudget.check(
                         width: max(1, Int(ceil(w * scale))),
                         height: max(1, Int(ceil(h * scale))), recipe: recipe)
                 }
+                admittedPlans[item.id] = (size, recipe, plan)
             } else {
+                admittedPlans.removeValue(forKey: item.id)
                 try PhotoSource.checkDevelopmentMemory(
                     width: max(1, Int(ceil(w * scale))),
                     height: max(1, Int(ceil(h * scale))))
             }
             return nil
-        } catch { return error.localizedDescription }
+        } catch {
+            admittedPlans.removeValue(forKey: item.id)
+            return error.localizedDescription
+        }
     }
     func export(
         _ item: BatchExportItem, size: PhotoExporter.Size,
@@ -73,9 +79,12 @@ actor BatchPhotoExporter {
             temperature: description.temperature, lutDirectory: luts, previewMaximum: 384,
             resources: resources, sourceType: description.type, description: description,
             sourceFilename: item.name, cachesIntermediates: false)
+        let cachedPlan = admittedPlans[item.id].flatMap { entry in
+            entry.size == size && entry.recipe == recipe ? entry.plan : nil
+        }
         do {
             let result = try await renderer.export(
-                recipe, size: size, format: format, quality: quality)
+                recipe, size: size, format: format, quality: quality, admittedPlan: cachedPlan)
             await renderer.discardExport()
             return result.0
         } catch {

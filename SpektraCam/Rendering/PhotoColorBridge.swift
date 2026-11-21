@@ -61,21 +61,45 @@ nonisolated enum PhotoColorBridge {
     enum Failure: Error { case invalidImage, bitmap }
     private static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
     private static let display = CGColorSpace(name: CGColorSpace.sRGB)!
-    private static let context32 = CIContext(options: [
-        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf,
-        .cacheIntermediates: false,
-    ])
-    private static let context16 = CIContext(options: [
-        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAh,
-        .cacheIntermediates: false,
-    ])
+    private static let contextLock = NSLock()
+    private nonisolated(unsafe) static var _context32: CIContext?
+    private nonisolated(unsafe) static var _context16: CIContext?
     private static var context: CIContext {
-        RenderPrecision.resolved.usesHalfFloat ? context16 : context32
+        let halfFloat = RenderPrecision.resolved.usesHalfFloat
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        if halfFloat {
+            if let existing = _context16 { return existing }
+            let created = CIContext(options: [
+                .workingColorSpace: linear, .workingFormat: CIFormat.RGBAh,
+                .cacheIntermediates: false,
+            ])
+            _context16 = created
+            return created
+        } else {
+            if let existing = _context32 { return existing }
+            let created = CIContext(options: [
+                .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf,
+                .cacheIntermediates: false,
+            ])
+            _context32 = created
+            return created
+        }
+    }
+
+    static var initializedContextCountForTesting: Int {
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        return (_context16 != nil ? 1 : 0) + (_context32 != nil ? 1 : 0)
     }
 
     static func clearCaches() {
-        context16.clearCaches()
-        context32.clearCaches()
+        contextLock.lock()
+        let c16 = _context16
+        let c32 = _context32
+        contextLock.unlock()
+        c16?.clearCaches()
+        c32?.clearCaches()
     }
 
     static func decode(_ source: CGImage) throws -> [SIMD4<Float>] {

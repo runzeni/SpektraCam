@@ -196,8 +196,20 @@ final class CameraLifecycleTests: XCTestCase {
         app.buttons["library.info"].tap()
         XCTAssertTrue(app.navigationBars["About"].waitForExistence(timeout: 5))
         let precision = app.buttons["about.renderPrecision"]
-        for _ in 0..<5 where !precision.isHittable { app.swipeUp() }
-        XCTAssertTrue(precision.waitForExistence(timeout: 5))
+        func revealPrecision() {
+            let list = app.collectionViews.firstMatch
+            XCTAssertTrue(list.waitForExistence(timeout: 5))
+            for _ in 0..<6 where !(precision.exists && precision.isHittable) {
+                let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.78))
+                let end = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.28))
+                start.press(
+                    forDuration: 0.05, thenDragTo: end, withVelocity: .slow,
+                    thenHoldForDuration: 0.15)
+            }
+            XCTAssertTrue(precision.waitForExistence(timeout: 5))
+            XCTAssertTrue(precision.isHittable)
+        }
+        revealPrecision()
         precision.tap()
         app.buttons["16-bit float"].tap()
         app.buttons["Done"].tap()
@@ -212,12 +224,13 @@ final class CameraLifecycleTests: XCTestCase {
         XCTAssertTrue(app.activityIndicators["Rendering preview"].waitForNonExistence(timeout: 30))
         app.buttons["editor.back"].tap()
         XCTAssertTrue(app.buttons["photo.develop"].waitForExistence(timeout: 15))
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let back = app.buttons["BackButton"]
+        (back.exists ? back : app.navigationBars.buttons["Library"]).tap()
+        XCTAssertTrue(app.buttons["library.info"].waitForExistence(timeout: 10))
 
         app.buttons["library.info"].tap()
         XCTAssertTrue(app.navigationBars["About"].waitForExistence(timeout: 5))
-        for _ in 0..<5 where !precision.isHittable { app.swipeUp() }
-        XCTAssertTrue(precision.waitForExistence(timeout: 5))
+        revealPrecision()
         precision.tap()
         app.buttons["Automatic"].tap()
         app.buttons["Done"].tap()

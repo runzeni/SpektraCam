@@ -22,9 +22,15 @@ struct DarkroomWorkspace: View {
     @State private var loupePatchKey: EditRecipe?
     /// Edits whose route cannot render a patch fall back to one whole frame for the loupe.
     @State private var wholeFrameKey: EditRecipe?
-    @AppStorage("darkroom.loupe") private var showLoupe = true
-    /// Enough for 100 % at native resolution on most phones without an export-sized render.
-    private static let loupeMaximum = 4096
+    @AppStorage("darkroom.loupe") private var showLoupe = false
+    /// Enough for 100 % at native resolution on most phones without an export-sized render; capped under thermal pressure.
+    private static var loupeMaximum: Int {
+        switch ProcessInfo.processInfo.thermalState {
+        case .serious, .critical: 2560
+        case .nominal, .fair: 4096
+        @unknown default: 2560
+        }
+    }
     private var renderKey: EditRecipe {
         var key = session.recipe
         // The easel's hand-set placement is part of a film-edge render; the paper is not.
@@ -102,7 +108,12 @@ struct DarkroomWorkspace: View {
             // Closing the export sheet or ending a drag restarts this task with the same edit:
             // only render what is sharper than the frame already on screen.
             let shown = imageKey == recipe ? imageMaximum : 0
-            let steps = (interacting ? [720] : [720, PreviewQuality.editorMaximum]).filter { $0 > shown }
+            let settledMaximum =
+                ProcessInfo.processInfo.thermalState.rawValue
+                >= ProcessInfo.ThermalState.serious.rawValue
+                ? min(PreviewQuality.editorMaximum, 1080)
+                : PreviewQuality.editorMaximum
+            let steps = (interacting ? [540] : [540, settledMaximum]).filter { $0 > shown }
             guard !steps.isEmpty else { return }
             pending = true
             do {

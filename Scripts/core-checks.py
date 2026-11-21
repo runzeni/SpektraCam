@@ -82,6 +82,7 @@ for files, arguments in checks.values():
   for dependency in ['PrintLayout', 'FilmEdgeSelection', 'FilmEdgeLayout', 'RecipeParts', 'Formula', 'FormulaLink']:
    if dependency not in files: files.append(dependency)
  if 'SourceImageRenderer' in files and 'GeometryRenderer' not in files: files.append('GeometryRenderer')
+ if 'PhotoLibrary' in files and 'Log' not in files: files.append('Log')
  if 'PhotoRenderer' in files:
   for dependency in ['PrintCompositor', 'FilmEdgeRenderer']:
    if dependency not in files: files.append(dependency)

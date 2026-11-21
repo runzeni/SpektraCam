@@ -111,6 +111,8 @@ actor LibraryFiles {
         }
     }
     func pendingCaptures() throws -> [URL] { try CameraInbox(root: root).pending() }
+    func unreadableCaptures() throws -> [URL] { try CameraInbox(root: root).unreadable() }
+    func quarantineCapture(_ url: URL) throws -> URL { try CameraInbox(root: root).quarantine(url) }
     func removeCapture(_ url: URL) throws { try CameraInbox(root: root).remove(url) }
     nonisolated func sourceURL(_ photo: LibraryPhoto) -> URL {
         root.appendingPathComponent("Originals").appendingPathComponent(photo.id.uuidString)
@@ -368,6 +370,7 @@ actor LibraryFiles {
 nonisolated struct CameraInbox: Sendable {
     private static let supportedExtensions: Set<String> = ["dng", "heic", "jpg", "jpeg"]
     let directory: URL
+    var unreadableDirectory: URL { directory.appendingPathComponent("Unreadable", isDirectory: true) }
     init(root: URL) { directory = root.appendingPathComponent("CameraInbox", isDirectory: true) }
     func store(_ data: Data, fileExtension: String = "dng") throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -378,16 +381,40 @@ nonisolated struct CameraInbox: Sendable {
         return url
     }
     func pending() throws -> [URL] {
-        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+        try listSupported(in: directory)
+    }
+    func unreadable() throws -> [URL] {
+        try listSupported(in: unreadableDirectory)
+    }
+    private func listSupported(in folder: URL) throws -> [URL] {
+        guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
         )
-        .filter { Self.supportedExtensions.contains($0.pathExtension.lowercased()) }.sorted {
-            $0.lastPathComponent < $1.lastPathComponent
+        .filter { url in
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            return !isDir && Self.supportedExtensions.contains(url.pathExtension.lowercased())
         }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+    func quarantine(_ url: URL) throws -> URL {
+        guard url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL,
+            FileManager.default.fileExists(atPath: url.path)
+        else { throw LibraryFiles.Failure.missing }
+        try FileManager.default.createDirectory(at: unreadableDirectory, withIntermediateDirectories: true)
+        var target = unreadableDirectory.appendingPathComponent(url.lastPathComponent)
+        if FileManager.default.fileExists(atPath: target.path) {
+            let base = url.deletingPathExtension().lastPathComponent
+            let ext = url.pathExtension
+            target = unreadableDirectory.appendingPathComponent("\(base)-\(UUID().uuidString.prefix(8))")
+                .appendingPathExtension(ext)
+        }
+        try FileManager.default.moveItem(at: url, to: target)
+        return target
     }
     func remove(_ url: URL) throws {
-        guard url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL
+        let parent = url.deletingLastPathComponent().standardizedFileURL
+        guard parent == directory.standardizedFileURL || parent == unreadableDirectory.standardizedFileURL
         else {
             throw LibraryFiles.Failure.missing
         }

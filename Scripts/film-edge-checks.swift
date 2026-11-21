@@ -898,6 +898,51 @@ import UniformTypeIdentifiers
             _ = try await large.export(settled, size: .full, format: .png, quality: 1)
             preconditionFailure("Edge export silently substituted a preview when original bytes were missing")
         } catch PhotoExporter.Failure.decode {}
+
+        // Clean vs Lab/Leaky scratch defaults and explicit SourcePerforations (KS vs BH on Vision3 250D).
+        precondition(
+            FilmEdgeDistress.Preset.clean.values.scratches == 0
+                && FilmEdgeDistress.Preset.clean.values.tilt == 0
+                && FilmEdgeDistress.Preset.clean.values.bulge == 0
+                && FilmEdgeDistress.Preset.clean.values.holeVariation == 0.5
+                && FilmEdgeDistress.Preset.lab.values.scratches == 0.15
+                && FilmEdgeDistress.Preset.leaky.values.scratches == 0.15,
+            "Unexpected film-edge preset handling/scratch defaults")
+        let legacyCine = try JSONDecoder().decode(
+            FilmEdgeLayout.self, from: Data(#"{"format":"film35","cinePerforations":true}"#.utf8))
+        let legacyStill = try JSONDecoder().decode(
+            FilmEdgeLayout.self, from: Data(#"{"format":"film35","cinePerforations":false}"#.utf8))
+        precondition(legacyCine.sourcePerforations == .cineBH && legacyStill.sourcePerforations == .auto)
+        let autoEncoded = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(FilmEdgeLayout())) as! [String: Any]
+        precondition(autoEncoded["sourcePerforations"] == nil, "Default .auto layout grew JSON keys")
+        var stillEdge = FilmEdgeLayout()
+        stillEdge.sourcePerforations = .stillKS
+        stillEdge.scanZoom = 0.78
+        stillEdge.distress = FilmEdgeDistress()
+        let decodedStillEdge = try JSONDecoder().decode(
+            FilmEdgeLayout.self, from: try JSONEncoder().encode(stillEdge))
+        precondition(decodedStillEdge.sourcePerforations == .stillKS)
+
+        var perfRecipe = EditRecipe()
+        perfRecipe.filmID = "kodak_vision3_250d"
+        perfRecipe.printID = "kodak_2383"
+        perfRecipe.flags["film_render.grain.active"] = false
+        var scanSel = FilmEdgeSelection(); scanSel.mode = .manual; scanSel.manualType = .negativeScan
+        perfRecipe.filmEdgeSelection = scanSel
+        perfRecipe.filmEdgeLayout = stillEdge
+        let ksImage = try await large.renderFilmEdge(perfRecipe, maximum: 720)
+        perfRecipe.filmEdgeLayout?.sourcePerforations = .cineBH
+        let bhImage = try await large.renderFilmEdge(perfRecipe, maximum: 720)
+        let ksPixels = try PhotoColorBridge.decode(ksImage)
+        let bhPixels = try PhotoColorBridge.decode(bhImage)
+        precondition(ksPixels.count == bhPixels.count)
+        let changedPerf = zip(ksPixels, bhPixels).reduce(0) { count, pair in
+            abs(pair.0.x - pair.1.x) > 0.02 ? count + 1 : count
+        }
+        precondition(changedPerf > 500,
+            "Explicit stillKS vs cineBH source perforations failed to differ on Vision3 250D: \(changedPerf) px")
+
         print("PASS: grain-enabled 720→2160 full-support refinement. Quick ms \(quickMS), settled ms \(refineMS); no silent resolution reduction")
         print("PASS: real source → four families → saved recipe → paper/B&W → matching PNG export; creative/LUT gate without rim or seam, leaks through LUT pictures; export sizes (crop, percent, long edge, print, native paper); cancellation recovery; native output bounded. Workflow \((ProcessInfo.processInfo.systemUptime - started) * 1000) ms; proof PNGs \(folder.path)")
     }

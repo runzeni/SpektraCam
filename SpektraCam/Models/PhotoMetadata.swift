@@ -45,6 +45,13 @@ nonisolated struct PhotoMetadata: Codable, Equatable, Sendable {
     var capturedAt: Date?
     var latitude: Double?
     var longitude: Double?
+    var coordinateLine: String? {
+        guard let latitude, let longitude, latitude.isFinite, longitude.isFinite else { return nil }
+        let latDir = latitude < 0 ? "S" : "N"
+        let lonDir = longitude < 0 ? "W" : "E"
+        return String(
+            format: "%.4f\u{00B0} %@, %.4f\u{00B0} %@", abs(latitude), latDir, abs(longitude), lonDir)
+    }
     var sizeLine: String { "\(formatLabel) · \(width) × \(height)" }
 
     init() {}

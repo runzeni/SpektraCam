@@ -803,6 +803,24 @@
         }
       }
     },
+    "adjust.change_s_curve_range" : {
+      "comment" : "Adjust interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change S-curve range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换反差曲线范围"
+          }
+        }
+      }
+    },
     "adjust.s_curve" : {
       "comment" : "Adjust interface text.",
       "extractionState" : "manual",
@@ -1073,20 +1091,56 @@
         }
       }
     },
-    "camera.12_mp" : {
+    "camera.import_quarantined_many" : {
       "comment" : "Camera interface text.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "12 MP"
+            "value" : "%lld earlier captures couldn’t be imported and were kept safely."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "12 MP"
+            "value" : "有 %lld 张早期拍摄的照片无法导入，已安全保留。"
+          }
+        }
+      }
+    },
+    "camera.import_quarantined_one" : {
+      "comment" : "Camera interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One earlier capture couldn’t be imported and was kept safely."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有一张早期拍摄的照片无法导入，已安全保留。"
+          }
+        }
+      }
+    },
+    "camera.notice.saved_at_mp" : {
+      "comment" : "Camera interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved at %lld MP"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已以 %lld MP 保存"
           }
         }
       }
@@ -1685,20 +1739,38 @@
         }
       }
     },
-    "camera.max_mp" : {
+    "camera.standard_mp" : {
       "comment" : "Camera interface text.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Max (%lld MP)"
+            "value" : "%lld MP"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最高（%lld MP）"
+            "value" : "%lld MP"
+          }
+        }
+      }
+    },
+    "camera.up_to_mp" : {
+      "comment" : "Camera interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Up to %lld MP"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高 %lld MP"
           }
         }
       }
@@ -3483,6 +3555,24 @@
         }
       }
     },
+    "darkroom.distress.effective" : {
+      "comment" : "Darkroom distress copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effective: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实际生效：%@"
+          }
+        }
+      }
+    },
     "darkroom.distress.hole_variation" : {
       "comment" : "Darkroom distress copy; human editorial review pending.",
       "extractionState" : "manual",
@@ -3490,13 +3580,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hole variation"
+            "value" : "Sprocket variation"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "齿孔差异"
+            "value" : "齿孔公差"
           }
         }
       }
@@ -4005,20 +4095,38 @@
       },
       "extractionState" : "manual"
     },
-    "darkroom.edge.cine35" : {
+    "darkroom.perforations.cine" : {
       "comment" : "Darkroom copy; human editorial review pending.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "35 mm cine"
+            "value" : "35 mm cine (BH)"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "35 mm 电影胶片"
+            "value" : "35 mm 电影 (BH)"
+          }
+        }
+      }
+    },
+    "darkroom.perforations.still" : {
+      "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "35 mm still (KS)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "35 mm 静照 (KS)"
           }
         }
       }
@@ -4572,24 +4680,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "调整"
-          }
-        }
-      }
-    },
-    "editor.close_editor" : {
-      "comment" : "Editor interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Close Editor"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭编辑器"
           }
         }
       }
@@ -5818,6 +5908,24 @@
         }
       }
     },
+    "library.delete_app_only_message" : {
+      "comment" : "Library interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This permanently deletes the selected photos and their edits from SpektraCam."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这会从 SpektraCam 中永久删除所选照片及其编辑。"
+          }
+        }
+      }
+    },
     "library.delete_message" : {
       "comment" : "Library interface text.",
       "extractionState" : "manual",
@@ -5832,6 +5940,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "这会删除 App 内的照片副本及其编辑。源照片保持不变。"
+          }
+        }
+      }
+    },
+    "library.delete_mixed_message" : {
+      "comment" : "Library interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This removes copies imported from Apple Photos and permanently deletes app-only photos from SpektraCam."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这会移除从 Apple 照片导入的副本，并从 SpektraCam 中永久删除仅保存在 App 内的照片。"
           }
         }
       }
@@ -9562,6 +9688,24 @@
         }
       }
     },
+    "photo.delete_app_only_message" : {
+      "comment" : "Photo interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This permanently deletes the photo and its edits from SpektraCam."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这会从 SpektraCam 中永久删除此照片及其编辑。"
+          }
+        }
+      }
+    },
     "photo.delete_message" : {
       "comment" : "Photo interface text.",
       "extractionState" : "manual",
@@ -11133,6 +11277,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "处理后的照片"
+          }
+        }
+      }
+    },
+    "export.original_file" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Original file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原始文件"
           }
         }
       }

@@ -9,6 +9,7 @@ actor MetalFilmPipeline {
     struct Frame: Sendable { let pixels: [SIMD4<Float>], wallSeconds: Double, gpuSeconds: Double? }
     enum Failure: Error { case unavailable, allocation, invalidShape, command, nonfinite }
     private let device: MTLDevice, queue: MTLCommandQueue
+    var maxBufferLength: Int { device.maxBufferLength }
     private let functions: [String: MTLComputePipelineState]
     private let spatial: SpatialMetalKernels
     private let diffusion: DiffusionMetalKernels
@@ -326,7 +327,14 @@ actor MetalFilmPipeline {
     // MARK: Tiled rendering
 
     /// Tunable geometry of a tiled render. Defaults suit a phone; checks inject small values.
-    struct Tiling: Sendable {
+    struct Tiling: Sendable, Equatable {
+        static let candidates: [Tiling] = [
+            Tiling(tileEdge: 2048, transform: 2048, proxyLongEdge: 1024),
+            Tiling(tileEdge: 1536, transform: 2048, proxyLongEdge: 1024),
+            Tiling(tileEdge: 1024, transform: 1024, proxyLongEdge: 1024),
+            Tiling(tileEdge: 768, transform: 1024, proxyLongEdge: 768),
+            Tiling(tileEdge: 512, transform: 512, proxyLongEdge: 512),
+        ]
         /// Largest tile edge, halo included.
         var tileEdge = 2048
         /// Transform edge for the part of a diffusion filter convolved inside a tile.

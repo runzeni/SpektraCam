@@ -8,7 +8,7 @@ struct ContentView: View {
     @State private var library: PhotoLibrary?
     @State private var failure: String?
     @State private var showCamera = false
-    @State private var libraryPath: [UUID] = []
+    @State private var libraryPath: [LibraryRoute] = []
     @State private var libraryScrollRequest = 0
     @State private var captureImportFailure: String?
     @State private var formulaArrival: FormulaArrival?

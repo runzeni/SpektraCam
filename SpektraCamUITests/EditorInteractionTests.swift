@@ -805,9 +805,13 @@ final class EditorInteractionTests: XCTestCase {
         if app.buttons["From Photos"].exists { app.buttons["From Photos"].tap() }
         // Prefer native picker elements. Some Simulator runs expose only its remote surface.
         let cells = app.images.matching(identifier: "PXGGridLayout-Info")
+        let legacyCells = app.images.matching(NSPredicate(format: "label BEGINSWITH 'Photo,'"))
         if cells.firstMatch.waitForExistence(timeout: 5) {
             cells.element(boundBy: 0).tap()
             if count > 1 { cells.element(boundBy: 1).tap() }
+        } else if legacyCells.firstMatch.waitForExistence(timeout: 3) {
+            legacyCells.element(boundBy: 0).tap()
+            if count > 1 { legacyCells.element(boundBy: 1).tap() }
         } else {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.167, dy: 0.24)).press(
                 forDuration: 0.15)
@@ -821,9 +825,13 @@ final class EditorInteractionTests: XCTestCase {
         picked.lifetime = .keepAlways
         self.add(picked)
         let done = app.navigationBars["Photos"].buttons["Done"]
+        let add = app.navigationBars["Photos"].buttons["Add"]
         if done.exists {
             XCTAssertTrue(done.isEnabled)
             done.tap()
+        } else if add.exists {
+            XCTAssertTrue(add.isEnabled)
+            add.tap()
         } else {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.91, dy: 0.115)).press(
                 forDuration: 0.15)

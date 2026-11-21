@@ -17,7 +17,7 @@ struct EditorView: View {
     @State private var activeTool: EditorTool? = .develop
     @State private var panelExpanded = false
     @State private var infoExpanded = false
-    @State private var inspectorFrame = CGRect.zero
+    @State private var inspectorMinY: Int? = nil
     @State private var adjustSection = AdjustPanel.Section.exposure
     @State private var effectsSection = EffectsPanel.Section.grain
     @ScaledMetric(relativeTo: .footnote) private var collapsedLiftGainHeight: CGFloat = 176
@@ -66,7 +66,9 @@ struct EditorView: View {
         .onSystemVerticalBar { systemVerticalBar = $0 }
         .background(EditorNavigationGuard().allowsHitTesting(false))
         .sheet(isPresented: $showSaveFormula) {
-            SaveFormulaSheet(library: library, recipe: session.recipe)
+            SaveFormulaSheet(
+                library: library, recipe: session.recipe,
+                neutralTemperature: session.photo.rawTemperature)
         }
         .sheet(isPresented: $showPasteLook) {
             if let clip = library.copiedLook {
@@ -95,11 +97,10 @@ struct EditorView: View {
                     openDarkroom: openDarkroom, export: { showExport = true })
             }
             AdaptiveToolbarItem(placement: .topBarLeading, background: .hidden) {
-                // Darkroom is the last step: back saves the edit and returns to the photo, like Close.
-                Button(closeTitle, systemImage: showDarkroom ? "chevron.left" : "xmark", action: finish)
+                Button(closeTitle, systemImage: "chevron.left", action: finish)
                     .photoActionStyle()
                     .accessibilityLabel(closeTitle)
-                .accessibilityIdentifier(showDarkroom ? "darkroom.back" : "editor.back")
+                    .accessibilityIdentifier(showDarkroom ? "darkroom.back" : "editor.back")
             }
             AdaptiveToolbarItem(placement: .topBarLeading, background: .visible) {
                 Menu(
@@ -197,9 +198,7 @@ struct EditorView: View {
         }
     }
     private var closeTitle: String {
-        showDarkroom
-            ? String(localized: "darkroom.back_to_photo", defaultValue: "Back to photo")
-            : String(localized: "editor.close_editor", defaultValue: "Close Editor")
+        String(localized: "darkroom.back_to_photo", defaultValue: "Back to photo")
     }
     private var compareTitle: String {
         showOriginal
@@ -264,8 +263,11 @@ struct EditorView: View {
                             let maximum = maximumPanelHeight(in: workspace.size.height)
                             inspector(height: panelExpanded ? maximum : min(maximum, collapsedPanelHeight))
                                 .padding(.horizontal, 12).padding(.bottom, 8)
-                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
-                                    inspectorFrame = $0
+                                .onGeometryChange(for: Int?.self) {
+                                    let frame = $0.frame(in: .global)
+                                    return frame.width > 0 ? Int(frame.minY.rounded()) : nil
+                                } action: {
+                                    inspectorMinY = $0
                                 }
                         }
                     }
@@ -347,7 +349,7 @@ struct EditorView: View {
                     // Beside its controls the photo has the full height, so it sits in the middle.
                     topAligned: layout == .stacked,
                     onTap: { point in
-                        if panelExpanded && point.y < inspectorFrame.minY - 44 {
+                        if panelExpanded, let minY = inspectorMinY, point.y < CGFloat(minY) - 44 {
                             setExpanded(false)
                         }
                     },

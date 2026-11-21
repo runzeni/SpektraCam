@@ -99,16 +99,18 @@ extension View {
     @ViewBuilder func adaptiveFloatingPanelSurface(
         cornerRadius: CGFloat, unifiedBackdrop: Bool
     ) -> some View {
-        if unifiedBackdrop {
-            if #available(iOS 26.0, macOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            if unifiedBackdrop {
                 glassEffect(
                     .regular.tint(Color(uiColor: .secondarySystemBackground).opacity(0.84)),
                     in: .rect(cornerRadius: cornerRadius))
             } else {
-                background(.thickMaterial, in: .rect(cornerRadius: cornerRadius))
+                glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
             }
         } else {
-            adaptiveGlassRect(cornerRadius: cornerRadius)
+            background(
+                unifiedBackdrop ? AnyShapeStyle(.thickMaterial) : AnyShapeStyle(.regularMaterial),
+                in: .rect(cornerRadius: cornerRadius))
         }
     }
 

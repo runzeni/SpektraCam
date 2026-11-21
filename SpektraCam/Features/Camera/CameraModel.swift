@@ -1,3 +1,4 @@
+import CoreMedia
 import Foundation
 import Observation
 import UIKit
@@ -24,8 +25,12 @@ import UIKit
     private(set) var busy = false
     private(set) var outputReady = false
     private(set) var savedCount = 0
-    private(set) var saveFailure: String?
+    private(set) var writeFailure: String?
+    private(set) var importFailure: String?
+    private(set) var transientFailure: String?
+    private(set) var resolutionNotice: String?
     private(set) var pendingCount = 0
+    private(set) var provisionalThumbnail: UIImage?
     private let service = CameraService()
     let library: PhotoLibrary
     private(set) var readings = CameraReadings()
@@ -33,6 +38,7 @@ import UIKit
     private(set) var selectedLens: CameraLens?
     private(set) var macro = false
     private(set) var highResolution = false
+    private(set) var standardMegapixels = 12
     private(set) var maximumMegapixels = 12
     private(set) var pauseReason: String?
     private(set) var exposureBias = 0.0
@@ -54,6 +60,7 @@ import UIKit
         }
     }
     @ObservationIgnored private var importTask: Task<Void, Never>?
+    @ObservationIgnored private var noticeTask: Task<Void, Never>?
     @ObservationIgnored private var biasSetAt = Date.distantPast
     private let location = CameraLocation()
     private var beforeMacro: String?
@@ -73,9 +80,10 @@ import UIKit
     }
     /// Shutter unlocks as soon as exposure completes; background ISP fusion and library import
     /// continue behind the next shot while `outputReady` reflects AVFoundation's readiness.
+    /// Inbox import failures never disable the shutter; only an unrecoverable write error does.
     var canCapture: Bool {
         !closed && wantsActive && !held && state == .ready && outputReady && !busy
-            && (saveFailure == nil || pendingCount == 0)
+            && writeFailure == nil
     }
     var canFlip: Bool {
         guard let selectedLens else { return false }
@@ -118,19 +126,25 @@ import UIKit
         guard !starting else { return }
         starting = true
         defer { starting = false }
+        location.setActive(true)
         state = .starting
         do {
             let configuration = try await service.start()
-            guard !closed else { return }
+            guard !closed else {
+                location.setActive(false)
+                return
+            }
             apply(configuration)
             if wantsActive && !held {
                 state = .ready
                 pauseReason = nil
                 location.setActive(true)
             } else {
+                location.setActive(false)
                 await service.stop()
             }
         } catch {
+            location.setActive(false)
             guard wantsActive else {
                 state = .paused
                 return
@@ -197,12 +211,14 @@ import UIKit
                     // Camera closed while ISP was finishing: import the durable inbox file anyway.
                     Task { @MainActor in
                         defer { assertion.end() }
-                        _ = try? await library.recoverCaptures()
+                        _ = await library.recoverCaptureBatch()
                     }
                 } else {
                     assertion.end()
                 }
             }
+            writeFailure = nil
+            transientFailure = nil
             outputReady = ready
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             busy = false
@@ -211,20 +227,45 @@ import UIKit
             busy = false
             assertion.end()
         } catch {
-            saveFailure = error.localizedDescription
+            writeFailure = error.localizedDescription
             busy = false
             assertion.end()
         }
     }
     private func handleStoredCapture(
-        _ outcome: Result<URL, Error>, assertion: BackgroundSaveAssertion
+        _ outcome: Result<CameraService.CaptureStoredResult, Error>, assertion: BackgroundSaveAssertion
     ) {
         switch outcome {
-        case .success:
+        case .success(let stored):
+            writeFailure = nil
+            if let thumbnail = stored.thumbnail {
+                provisionalThumbnail = UIImage(cgImage: thumbnail)
+            }
+            let requestedMP = CameraService.nominalMegapixels(stored.requestedDimensions)
+            let deliveredMP = CameraService.nominalMegapixels(
+                CMVideoDimensions(
+                    width: Int32(stored.deliveredWidth), height: Int32(stored.deliveredHeight)))
+            if format.supportsResolutionChoice, highResolution,
+                requestedMP > standardMegapixels, stored.deliveredWidth > 0,
+                deliveredMP < requestedMP - 4
+            {
+                showResolutionNotice(deliveredMP)
+            }
             scheduleImport(assertion: assertion)
         case .failure(let error):
-            saveFailure = error.localizedDescription
+            writeFailure = error.localizedDescription
             assertion.end()
+        }
+    }
+    private func showResolutionNotice(_ deliveredMP: Int) {
+        noticeTask?.cancel()
+        resolutionNotice = String(
+            localized: "camera.notice.saved_at_mp",
+            defaultValue: "Saved at \(deliveredMP) MP")
+        noticeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3.5))
+            guard !Task.isCancelled else { return }
+            self?.resolutionNotice = nil
         }
     }
     /// The capture is already safe in the inbox. Import it behind the next shot, one at a time.
@@ -234,29 +275,44 @@ import UIKit
         importTask = Task { @MainActor [weak self] in
             defer { assertion.end() }
             await previous?.value
-            do {
-                let recovered = try await library.recoverCaptures()
-                if let self {
-                    self.savedCount += recovered
-                    self.saveFailure = nil
-                }
-            } catch {
-                self?.saveFailure = error.localizedDescription
-            }
+            let report = await library.recoverCaptureBatch(includeQuarantined: false)
             if let self {
-                self.pendingCount = (try? await library.files.pendingCaptures().count) ?? 0
+                self.savedCount += report.imported
+                self.applyRecoveryReport(report)
+                if report.imported > 0, let latest = library.photos.last {
+                    _ = await library.images.cachedThumbnail(latest)
+                    self.provisionalThumbnail = nil
+                }
             }
         }
     }
-    func retryImport() async {
-        guard !busy else { return }
-        busy = true
-        defer { busy = false }
-        do {
-            savedCount += try await library.recoverCaptures()
-            saveFailure = nil
-        } catch { saveFailure = error.localizedDescription }
-        pendingCount = (try? await library.files.pendingCaptures().count) ?? 0
+    func retryImport(includeQuarantined: Bool = false) async {
+        let report = await library.recoverCaptureBatch(includeQuarantined: includeQuarantined)
+        savedCount += report.imported
+        applyRecoveryReport(report)
+        if report.imported > 0, let latest = library.photos.last {
+            _ = await library.images.cachedThumbnail(latest)
+            provisionalThumbnail = nil
+        }
+    }
+    private func applyRecoveryReport(_ report: PhotoLibrary.CaptureRecoveryReport) {
+        let pending = (try? CameraInbox(root: library.files.root).pending().count) ?? 0
+        pendingCount = pending + report.totalQuarantined.count
+        if let transient = report.transientError {
+            importFailure = transient
+        } else if !report.totalQuarantined.isEmpty {
+            let count = report.totalQuarantined.count
+            importFailure =
+                count == 1
+                ? String(
+                    localized: "camera.import_quarantined_one",
+                    defaultValue: "One earlier capture couldn’t be imported and was kept safely.")
+                : String(
+                    localized: "camera.import_quarantined_many",
+                    defaultValue: "\(count) earlier captures couldn’t be imported and were kept safely.")
+        } else {
+            importFailure = nil
+        }
     }
     private func resolveFormatSelection() {
         if preferredFormat == nil {
@@ -277,6 +333,7 @@ import UIKit
         selectedLens = configuration.selectedLens
         macro = configuration.macro
         highResolution = configuration.highResolution
+        standardMegapixels = configuration.standardMegapixels
         maximumMegapixels = configuration.maximumMegapixels
         exposureBias = configuration.exposureBias
         exposureRange = configuration.exposureRange
@@ -301,10 +358,10 @@ import UIKit
         defer { busy = false }
         do {
             apply(try await service.selectLens(lens.id, macro: macro))
-            saveFailure = nil
+            transientFailure = nil
             UISelectionFeedbackGenerator().selectionChanged()
         } catch CameraFailure.notReady {
-        } catch { saveFailure = error.localizedDescription }
+        } catch { transientFailure = error.localizedDescription }
     }
     func setHighResolution(_ enabled: Bool) async {
         guard !busy, state == .ready else { return }
@@ -316,18 +373,22 @@ import UIKit
         #endif
         busy = true
         defer { busy = false }
-        do { apply(try await service.setHighResolution(enabled)) } catch CameraFailure.notReady {
+        do {
+            apply(try await service.setHighResolution(enabled))
+            transientFailure = nil
+        } catch CameraFailure.notReady {
         } catch {
-            saveFailure = error.localizedDescription
+            transientFailure = error.localizedDescription
         }
     }
     func focus(at point: CGPoint) async {
         guard state == .ready, !busy else { return }
         do {
             try await service.focus(at: point)
+            transientFailure = nil
             UISelectionFeedbackGenerator().selectionChanged()
         } catch CameraFailure.notReady {
-        } catch { saveFailure = error.localizedDescription }
+        } catch { transientFailure = error.localizedDescription }
     }
     func setExposureBias(_ value: Double) {
         guard state == .ready, !busy else { return }
@@ -338,9 +399,12 @@ import UIKit
         #endif
         let target = exposureBias
         Task {
-            do { try await service.setExposureBias(target) } catch CameraFailure.notReady {
+            do {
+                try await service.setExposureBias(target)
+                transientFailure = nil
+            } catch CameraFailure.notReady {
             } catch {
-                saveFailure = error.localizedDescription
+                transientFailure = error.localizedDescription
             }
         }
     }
@@ -392,7 +456,8 @@ import UIKit
             }
             if selectedLens == nil { selectedLens = lenses.first(where: \.primary) }
             applyDemoFormats(for: selectedLens)
-            maximumMegapixels = regularOnly ? 24 : (bayerHybrid ? 12 : 48)
+            standardMegapixels = 12
+            maximumMegapixels = (regularOnly || bayerHybrid) ? 12 : 48
             flashAvailable = selectedLens?.front != true
             outputReady = true
             readings = CameraReadings(

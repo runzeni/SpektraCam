@@ -187,19 +187,20 @@ actor PhotoRenderer {
         let height = sourceDescription?.height ?? source.height
         let scale = min(1, Double(requested) / Double(max(width, height)))
         do {
-            try RenderMemoryBudget.check(
+            _ = try RenderMemoryBudget.check(
                 width: max(1, Int(ceil(Double(width) * scale))),
                 height: max(1, Int(ceil(Double(height) * scale))), recipe: recipe)
         } catch {
             // The alternate is disposable. Do not keep it at the cost of an active preview.
             guard alternatePreview != nil else { throw error }
             alternatePreview = nil
-            try RenderMemoryBudget.check(
+            _ = try RenderMemoryBudget.check(
                 width: max(1, Int(ceil(Double(width) * scale))),
                 height: max(1, Int(ceil(Double(height) * scale))), recipe: recipe)
         }
         let input = try previewInput(recipe)
-        try RenderMemoryBudget.check(width: input.width, height: input.height, recipe: recipe)
+        let plan = try RenderMemoryBudget.check(
+            width: input.width, height: input.height, recipe: recipe)
         if !recipe.look.enabled {
             return try neutralFrame(input, recipe: recipe)
         }
@@ -214,21 +215,23 @@ actor PhotoRenderer {
             preview.grainImages = nil
             preview.previousMode = recipe.look.mode
         }
-        return try await frame(input, recipe: recipe, library: library, gpu: gpu, preview: true, state: preview)
+        return try await frame(
+            input, recipe: recipe, library: library, gpu: gpu, preview: true, state: preview,
+            plan: plan)
     }
     private static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
     private var tiling: MetalFilmPipeline.Tiling { .fitting(available: ImageMemoryAllowance.available) }
     /// Storage for a frame that renders in tiles: a full-size export's own store, or a copy of a
     /// preview whose diffusion transform would not fit as one frame.
     private func tileStore(
-        _ input: SourceImageRenderer.Input, recipe: EditRecipe, edge: FilmEdgeGeometry? = nil
+        _ input: SourceImageRenderer.Input, recipe: EditRecipe, edge: FilmEdgeGeometry? = nil,
+        plan: RenderMemoryBudget.Plan? = nil
     ) throws -> PixelStore? {
         if let store = input.store { return store }
-        guard
-            RenderMemoryBudget.rendersInTiles(
-                width: input.width, height: input.height, recipe: recipe,
-                pixelPitchMicrometers: edge?.pixelPitchMicrometers)
-        else { return nil }
+        let useTiles = plan?.tiled ?? RenderMemoryBudget.rendersInTiles(
+            width: input.width, height: input.height, recipe: recipe,
+            pixelPitchMicrometers: edge?.pixelPitchMicrometers)
+        guard useTiles else { return nil }
         let store = try PixelStore(width: input.width, height: input.height, format: .working)
         input.pixels.withUnsafeBytes {
             store.write(
@@ -241,16 +244,17 @@ actor PhotoRenderer {
     /// `finished` asks a tiled render for the final 8-bit image when no grading follows.
     private func filmImage(
         _ input: SourceImageRenderer.Input, pipeline: FilmPipeline, gpu: MetalFilmPipeline,
-        autoExposureEV: Double, edge: FilmEdgeGeometry? = nil, finished: Bool = false
+        autoExposureEV: Double, edge: FilmEdgeGeometry? = nil, finished: Bool = false,
+        plan: RenderMemoryBudget.Plan? = nil
     ) async throws -> CGImage {
-        guard let store = try tileStore(input, recipe: pipeline.recipe, edge: edge) else {
+        guard let store = try tileStore(input, recipe: pipeline.recipe, edge: edge, plan: plan) else {
             return try await gpu.processImage(
                 input.pixels, width: input.width, height: input.height, pipeline: pipeline,
                 autoExposureEV: autoExposureEV, edge: edge)
         }
         let result = try await gpu.processImage(
             store, pipeline: pipeline, autoExposureEV: autoExposureEV, edge: edge,
-            format: finished ? .byte : .working, tiling: tiling)
+            format: finished ? .byte : .working, tiling: plan?.tiling ?? tiling)
         return try result.image(
             colorSpace: CGColorSpace(name: finished ? CGColorSpace.sRGB : CGColorSpace.extendedSRGB)!)
     }
@@ -272,7 +276,8 @@ actor PhotoRenderer {
     }
     private func effectFrames(
         _ input: SourceImageRenderer.Input, recipe: EditRecipe,
-        library: ModelLibrary, gpu: MetalFilmPipeline, preview: Bool, state: PreviewState
+        library: ModelLibrary, gpu: MetalFilmPipeline, preview: Bool, state: PreviewState,
+        plan: RenderMemoryBudget.Plan? = nil
     ) async throws -> (CGImage, CGImage?, CGImage?) {
         let cache = state
         var physical = EditRecipe()
@@ -315,9 +320,10 @@ actor PhotoRenderer {
             if opticalFlags.contains(where: { optics.flag($0) }) || !optics.tone.rawStage.isIdentity
             {
                 let pipeline = try await renderResources.pipeline(optics)
-                if let store = try tileStore(input, recipe: pipeline.recipe) {
-                    source = try await gpu.processOptics(store, pipeline: pipeline, tiling: tiling)
-                        .image(colorSpace: Self.linear)
+                if let store = try tileStore(input, recipe: pipeline.recipe, plan: plan) {
+                    source = try await gpu.processOptics(
+                        store, pipeline: pipeline, tiling: plan?.tiling ?? tiling
+                    ).image(colorSpace: Self.linear)
                 } else {
                     source = try await gpu.processOptics(
                         input.pixels, width: input.width, height: input.height,
@@ -352,9 +358,10 @@ actor PhotoRenderer {
         } else {
             let exposure = try exposure(grain, library: library)
             let pipeline = try await renderResources.pipeline(grain)
-            if let store = input.store {
+            if let store = try tileStore(input, recipe: pipeline.recipe, plan: plan) {
                 let pair = try await gpu.processGrainPair(
-                    store, pipeline: pipeline, autoExposureEV: exposure, tiling: tiling)
+                    store, pipeline: pipeline, autoExposureEV: exposure,
+                    tiling: plan?.tiling ?? tiling)
                 noise = try (
                     pair.0.image(colorSpace: Self.linear), pair.1.image(colorSpace: Self.linear)
                 )
@@ -375,7 +382,8 @@ actor PhotoRenderer {
     private func frame(
         _ input: SourceImageRenderer.Input, recipe: EditRecipe,
         library: ModelLibrary, gpu: MetalFilmPipeline, preview: Bool, state: PreviewState? = nil,
-        framing: (recipe: EditRecipe, size: CGSize, maximum: Int)? = nil
+        framing: (recipe: EditRecipe, size: CGSize, maximum: Int)? = nil,
+        plan: RenderMemoryBudget.Plan? = nil
     ) async throws -> CGImage {
         let cache = state ?? PreviewState(maximum: previewMaximum, cachesIntermediates: cachesIntermediates)
         var recipe = recipe
@@ -383,7 +391,8 @@ actor PhotoRenderer {
             max(recipe.number("film_render.halation.scatter_amount"), 0), 1)
         if recipe.look.mode == .lut {
             let frames = try await effectFrames(
-                input, recipe: recipe, library: library, gpu: gpu, preview: preview, state: cache)
+                input, recipe: recipe, library: library, gpu: gpu, preview: preview, state: cache,
+                plan: plan)
             let residual: (CGImage, CGImage)? = frames.1.flatMap { dirty in
                 frames.2.map { (dirty, $0) }
             }
@@ -405,7 +414,8 @@ actor PhotoRenderer {
             film = try await filmImage(
                 input, pipeline: pipeline, gpu: gpu,
                 autoExposureEV: exposure(recipe, library: library, state: cache),
-                finished: recipe.mix >= 1 && recipe.tone.outputStage.isIdentity)
+                finished: recipe.mix >= 1 && recipe.tone.outputStage.isIdentity,
+                plan: plan)
             if preview {
                 cache.filmRecipe = key
                 cache.filmImage = film
@@ -652,7 +662,7 @@ actor PhotoRenderer {
         guard material.processingRecipe == recipe.processingRecipe,
             let geometry = FilmEdgeGeometry(
                 imageSize: crop.size, layout: layout, longEdge: long,
-                perforation: layout.cinePerforations ? .bh1866 : .source(filmID: material.filmID),
+                perforation: layout.resolvedPerforation(filmID: material.filmID),
                 easel: recipe.printLayout ?? PrintLayout())
         else { return nil }
         let tiling = self.tiling
@@ -734,16 +744,16 @@ actor PhotoRenderer {
         let material = FilmEdgeRenderer.materialRecipe(recipe)
         // Holes follow the source stock: cine camera negatives are BH-1866, still film KS-1870.
         guard let geometry = FilmEdgeGeometry(imageSize: crop.size, layout: layout, longEdge: long,
-                                              perforation: layout.cinePerforations ? .bh1866 : .source(filmID: material.filmID),
+                                              perforation: layout.resolvedPerforation(filmID: material.filmID),
                                               easel: recipe.printLayout ?? PrintLayout())
         else { throw PhotoExporter.Failure.render }
         let originalLong = max(dimensions.width, dimensions.height)
         let decodeMaximum = min(Int(originalLong), max(1, Int(ceil(originalLong * max(geometry.gate.width, geometry.gate.height) / Double(nativeLong)))))
         let decodeScale = Double(decodeMaximum) / originalLong
-        try RenderMemoryBudget.check(width: max(1, Int(ceil(dimensions.width * decodeScale))),
+        _ = try RenderMemoryBudget.check(width: max(1, Int(ceil(dimensions.width * decodeScale))),
             height: max(1, Int(ceil(dimensions.height * decodeScale))), recipe: material, allowOvercommit: allowOvercommit,
             pixelPitchMicrometers: geometry.pixelPitchMicrometers)
-        try RenderMemoryBudget.check(width: geometry.width, height: geometry.height,
+        let edgePlan = try RenderMemoryBudget.check(width: geometry.width, height: geometry.height,
             recipe: material, allowOvercommit: allowOvercommit, pixelPitchMicrometers: geometry.pixelPitchMicrometers)
         let (library, gpu) = try await renderResources.load()
         let autoEV = try exposure(material, library: library, state: edgeMetering)
@@ -759,7 +769,7 @@ actor PhotoRenderer {
         var image = try await filmImage(
             FilmEdgeRenderer.padded(input, geometry: geometry), pipeline: pipeline, gpu: gpu,
             autoExposureEV: autoEV, edge: materialGeometry,
-            finished: !composes && original.tone.outputStage.isIdentity)
+            finished: !composes && original.tone.outputStage.isIdentity, plan: edgePlan)
         try Task.checkCancellation()
         if composes {
             // Keep LUTs, disabled Develop and every manual cross-family choice exactly as selected.
@@ -839,19 +849,20 @@ actor PhotoRenderer {
     func export(
         _ recipe: EditRecipe, size: PhotoExporter.Size, format: PhotoExporter.Format,
         quality: Double,
-        allowOvercommit: Bool = false
+        allowOvercommit: Bool = false,
+        admittedPlan: RenderMemoryBudget.Plan? = nil
     )
         async throws -> (URL, Int, Int)
     {
         try await RenderPrecision.$activeSourcePrefersDeep.withValue(sourcePrefersDeep) {
             try await exportBody(
                 recipe, size: size, format: format, quality: quality,
-                allowOvercommit: allowOvercommit)
+                allowOvercommit: allowOvercommit, admittedPlan: admittedPlan)
         }
     }
     private func exportBody(
         _ recipe: EditRecipe, size: PhotoExporter.Size, format: PhotoExporter.Format,
-        quality: Double, allowOvercommit: Bool
+        quality: Double, allowOvercommit: Bool, admittedPlan: RenderMemoryBudget.Plan?
     ) async throws -> (URL, Int, Int) {
         syncPrecision()
         if exportKey != recipe || exportSize != size { exportImage = nil }
@@ -907,10 +918,15 @@ actor PhotoRenderer {
             preview.filmImage = nil
             preview.opticsImage = nil
             preview.grainImages = nil
-            try RenderMemoryBudget.check(
-                width: max(1, Int(ceil(Double(width) * scale))),
-                height: max(1, Int(ceil(Double(height) * scale))), recipe: recipe,
-                allowOvercommit: allowOvercommit)
+            let plan: RenderMemoryBudget.Plan
+            if let admittedPlan, admittedPlan.estimatedBytes < ImageMemoryAllowance.available {
+                plan = admittedPlan
+            } else {
+                plan = try RenderMemoryBudget.check(
+                    width: max(1, Int(ceil(Double(width) * scale))),
+                    height: max(1, Int(ceil(Double(height) * scale))), recipe: recipe,
+                    allowOvercommit: allowOvercommit)
+            }
             // The RAW input path decodes directly to float; an 8-bit fallback decode is redundant.
             let decoded = source
             selectInputMode(recipe.inputMode)
@@ -922,7 +938,8 @@ actor PhotoRenderer {
                 let (library, gpu) = try await renderResources.load()
                 do {
                     graded = try await frame(
-                        input, recipe: recipe, library: library, gpu: gpu, preview: false)
+                        input, recipe: recipe, library: library, gpu: gpu, preview: false,
+                        plan: plan)
                 } catch {
                     await gpu.releaseWorkingCaches()
                     throw error

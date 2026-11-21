@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreImage
 import Foundation
 import ImageIO
+import Metal
 import SwiftData
 import UniformTypeIdentifiers
 #if canImport(UIKit)
@@ -21,6 +22,25 @@ import UniformTypeIdentifiers
                 defaults.removeObject(forKey: RenderPrecision.storageKey)
             }
         }
+
+        // 0. Lazy CIContext / GradeKernel cold-purge invariant.
+        precondition(
+            PhotoColorBridge.initializedContextCountForTesting == 0
+                && PhotoSource.initializedContextCountForTesting == 0
+                && SourceImageRenderer.initializedContextCountForTesting == 0
+                && ToneRenderer.initializedContextCountForTesting == 0
+                && FilmEdgeRenderer.initializedContextCountForTesting == 0
+                && ToneRenderer.gradeCachedResourceCountForTesting == 0,
+            "Static rendering CIContexts or GradeKernel initialized eagerly before use")
+        LibraryImages.clearRenderingContextCaches()
+        precondition(
+            PhotoColorBridge.initializedContextCountForTesting == 0
+                && PhotoSource.initializedContextCountForTesting == 0
+                && SourceImageRenderer.initializedContextCountForTesting == 0
+                && ToneRenderer.initializedContextCountForTesting == 0
+                && FilmEdgeRenderer.initializedContextCountForTesting == 0
+                && ToneRenderer.gradeCachedResourceCountForTesting == 0,
+            "Cold cache purge instantiated unused CIContexts or GradeKernel")
 
         // 1. RenderPrecision parsing, invalid fallback and storage byte sizes.
         defaults.removeObject(forKey: RenderPrecision.storageKey)
@@ -368,6 +388,62 @@ import UniformTypeIdentifiers
         let autoImg8 = try await autoRenderer8.render(filmRecipe, maximum: 384)
         let autoImg16 = try await autoRenderer16.render(filmRecipe, maximum: 384)
         precondition(autoImg8.width > 0 && autoImg16.width == 32 && autoImg16.height == 24)
+
+        // 8. RenderMemoryBudget monotonic admission sweep across memory & maxBufferLength tiers.
+        defaults.set(RenderPrecision.float16.rawValue, forKey: RenderPrecision.storageKey)
+        let mib: UInt64 = 1_048_576
+        var plainBudgetRecipe = EditRecipe()
+        plainBudgetRecipe.flags["print_render.glare.active"] = false
+        var edgeBudgetRecipe = plainBudgetRecipe
+        edgeBudgetRecipe.filmEdgeLayout = FilmEdgeLayout()
+        for sweepRecipe in [plainBudgetRecipe, edgeBudgetRecipe] {
+            var previouslyFeasible = false
+            for allowanceMiB in [UInt64](arrayLiteral: 580, 620, 649, 650, 651, 708, 709, 999, 1000, 1001, 1200, 1799, 1800, 1801, 2000) {
+                let limit = allowanceMiB * mib
+                let plan = try? RenderMemoryBudget.admittedPlan(
+                    width: 8064, height: 6048, recipe: sweepRecipe,
+                    available: limit, maxBufferLength: Int(512 * mib))
+                if let plan {
+                    previouslyFeasible = true
+                    precondition(plan.tiled && plan.estimatedBytes < limit,
+                        "Plan estimate exceeded allowance at \(allowanceMiB) MiB")
+                } else {
+                    precondition(!previouslyFeasible,
+                        "Non-monotonic admission: \(allowanceMiB) MiB rejected after smaller allowance succeeded")
+                }
+            }
+        }
+        let plan649 = try RenderMemoryBudget.admittedPlan(
+            width: 8064, height: 6048, recipe: plainBudgetRecipe,
+            available: 649 * mib, maxBufferLength: Int(512 * mib))
+        let plan650 = try RenderMemoryBudget.admittedPlan(
+            width: 8064, height: 6048, recipe: plainBudgetRecipe,
+            available: 650 * mib, maxBufferLength: Int(512 * mib))
+        precondition(plan649.tiling.tileEdge == 768 && plan650.tiling.tileEdge == 768,
+            "650 MiB should step down to 768 px tile instead of failing on 1024 px tile")
+
+        // 9. GradeKernel resource retention, purge under memory pressure, and clean recovery.
+        let smallGradeImg = makeGradient(width: 64, height: 48)
+        let smallImported = ImportedPhoto.decode(smallGradeImg, maximum: 64)!
+        let cube = try CubeLUT(
+            data: Data("LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n".utf8),
+            filename: "test.cube")
+        let lutApp = CubeLUT.Application(cube: cube, mix: 0.75)
+        let beforePurge = try ToneRenderer.render(
+            smallImported.preview, tone: filmRecipe.tone, luts: [lutApp],
+            residual: (smallImported.preview, smallImported.preview), monochromeResidual: false)
+        precondition(ToneRenderer.gradeCachedResourceCountForTesting > 0,
+            "GradeKernel did not retain working resources after LUT+residual render")
+        LibraryImages.clearRenderingContextCaches()
+        precondition(ToneRenderer.gradeCachedResourceCountForTesting == 0,
+            "clearRenderingContextCaches() left GradeKernel resources alive: \(ToneRenderer.gradeCachedResourceCountForTesting)")
+        let afterPurge = try ToneRenderer.render(
+            smallImported.preview, tone: filmRecipe.tone, luts: [lutApp],
+            residual: (smallImported.preview, smallImported.preview), monochromeResidual: false)
+        let (purgeMaxDiff, _) = maxAndMeanDiff(beforePurge, afterPurge)
+        precondition(purgeMaxDiff == 0, "ToneRenderer recovery after purge differed by \(purgeMaxDiff)/255")
+
+        defaults.set(RenderPrecision.automatic.rawValue, forKey: RenderPrecision.storageKey)
 
         #if canImport(UIKit)
             let slider = DefaultSlider.PrecisionSlider(frame: CGRect(x: 0, y: 0, width: 300, height: 32))

@@ -4,8 +4,8 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Exports the stored RAW bytes without decoding, developing, or re-encoding them.
-actor OriginalRAWExporter {
+/// Exports the stored original bytes without decoding, developing, or re-encoding them.
+actor OriginalFileExporter {
     private let source: URL?
     private let data: Data?
     private let filename: String?
@@ -63,6 +63,8 @@ actor OriginalRAWExporter {
         folder = nil
     }
 }
+
+typealias OriginalRAWExporter = OriginalFileExporter
 
 /// Full-resolution SDR geometry export. Film processing must supply its own renderer.
 nonisolated enum PhotoExporter {

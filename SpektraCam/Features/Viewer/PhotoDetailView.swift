@@ -8,6 +8,8 @@ struct PhotoDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let library: PhotoLibrary
     let filter: LibraryFilter
+    var isPresentingEditor = false
+    var openEditor: (EditorSession, UUID, String?) -> Void = { _, _, _ in }
     @State private var selectedID: UUID
     @State private var sourceLens: String?
     private var displayMetadata: PhotoMetadata {
@@ -18,7 +20,7 @@ struct PhotoDetailView: View {
     @State private var histogram = PhotoHistogram.empty
     @State private var image: UIImage?
     @State private var imageIdentity: String?
-    @State private var editor: EditorSession?
+    @State private var rawTemperature: Double?
     @State private var export: ExportRequest?
     @State private var working = false
     @State private var failure: String?
@@ -40,13 +42,22 @@ struct PhotoDetailView: View {
     private var viewerBottomInset: CGFloat {
         (systemVerticalBar || layout == .sideBySide) ? 84 : 132
     }
+    private var infoBottomClearance: CGFloat {
+        (systemVerticalBar || layout == .sideBySide) ? 84 : (photos.count > 1 ? 208 : 132)
+    }
     private var usesPortraitReference: Bool {
         layout == .stacked && !systemVerticalBar
     }
 
-    init(library: PhotoLibrary, id: UUID, filter: LibraryFilter = .all) {
+    init(
+        library: PhotoLibrary, id: UUID, filter: LibraryFilter = .all,
+        isPresentingEditor: Bool = false,
+        openEditor: @escaping (EditorSession, UUID, String?) -> Void = { _, _, _ in }
+    ) {
         self.library = library
         self.filter = filter
+        self.isPresentingEditor = isPresentingEditor
+        self.openEditor = openEditor
         _selectedID = State(initialValue: id)
     }
     var body: some View {
@@ -63,7 +74,9 @@ struct PhotoDetailView: View {
                 photos: photos, images: library.images, selection: $selectedID,
                 working: working, develop: { prepareEditor(exporting: false) },
                 export: { prepareEditor(exporting: true) }, revert: revertPhoto,
-                canRevert: photo?.hasEdits == true, delete: deletePhoto, layout: layout,
+                canRevert: photo?.hasEdits == true,
+                fromApplePhotos: library.applePhotosIDs.contains(selectedID),
+                delete: deletePhoto, layout: layout,
                 showsActions: !systemVerticalBar
             )
             .padding(.horizontal, 16).padding(.bottom, 12)
@@ -84,7 +97,7 @@ struct PhotoDetailView: View {
                     location: photo.locationName, histogram: histogram, identifier: "photo",
                     maxExpandedHeight: min(
                         380,
-                        max(160, viewportHeight - viewerBottomInset - PhotoInfoPanel.collapsedHeight - 20)
+                        max(160, viewportHeight - infoBottomClearance - PhotoInfoPanel.collapsedHeight - 16)
                     ),
                     look: LookActions(
                         canCopy: photo.hasEdits && !working,
@@ -132,11 +145,15 @@ struct PhotoDetailView: View {
                 role: .destructive, action: deletePhoto)
         } message: {
             Text(
-                String(
-                    localized: "photo.delete_message",
-                    defaultValue:
-                        "This removes the app copy and its edits. Your source photo stays unchanged."
-                ))
+                library.applePhotosIDs.contains(selectedID)
+                    ? String(
+                        localized: "photo.delete_message",
+                        defaultValue:
+                            "This removes the app copy and its edits. Your source photo stays unchanged.")
+                    : String(
+                        localized: "photo.delete_app_only_message",
+                        defaultValue:
+                            "This permanently deletes the photo and its edits from SpektraCam."))
         }
         .task(id: "\(selectedID)-\(photo?.renderKey ?? "")-\(previewMaximum)") {
             await loadPreview()
@@ -153,18 +170,11 @@ struct PhotoDetailView: View {
         .onChange(of: selectedID) { _, _ in
             image = nil
             histogram = .empty
+            rawTemperature = nil
         }
         .onDisappear {
-            if editor == nil && export == nil {
+            if !isPresentingEditor && export == nil {
                 Task { await library.files.discardPreparedPhoto() }
-            }
-        }
-        .navigationDestination(item: $editor) { session in
-            EditorView(
-                session: session, locationName: photo?.locationName, photoID: selectedID, library: library
-            ) {
-                let recipe = session.hasEdits ? session.recipe : nil
-                try await library.finishEditing(selectedID, recipe: recipe)
             }
         }
         .sheet(item: $export) { request in
@@ -180,7 +190,9 @@ struct PhotoDetailView: View {
             }
         }
         .sheet(isPresented: $showSaveFormula) {
-            if let recipe = savedRecipe { SaveFormulaSheet(library: library, recipe: recipe) }
+            if let recipe = savedRecipe {
+                SaveFormulaSheet(library: library, recipe: recipe, neutralTemperature: rawTemperature)
+            }
         }
         .failureAlert(String(localized: "photo.photo", defaultValue: "Photo"), message: $failure)
     }
@@ -259,7 +271,11 @@ struct PhotoDetailView: View {
             // a short pause; fast paging cancels this before another RAW decode starts.
             if photo.hasEdits {
                 try await Task.sleep(for: .milliseconds(150))
-                _ = try? await library.files.decodedPhoto(photo)
+                if let decoded = try? await library.files.decodedPhoto(photo),
+                    !Task.isCancelled, photo.id == selectedID
+                {
+                    rawTemperature = decoded.rawTemperature
+                }
             }
         } catch { if !Task.isCancelled { histogram = .empty } }
     }
@@ -300,12 +316,15 @@ struct PhotoDetailView: View {
             }
             working = true
             Task {
-                defer { working = false }
                 do {
                     let neutral = !photo.hasEdits && imageIdentity == "\(photo.id)-\(photo.renderKey)"
                         ? image?.cgImage : nil
                     let imported = try await library.files.decodedPhoto(photo, neutralPreview: neutral)
-                    guard selectedID == photo.id else { return }
+                    guard selectedID == photo.id else {
+                        working = false
+                        return
+                    }
+                    rawTemperature = imported.rawTemperature
                     let session = EditorSession(
                         photo: imported, recipe: recipe, luts: library.luts,
                         resources: library.images.resources, sourceFilename: photo.filename)
@@ -313,15 +332,20 @@ struct PhotoDetailView: View {
                         session.displayImage = image
                     }
                     if exporting {
+                        working = false
                         export = ExportRequest(
                             session: session, originalURL: library.files.sourceURL(photo), sourceFilename: photo.filename)
                     } else {
                         session.recipeDidChange = { recipe, immediate in
                             library.queueRecipe(recipe, for: photo.id, immediate: immediate)
                         }
-                        editor = session
+                        working = false
+                        openEditor(session, photo.id, photo.locationName)
                     }
-                } catch { failure = error.localizedDescription }
+                } catch {
+                    working = false
+                    failure = error.localizedDescription
+                }
             }
         } catch { failure = error.localizedDescription }
     }
@@ -401,6 +425,7 @@ private struct PhotoViewerControls: View {
     let export: () -> Void
     let revert: () -> Void
     let canRevert: Bool
+    var fromApplePhotos = false
     let delete: () -> Void
     var layout = WorkspaceLayout.stacked
     /// False where the system's side bar already carries the actions.
@@ -515,10 +540,13 @@ private struct PhotoViewerControls: View {
         .accessibilityLabel(String(localized: "common.export", defaultValue: "Export")).photoActionStyle().accessibilityIdentifier(
             "photo.export")
     }
-    private var deleteButton: some View { PhotoDeleteButton(action: delete) }
+    private var deleteButton: some View {
+        PhotoDeleteButton(fromApplePhotos: fromApplePhotos, action: delete)
+    }
 }
 
 private struct PhotoDeleteButton: View {
+    var fromApplePhotos = false
     let action: () -> Void
     @State private var confirmDelete = false
     var body: some View {
@@ -539,11 +567,15 @@ private struct PhotoDeleteButton: View {
                 role: .destructive, action: action)
         } message: {
             Text(
-                String(
-                    localized: "photo.delete_message",
-                    defaultValue:
-                        "This removes the app copy and its edits. Your source photo stays unchanged."
-                ))
+                fromApplePhotos
+                    ? String(
+                        localized: "photo.delete_message",
+                        defaultValue:
+                            "This removes the app copy and its edits. Your source photo stays unchanged.")
+                    : String(
+                        localized: "photo.delete_app_only_message",
+                        defaultValue:
+                            "This permanently deletes the photo and its edits from SpektraCam."))
         }
     }
 }

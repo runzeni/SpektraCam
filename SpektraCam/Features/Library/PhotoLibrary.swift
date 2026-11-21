@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 /// The database owns the index and recipe. Original files never change after import.
@@ -18,6 +19,7 @@ import SwiftData
     @ObservationIgnored private var filterCache: [LibraryFilter: FilterSnapshot] = [:]
     @ObservationIgnored private var filterCacheDay: Date?
     private(set) var importedAssetIdentifiers: [String] = []
+    private(set) var applePhotosIDs: Set<UUID> = []
     @ObservationIgnored private var sources: [String: LibrarySchemaV2.PhotosSource] = [:]
     @ObservationIgnored private var pending: [UUID: EditRecipe] = [:]
     @ObservationIgnored private var saves: [UUID: Task<Void, Never>] = [:]
@@ -79,6 +81,7 @@ import SwiftData
             sources[source.assetIdentifier] = source
         }
         importedAssetIdentifiers = sources.keys.sorted()
+        applePhotosIDs = Set(sources.values.map(\.photoID))
     }
     private static func order(_ a: LibraryPhoto, _ b: LibraryPhoto) -> Bool {
         a.date == b.date
@@ -155,7 +158,10 @@ import SwiftData
         {
             return existing
         }
+        let importStarted = ProcessInfo.processInfo.systemUptime
         let imported = try await files.importPhoto(from: url, now: now)
+        Log.camera.debug(
+            "Library import \(url.pathExtension.uppercased()) prepared in \(Int(((ProcessInfo.processInfo.systemUptime - importStarted) * 1000).rounded())) ms")
         if let existing = records.values.first(where: { $0.contentHash == imported.contentHash }) {
             try await files.removeFiles(imported)
             try rememberSource(assetIdentifier, photoID: existing.id)
@@ -188,35 +194,76 @@ import SwiftData
         if let source {
             sources[source.assetIdentifier] = source
             importedAssetIdentifiers = sources.keys.sorted()
+            applePhotosIDs.insert(source.photoID)
         }
+    }
+
+    struct CaptureRecoveryReport: Sendable {
+        var imported = 0
+        var newlyQuarantined: [URL] = []
+        var totalQuarantined: [URL] = []
+        var transientError: String?
     }
 
     /// Remove an inbox file only after its original and database record are durable.
-    /// Serialized so overlapping camera/foreground recovery calls never race on the same file.
+    /// Permanently unreadable image files are quarantined to `CameraInbox/Unreadable` so they
+    /// never block subsequent camera captures.
     @discardableResult func recoverCaptures() async throws -> Int {
+        let report = await recoverCaptureBatch(includeQuarantined: false)
+        if let transientError = report.transientError {
+            throw NSError(
+                domain: "PhotoLibrary.Recovery", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: transientError])
+        }
+        if !report.newlyQuarantined.isEmpty {
+            throw LibraryFiles.Failure.image
+        }
+        return report.imported
+    }
+
+    @discardableResult func recoverCaptureBatch(includeQuarantined: Bool = false) async
+        -> CaptureRecoveryReport
+    {
         let previous = recoveryChain
-        var result: Result<Int, Error> = .success(0)
+        var report = CaptureRecoveryReport()
         let current = Task { @MainActor in
             await previous?.value
-            result = await Result { try await self.drainCaptures() }
+            report = await self.drainCaptures(includeQuarantined: includeQuarantined)
         }
         recoveryChain = current
         await current.value
-        return try result.get()
+        return report
     }
 
-    private func drainCaptures() async throws -> Int {
-        var count = 0
-        var failure: Error?
-        for url in try await files.pendingCaptures() {
-            do {
-                _ = try await importPhoto(url)
-                try await files.removeCapture(url)
-                count += 1
-            } catch { if failure == nil { failure = error } }
+    private func drainCaptures(includeQuarantined: Bool) async -> CaptureRecoveryReport {
+        var report = CaptureRecoveryReport()
+        do {
+            var targets = try await files.pendingCaptures()
+            if includeQuarantined {
+                targets += (try? await files.unreadableCaptures()) ?? []
+            }
+            for url in targets {
+                do {
+                    _ = try await importPhoto(url)
+                    try await files.removeCapture(url)
+                    report.imported += 1
+                } catch LibraryFiles.Failure.image {
+                    if url.deletingLastPathComponent().lastPathComponent != "Unreadable" {
+                        if let quarantined = try? await files.quarantineCapture(url) {
+                            report.newlyQuarantined.append(quarantined)
+                        } else {
+                            report.newlyQuarantined.append(url)
+                        }
+                    }
+                } catch {
+                    if report.transientError == nil { report.transientError = error.localizedDescription }
+                }
+            }
+            report.totalQuarantined = (try? await files.unreadableCaptures()) ?? []
+        } catch {
+            report.transientError = error.localizedDescription
         }
-        if let failure { throw failure }
-        return count
+        return report
     }
 
     var usedLUTIdentifiers: Set<String> {
@@ -226,11 +273,11 @@ import SwiftData
                 guard let recipe = try? JSONDecoder().decode(EditRecipe.self, from: data) else {
                     return Set(luts.items.map(\.id))
                 }
-                ids.formUnion(recipe.look.identifiers)
+                ids.formUnion(recipe.look.activeIdentifiers)
             }
         }
-        for recipe in pending.values { ids.formUnion(recipe.look.identifiers) }
-        ids.formUnion(copiedLook?.recipe.look.identifiers ?? [])
+        for recipe in pending.values { ids.formUnion(recipe.look.activeIdentifiers) }
+        ids.formUnion(copiedLook?.recipe.look.activeIdentifiers ?? [])
         ids.formUnion(pasteUndo?.luts ?? [])
         return ids
     }
@@ -509,6 +556,7 @@ import SwiftData
                 photos.removeAll { records[$0.id] == nil }
                 rebuildIndex()
                 importedAssetIdentifiers = sources.keys.sorted()
+                applePhotosIDs = Set(sources.values.map(\.photoID))
             }
         }
         for id in ids {

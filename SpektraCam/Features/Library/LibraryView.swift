@@ -3,9 +3,14 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
+nonisolated enum LibraryRoute: Hashable, Sendable {
+    case photo(UUID)
+    case editor(UUID)
+}
+
 struct LibraryView: View {
     let library: PhotoLibrary
-    @Binding var path: [UUID]
+    @Binding var path: [LibraryRoute]
     var scrollToLatestRequest = 0
     @State private var filter = LibraryFilter.all
     @State private var selecting = false
@@ -25,7 +30,19 @@ struct LibraryView: View {
     @State private var pasteTargets: Set<UUID> = []
     @State private var showPasteLook = false
     @State private var systemVerticalBar = false
+    @State private var editorRoutes: [UUID: EditorRoute] = [:]
     @Environment(\.openCamera) private var openCamera
+    private struct EditorRoute {
+        let session: EditorSession
+        let photoID: UUID
+        let locationName: String?
+    }
+    private var hasEditorInPath: Bool {
+        path.contains {
+            if case .editor = $0 { return true }
+            return false
+        }
+    }
     private struct BatchRequest: Identifiable {
         let id = UUID()
         let items: [BatchExportItem]
@@ -319,18 +336,63 @@ struct LibraryView: View {
                                 }
                             }
                         } message: {
+                            let linkedCount = selection.filter { library.applePhotosIDs.contains($0) }.count
                             Text(
-                                String(
-                                    localized: "library.delete_message",
-                                    defaultValue:
-                                        "This removes the app copies and their edits. Your source photos stay unchanged."
-                                )
+                                linkedCount == selection.count
+                                    ? String(
+                                        localized: "library.delete_message",
+                                        defaultValue:
+                                            "This removes the app copies and their edits. Your source photos stay unchanged.")
+                                    : linkedCount == 0
+                                        ? String(
+                                            localized: "library.delete_app_only_message",
+                                            defaultValue:
+                                                "This permanently deletes the selected photos and their edits from SpektraCam.")
+                                        : String(
+                                            localized: "library.delete_mixed_message",
+                                            defaultValue:
+                                                "This removes copies imported from Apple Photos and permanently deletes app-only photos from SpektraCam.")
                             )
                         }
                     }
                 }
-                .navigationDestination(for: UUID.self) { id in
-                    PhotoDetailView(library: library, id: id, filter: filter)
+                .navigationDestination(for: LibraryRoute.self) { route in
+                    switch route {
+                    case .photo(let id):
+                        PhotoDetailView(
+                            library: library, id: id, filter: filter,
+                            isPresentingEditor: hasEditorInPath
+                        ) { session, photoID, locationName in
+                            let routeID = UUID()
+                            editorRoutes[routeID] = EditorRoute(
+                                session: session, photoID: photoID, locationName: locationName)
+                            path.append(.editor(routeID))
+                        }
+                    case .editor(let routeID):
+                        if let entry = editorRoutes[routeID] {
+                            EditorView(
+                                session: entry.session, locationName: entry.locationName,
+                                photoID: entry.photoID, library: library
+                            ) {
+                                let recipe = entry.session.hasEdits ? entry.session.recipe : nil
+                                try await library.finishEditing(entry.photoID, recipe: recipe)
+                            }
+                        } else {
+                            Color.clear.onAppear {
+                                path.removeAll { $0 == .editor(routeID) }
+                            }
+                        }
+                    }
+                }
+                .onChange(of: path) { _, current in
+                    let active = Set(
+                        current.compactMap { route -> UUID? in
+                            if case .editor(let id) = route { return id }
+                            return nil
+                        })
+                    for key in editorRoutes.keys where !active.contains(key) {
+                        editorRoutes.removeValue(forKey: key)
+                    }
                 }
                 .sheet(isPresented: presented(.photos)) {
                     PhotoImportPicker(importedIdentifiers: library.importedAssetIdentifiers) { photos in
@@ -393,7 +455,7 @@ struct LibraryView: View {
                                                     selection.insert(photo.id)
                                                 }
                                             } else {
-                                                path.append(photo.id)
+                                                path.append(.photo(photo.id))
                                             }
                                         } label: {
                                             LibraryThumbnail(

@@ -12,11 +12,28 @@ import UniformTypeIdentifiers
 /// File identity is independent of a recipe's white balance or creative look.
 nonisolated enum PhotoSource {
     private static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
-    private static let previewContext = CIContext(options: [
-        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false,
-    ])
+    private static let contextLock = NSLock()
+    private nonisolated(unsafe) static var _previewContext: CIContext?
+    private static var previewContext: CIContext {
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        if let existing = _previewContext { return existing }
+        let created = CIContext(options: [
+            .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false,
+        ])
+        _previewContext = created
+        return created
+    }
+    static var initializedContextCountForTesting: Int {
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        return _previewContext != nil ? 1 : 0
+    }
     static func clearCaches() {
-        previewContext.clearCaches()
+        contextLock.lock()
+        let existing = _previewContext
+        contextLock.unlock()
+        existing?.clearCaches()
     }
     static func checkDevelopmentMemory(width: Int, height: Int) throws {
         guard width > 0, height > 0, width <= 65536, height <= 65536,

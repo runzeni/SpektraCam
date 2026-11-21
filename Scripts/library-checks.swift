@@ -525,19 +525,58 @@ import UniformTypeIdentifiers
                 duplicateCount == 1 && captureLibrary!.photos.count == 1 && savedRecipe == recipe)
             try await captureLibrary!.delete([captured.id])
         }
+        let validCaptureData = try Data(contentsOf: source)
         let damaged = try inbox.store(Data([0, 1, 2]))
+        _ = try inbox.store(validCaptureData)
         let captureLibrary = try PhotoLibrary(
             root: captureRoot, cache: captureCache, modelDirectory: dataDirectory)
         do {
             try await captureLibrary.recoverCaptures()
-            preconditionFailure("A damaged capture was accepted")
-        } catch {
+            preconditionFailure("A damaged capture was accepted without throwing")
+        } catch LibraryFiles.Failure.image {
+            let quarantined = try inbox.unreadable()
+            let quarantinedBytes = try? Data(contentsOf: quarantined[0])
+            let pendingAfter = try inbox.pending()
             precondition(
-                FileManager.default.fileExists(atPath: damaged.path),
-                "Failed import lost the capture")
+                quarantined.count == 1
+                    && quarantined[0].lastPathComponent == damaged.lastPathComponent
+                    && quarantinedBytes == Data([0, 1, 2]),
+                "Failed import lost or corrupted the unreadable capture")
+            precondition(
+                pendingAfter.isEmpty,
+                "Quarantined capture stayed in pending inbox")
+            precondition(
+                captureLibrary.photos.count == 1,
+                "Quarantined capture blocked valid sibling capture")
         }
+        // Subsequent recovery succeeds immediately without tripping over the quarantined file, and
+        // new captures still import cleanly.
+        let repeatRecoveryCount = try await captureLibrary.recoverCaptures()
+        precondition(repeatRecoveryCount == 0 && captureLibrary.photos.count == 1)
+        let extraPNG = temporary.appendingPathComponent("extra-capture.png")
+        let extraDest = CGImageDestinationCreateWithURL(
+            extraPNG as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(extraDest, context.makeImage()!, nil)
+        precondition(CGImageDestinationFinalize(extraDest))
+        let extraBytes = try Data(contentsOf: extraPNG)
+        _ = try inbox.store(extraBytes)
+        let afterExtraCount = try await captureLibrary.recoverCaptures()
+        let remainingUnreadable = try inbox.unreadable()
+        precondition(afterExtraCount == 1 && captureLibrary.photos.count == 2)
+        precondition(remainingUnreadable.count == 1)
+        try await captureLibrary.delete(Set(captureLibrary.photos.map(\.id)))
+        for leftover in remainingUnreadable { try inbox.remove(leftover) }
+        // Byte-preserving export of a non-RAW JPEG original via OriginalFileExporter.
+        let jpegExporter = OriginalFileExporter(source: source, filename: "capture.jpg")
+        let (exportedRegularURL, _, _) = try await jpegExporter.export()
+        let exportedRegularBytes = try Data(contentsOf: exportedRegularURL)
+        precondition(
+            exportedRegularBytes == originalBytes
+                && exportedRegularURL.lastPathComponent == "capture.jpg",
+            "Regular JPEG OriginalFileExporter changed bytes or filename")
+        await jpegExporter.discard()
         print(
-            "PASS: capture inbox restart, exact original bytes, duplicate edit preservation and failed-import retention"
+            "PASS: capture inbox restart, unreadable quarantine non-blocking, exact original bytes, duplicate edit preservation and regular OriginalFileExporter parity"
         )
         let fallback = temporary.appendingPathComponent("fallback.png")
         let png = CGImageDestinationCreateWithURL(

@@ -133,7 +133,9 @@ final class PhotoScrollView: UIScrollView {
 
     // Zoomed detail: the base image stays in place and a sharper render of the visible
     // region is laid over it once the view settles.
-    typealias DetailProvider = @MainActor @Sendable (_ visible: CGRect, _ longEdge: Int) async -> PhotoRenderer.Detail?
+    struct DetailProvider: Sendable {
+        let fetch: @MainActor @Sendable (_ visible: CGRect, _ longEdge: Int) async -> PhotoRenderer.Detail?
+    }
     let detailView = UIImageView()
     var detailProvider: DetailProvider? {
         didSet { if detailProvider == nil { clearDetail() } }
@@ -182,7 +184,7 @@ final class PhotoScrollView: UIScrollView {
             guard !Task.isCancelled else { return }
             let wide = unit.insetBy(dx: -0.2 * unit.width, dy: -0.2 * unit.height)
                 .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
-            guard let detail = await provider(wide, needed), !Task.isCancelled, let self,
+            guard let detail = await provider.fetch(wide, needed), !Task.isCancelled, let self,
                 generation == self.detailGeneration, self.imageSize.width > 0
             else { return }
             let size = self.imageSize

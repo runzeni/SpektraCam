@@ -6,9 +6,21 @@ import Foundation
 nonisolated struct FilmEdgeLayout: Codable, Equatable, Sendable {
     enum Format: String, Codable, CaseIterable, Sendable { case film35, roll120 }
     var format = Format.film35
+    enum SourcePerforations: String, Codable, CaseIterable, Sendable { case auto, stillKS, cineBH }
+    var sourcePerforations = SourcePerforations.auto
     /// Motion-picture stock respooled for a still camera keeps BH-1866 holes (e.g. Ektachrome 100D
     /// 5294, Vision3). Off means the holes follow the chosen stock.
-    var cinePerforations = false
+    var cinePerforations: Bool {
+        get { sourcePerforations == .cineBH }
+        set { sourcePerforations = newValue ? .cineBH : .auto }
+    }
+    func resolvedPerforation(filmID: String) -> FilmEdgeGeometry.Perforation {
+        switch sourcePerforations {
+        case .auto: .source(filmID: filmID)
+        case .stillKS: .ks1870
+        case .cineBH: .bh1866
+        }
+    }
     /// 120 frame sizes (nominal name, actual gate in mm). The 56 mm side always spans the film.
     enum RollFrame: String, Codable, CaseIterable, Sendable {
         case six45, six6, six7, six9
@@ -100,11 +112,32 @@ nonisolated struct FilmEdgeLayout: Codable, Equatable, Sendable {
         return abs(max(imageSize.width, imageSize.height) - min(imageSize.width, imageSize.height) * ratio) <= ratio
     }
     init() {}
-    enum CodingKeys: String, CodingKey { case format, cinePerforations, rollFrame, rollGate, gate, distress, printZoom, scanZoom }
+    enum CodingKeys: String, CodingKey {
+        case format, cinePerforations, sourcePerforations, rollFrame, rollGate, gate, distress, printZoom, scanZoom
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(format, forKey: .format)
+        try c.encode(sourcePerforations == .cineBH, forKey: .cinePerforations)
+        if sourcePerforations != .auto {
+            try c.encode(sourcePerforations, forKey: .sourcePerforations)
+        }
+        try c.encode(rollFrame, forKey: .rollFrame)
+        try c.encode(rollGate, forKey: .rollGate)
+        try c.encode(gate, forKey: .gate)
+        try c.encode(distress, forKey: .distress)
+        try c.encode(printZoom, forKey: .printZoom)
+        try c.encode(scanZoom, forKey: .scanZoom)
+    }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         format = try values.decodeIfPresent(Format.self, forKey: .format) ?? .film35
-        cinePerforations = try values.decodeIfPresent(Bool.self, forKey: .cinePerforations) ?? false
+        if let explicit = try values.decodeIfPresent(SourcePerforations.self, forKey: .sourcePerforations) {
+            sourcePerforations = explicit
+        } else {
+            let cine = try values.decodeIfPresent(Bool.self, forKey: .cinePerforations) ?? false
+            sourcePerforations = cine ? .cineBH : .auto
+        }
         rollFrame = try values.decodeIfPresent(RollFrame.self, forKey: .rollFrame) ?? .six6
         rollGate = try values.decodeIfPresent(RollGate.self, forKey: .rollGate) ?? .hasselblad
         gate = (try? values.decodeIfPresent(FilmEdgeGate.self, forKey: .gate)) ?? FilmEdgeGate()
@@ -212,7 +245,7 @@ nonisolated struct FilmEdgeDistress: Codable, Equatable, Sendable {
     /// −1 cool (front, blue layer first) … 0 neutral … +1 warm (base, red layer first).
     var warmth = 0.6
     var dust = 0.0
-    var scratches = 0.3
+    var scratches = 0.0
     /// Rails and sprockets touch only the rebate, so scratches stay there by default.
     /// Releasing the clamp lets gate debris drag scratches across the picture as well.
     var scratchesInImage = false
@@ -251,20 +284,21 @@ nonisolated struct FilmEdgeDistress: Codable, Equatable, Sendable {
             case .leaky: String(localized: "darkroom.distress.leaky", defaultValue: "Light leak")
             }
         }
-        /// Every preset keeps natural hole variation and light rail scratches (30 %); only Old
-        /// camera adds dust, full scratches, a crooked load and curl.
+        /// Clean keeps natural hole variation with zero added handling damage; Lab scan and Light
+        /// leak start with light rail scratches (15 %); Old camera adds dust, full scratches, a
+        /// crooked load and curl.
         var values: FilmEdgeDistress {
             var d = FilmEdgeDistress()
             switch self {
             case .clean: break
             case .lab:
-                d.scratches = 0.5; d.edgeFog = 0.06
+                d.scratches = 0.15; d.edgeFog = 0.06
             case .worn:
                 d.tilt = 1; d.bulge = 0.3; d.carrierRoughness = 0.08; d.holeVariation = 0.8
                 d.edgeFog = 0.3; d.leak = 0.3; d.leakSize = 10; d.warmth = 0.7
                 d.dust = 0.4; d.scratches = 1
             case .leaky:
-                d.edgeFog = 0.35; d.leak = 0.5; d.leakShape = .flare; d.leakSize = 14; d.warmth = 0.8
+                d.scratches = 0.15; d.edgeFog = 0.35; d.leak = 0.5; d.leakShape = .flare; d.leakSize = 14; d.warmth = 0.8
             }
             return d
         }

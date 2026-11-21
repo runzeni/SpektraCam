@@ -13,16 +13,37 @@ where Selection.RawValue == String {
         ScrollView(.horizontal) {
             HStack(spacing: 10) {
                 ForEach(options, id: \.0) { option in
+                    let selected = isSelectionActive && selection == option.0
+                    let disabled = unavailable.contains(option.0)
                     Group {
-                        if isSelectionActive && selection == option.0 {
-                            tab(option).adaptiveGlassButton(prominent: true).foregroundStyle(.onAccent)
+                        if #available(iOS 26.0, macOS 26.0, *) {
+                            if selected {
+                                tab(option).adaptiveGlassButton(prominent: true).foregroundStyle(.onAccent)
+                            } else {
+                                tab(option).adaptiveGlassButton()
+                            }
                         } else {
-                            tab(option).adaptiveGlassButton()
+                            if selected {
+                                tab(option)
+                                    .buttonStyle(.borderedProminent)
+                                    .buttonBorderShape(.capsule)
+                                    .tint(Color.accentColor)
+                                    .foregroundStyle(.onAccent)
+                            } else {
+                                tab(option)
+                                    .buttonStyle(.bordered)
+                                    .buttonBorderShape(.capsule)
+                                    .tint(disabled ? Color.secondary : Color.primary)
+                                    .foregroundStyle(
+                                        disabled ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.primary)
+                                    )
+                                    .background(.regularMaterial, in: .capsule)
+                            }
                         }
                     }
                     .accessibilityIdentifier(prefix + option.0.rawValue)
-                    .accessibilityAddTraits(isSelectionActive && selection == option.0 ? .isSelected : [])
-                    .disabled(unavailable.contains(option.0))
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .disabled(disabled)
                 }
             }.padding(.vertical, 4)
         }.scrollIndicators(.hidden).scrollClipDisabled().frame(height: 44)
@@ -62,8 +83,17 @@ struct PanelExpansionButton: View {
 
 extension View {
     /// A round glass button showing only its icon, with the minimum touch target.
-    func glassIconButton() -> some View {
-        labelStyle(.iconOnly).adaptiveGlassButton().buttonBorderShape(.circle)
-            .frame(minWidth: 44, minHeight: 44)
+    @ViewBuilder func glassIconButton() -> some View {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            labelStyle(.iconOnly).adaptiveGlassButton().buttonBorderShape(.circle)
+                .frame(minWidth: 44, minHeight: 44)
+        } else {
+            labelStyle(.iconOnly)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .foregroundStyle(Color.primary)
+                .background(.regularMaterial, in: .circle)
+                .frame(minWidth: 44, minHeight: 44)
+        }
     }
 }

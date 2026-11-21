@@ -15,20 +15,38 @@ nonisolated enum ToneRenderer {
     }
     static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
     private static let display = CGColorSpace(name: CGColorSpace.sRGB)!
-    private static let context32 = CIContext(options: [
-        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false,
-    ])
-    private static let context16 = CIContext(options: [
-        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAh, .cacheIntermediates: false,
-    ])
-    private static var context: CIContext {
-        RenderPrecision.resolved.usesHalfFloat ? context16 : context32
-    }
+    private static let contexts = LazyContextPair()
+    private static var context: CIContext { contexts.current }
     static func clearCaches() {
-        context16.clearCaches()
-        context32.clearCaches()
+        contexts.clearCaches()
+        existingGPU()?.clearContextCaches()
     }
-    private static let gpu = try? GradeKernel()
+    static func purgeGradeResources() {
+        existingGPU()?.purge()
+    }
+    static var initializedContextCountForTesting: Int {
+        contexts.initializedCount + (existingGPU()?.initializedContextCount ?? 0)
+    }
+    static var gradeCachedResourceCountForTesting: Int {
+        existingGPU()?.cachedResourceCount ?? 0
+    }
+    private static let gpuLock = NSLock()
+    private nonisolated(unsafe) static var _gpu: GradeKernel?
+    private nonisolated(unsafe) static var gpuAttempted = false
+    private static func existingGPU() -> GradeKernel? {
+        gpuLock.lock()
+        defer { gpuLock.unlock() }
+        return _gpu
+    }
+    private static var gpu: GradeKernel? {
+        gpuLock.lock()
+        defer { gpuLock.unlock() }
+        if !gpuAttempted {
+            gpuAttempted = true
+            _gpu = try? GradeKernel()
+        }
+        return _gpu
+    }
 
     /// Versioned code-value curve; older grades retain their original formula.
     static func curve(_ value: Double, tone: EditRecipe.Tone) -> Double {
@@ -167,20 +185,55 @@ nonisolated enum ToneRenderer {
     }
 }
 
+private nonisolated final class LazyContextPair: @unchecked Sendable {
+    private let lock = NSLock()
+    private var context16: CIContext?
+    private var context32: CIContext?
+
+    var current: CIContext {
+        let halfFloat = RenderPrecision.resolved.usesHalfFloat
+        lock.lock()
+        defer { lock.unlock() }
+        if halfFloat {
+            if let context16 { return context16 }
+            let created = CIContext(options: [
+                .workingColorSpace: ToneRenderer.linear, .workingFormat: CIFormat.RGBAh,
+                .cacheIntermediates: false,
+            ])
+            context16 = created
+            return created
+        } else {
+            if let context32 { return context32 }
+            let created = CIContext(options: [
+                .workingColorSpace: ToneRenderer.linear, .workingFormat: CIFormat.RGBAf,
+                .cacheIntermediates: false,
+            ])
+            context32 = created
+            return created
+        }
+    }
+
+    var initializedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return (context16 != nil ? 1 : 0) + (context32 != nil ? 1 : 0)
+    }
+
+    func clearCaches() {
+        lock.lock()
+        let c16 = context16
+        let c32 = context32
+        lock.unlock()
+        c16?.clearCaches()
+        c32?.clearCaches()
+    }
+}
+
 /// One cached native compute pass; no pixel-array round trip during a grading drag.
 nonisolated private final class GradeKernel: @unchecked Sendable {
     private let device: MTLDevice, queue: MTLCommandQueue, pipeline: MTLComputePipelineState
-    private let context32 = CIContext(options: [
-        .workingColorSpace: ToneRenderer.linear, .workingFormat: CIFormat.RGBAf,
-        .cacheIntermediates: false,
-    ])
-    private let context16 = CIContext(options: [
-        .workingColorSpace: ToneRenderer.linear, .workingFormat: CIFormat.RGBAh,
-        .cacheIntermediates: false,
-    ])
-    private var context: CIContext {
-        RenderPrecision.resolved.usesHalfFloat ? context16 : context32
-    }
+    private let contexts = LazyContextPair()
+    private var context: CIContext { contexts.current }
     private let lock = NSLock()
     private var input: MTLTexture?, output: MTLTexture?, cachedImage: CGImage?
     private var residualTextures: [MTLTexture] = []
@@ -276,6 +329,27 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
         lock.lock()
         releaseFrame()
         lock.unlock()
+    }
+    func purge() {
+        lock.lock()
+        releaseFrame()
+        lutTextures.removeAll()
+        lock.unlock()
+        contexts.clearCaches()
+    }
+    func clearContextCaches() {
+        contexts.clearCaches()
+    }
+    var initializedContextCount: Int { contexts.initializedCount }
+    var cachedResourceCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return (input != nil ? 1 : 0)
+            + (output != nil ? 1 : 0)
+            + (cachedImage != nil ? 1 : 0)
+            + residualTextures.count
+            + residualImages.count
+            + lutTextures.count
     }
     private func releaseFrame() {
         input = nil

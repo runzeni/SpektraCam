@@ -7,9 +7,9 @@ nonisolated struct CaptureLocation: Sendable {
     let latitude: Double, longitude: Double, accuracy: Double
     let altitude: Double?
     let date: Date
-    init?(_ fix: CLLocation, now: Date = Date()) {
+    init?(_ fix: CLLocation, now: Date = Date(), maxAge: TimeInterval = 60) {
         guard fix.horizontalAccuracy.isFinite, fix.horizontalAccuracy >= 0,
-            abs(fix.timestamp.timeIntervalSince(now)) < 60,
+            abs(fix.timestamp.timeIntervalSince(now)) < maxAge,
             CLLocationCoordinate2DIsValid(fix.coordinate)
         else { return nil }
         latitude = fix.coordinate.latitude
@@ -50,10 +50,30 @@ nonisolated struct CaptureLocation: Sendable {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        manager.distanceFilter = 10
+        manager.distanceFilter = kCLDistanceFilterNone
     }
     var captureLocation: CaptureLocation? {
-        fix.flatMap { CaptureLocation($0) }
+        if let fix {
+            if let fresh = CaptureLocation(fix) { return fresh }
+            if active, abs(fix.timestamp.timeIntervalSinceNow) > 45 {
+                switch manager.authorizationStatus {
+                case .authorizedWhenInUse, .authorizedAlways: manager.requestLocation()
+                default: break
+                }
+            }
+            if let relaxed = CaptureLocation(fix, maxAge: 180) { return relaxed }
+        }
+        guard active else { return nil }
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            if let cached = manager.location, let valid = CaptureLocation(cached, maxAge: 180) {
+                fix = cached
+                return valid
+            }
+            manager.requestLocation()
+        default: break
+        }
+        return nil
     }
     func setActive(_ active: Bool) {
         self.active = active
@@ -63,7 +83,14 @@ nonisolated struct CaptureLocation: Sendable {
         }
         switch manager.authorizationStatus {
         case .notDetermined: manager.requestWhenInUseAuthorization()
-        case .authorizedWhenInUse, .authorizedAlways: manager.startUpdatingLocation()
+        case .authorizedWhenInUse, .authorizedAlways:
+            if let cached = manager.location, CaptureLocation(cached, maxAge: 180) != nil {
+                fix = cached
+            }
+            manager.startUpdatingLocation()
+            if fix.map({ abs($0.timestamp.timeIntervalSinceNow) > 45 }) ?? true {
+                manager.requestLocation()
+            }
         default: break
         }
     }

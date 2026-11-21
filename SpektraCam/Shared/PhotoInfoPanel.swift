@@ -91,6 +91,7 @@ struct PhotoInfoPanel: View {
                     detailsScrollView
                 }
                 .clipped()
+                .allowsHitTesting(expanded)
                 .transition(.opacity)
             }
         }
@@ -125,11 +126,18 @@ struct PhotoInfoPanel: View {
         .padding(.bottom, 12)
     }
 
+    private var locationDisplay: String {
+        if let location, !location.isEmpty {
+            return metadata.coordinateLine.map { "\(location) · \($0)" } ?? location
+        }
+        return metadata.coordinateLine ?? unavailable
+    }
+
     private var metadataRows: some View {
         VStack(spacing: 8) {
             LabeledContent(
                 String(localized: "photo_info.location", defaultValue: "Location"),
-                value: location ?? unavailable
+                value: locationDisplay
             ).accessibilityIdentifier(identifier + ".location")
             LabeledContent(
                 String(localized: "photo_info.taken", defaultValue: "Time"),
@@ -162,7 +170,7 @@ struct PhotoInfoPanel: View {
             ).accessibilityIdentifier(identifier + ".colorSpace")
         }
         .contentShape(.rect)
-        .onTapGesture(perform: toggleDetails)
+        .onTapGesture { if expanded { toggleDetails() } }
     }
     private func toggleDetails() {
         onInteraction?()

@@ -198,19 +198,34 @@ struct DefaultSlider: UIViewRepresentable {
         slider.adjustAccessibility = { [weak coordinator = context.coordinator] direction in
             coordinator?.adjustAccessibility(direction)
         }
+        slider.onDoubleTap = { [weak coordinator = context.coordinator] in
+            coordinator?.reset(nil)
+        }
+        slider.onSingleTouchBegan = { [weak coordinator = context.coordinator] isSecondTapCandidate in
+            coordinator?.singleTouchBegan(secondTapCandidate: isSecondTapCandidate)
+        }
+        slider.onDragPromoted = { [weak coordinator = context.coordinator] in
+            coordinator?.promoteSuppressedBegin()
+        }
+        slider.onTouchFinished = { [weak coordinator = context.coordinator] in
+            coordinator?.touchFinished()
+        }
         slider.addTarget(
             context.coordinator, action: #selector(Coordinator.changed), for: .valueChanged)
         slider.addTarget(context.coordinator, action: #selector(Coordinator.began), for: .touchDown)
         slider.addTarget(
             context.coordinator, action: #selector(Coordinator.ended),
             for: [.touchUpInside, .touchUpOutside, .touchCancel])
-        let reset = UITapGestureRecognizer(
-            target: context.coordinator, action: #selector(Coordinator.reset))
-        reset.numberOfTapsRequired = 2
-        reset.cancelsTouchesInView = false
-        reset.delaysTouchesEnded = false
-        reset.delegate = context.coordinator
-        slider.addGestureRecognizer(reset)
+        if #available(iOS 26.0, *) {
+            let reset = UITapGestureRecognizer(
+                target: context.coordinator, action: #selector(Coordinator.reset(_:)))
+            reset.numberOfTapsRequired = 2
+            reset.cancelsTouchesInView = false
+            reset.delaysTouchesBegan = false
+            reset.delaysTouchesEnded = false
+            reset.delegate = context.coordinator
+            slider.addGestureRecognizer(reset)
+        }
         slider.accessibilityCustomActions = [
             UIAccessibilityCustomAction(
                 name: String(
@@ -258,8 +273,98 @@ struct DefaultSlider: UIViewRepresentable {
         var defaultTick: Float? { didSet { setNeedsLayout() } }
         var neutralOrigin: Float? { didSet { updateLegacyTrackColors(); setNeedsLayout() } }
         var adjustAccessibility: ((Int) -> Void)?
+        var onDoubleTap: (() -> Void)?
+        var onSingleTouchBegan: ((Bool) -> Void)?
+        var onDragPromoted: (() -> Void)?
+        var onTouchFinished: (() -> Void)?
+        private var tapDownPoint: CGPoint?
+        private var tapDownTime: TimeInterval = 0
+        private var tapMovedFar = false
+        private var secondTapCandidate = false
+        private var lastTapPoint: CGPoint?
+        private var lastTapUpTime: TimeInterval = -.infinity
+
         override func accessibilityIncrement() { adjustAccessibility?(1) }
         override func accessibilityDecrement() { adjustAccessibility?(-1) }
+        override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer is UITapGestureRecognizer { return isEnabled }
+            return super.gestureRecognizerShouldBegin(gestureRecognizer)
+        }
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+            let now = ProcessInfo.processInfo.systemUptime
+            if let touch = touches.first, touches.count == 1 {
+                let loc = touch.location(in: self)
+                let isCandidate: Bool
+                if let prev = lastTapPoint,
+                    now - lastTapUpTime <= 0.45,
+                    hypot(loc.x - prev.x, loc.y - prev.y) <= 28
+                {
+                    isCandidate = true
+                } else {
+                    isCandidate = false
+                }
+                secondTapCandidate = isCandidate
+                onSingleTouchBegan?(isCandidate)
+                tapDownPoint = loc
+                tapDownTime = now
+                tapMovedFar = false
+            } else {
+                secondTapCandidate = false
+                tapMovedFar = true
+            }
+            super.touchesBegan(touches, with: event)
+        }
+        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+            if let touch = touches.first, let start = tapDownPoint {
+                let p = touch.location(in: self)
+                if hypot(p.x - start.x, p.y - start.y) > 10 {
+                    if !tapMovedFar && secondTapCandidate {
+                        secondTapCandidate = false
+                        onDragPromoted?()
+                    }
+                    tapMovedFar = true
+                    lastTapPoint = nil
+                }
+            }
+            super.touchesMoved(touches, with: event)
+        }
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesEnded(touches, with: event)
+            let now = ProcessInfo.processInfo.systemUptime
+            if !tapMovedFar, let start = tapDownPoint, let touch = touches.first,
+                now - tapDownTime <= 0.35
+            {
+                let end = touch.location(in: self)
+                if hypot(end.x - start.x, end.y - start.y) <= 10 {
+                    if let prev = lastTapPoint,
+                        now - lastTapUpTime <= 0.45,
+                        hypot(end.x - prev.x, end.y - prev.y) <= 28
+                    {
+                        lastTapPoint = nil
+                        lastTapUpTime = -.infinity
+                        secondTapCandidate = false
+                        onDoubleTap?()
+                    } else {
+                        lastTapPoint = end
+                        lastTapUpTime = now
+                    }
+                } else {
+                    lastTapPoint = nil
+                }
+            } else {
+                lastTapPoint = nil
+            }
+            secondTapCandidate = false
+            tapDownPoint = nil
+            onTouchFinished?()
+        }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesCancelled(touches, with: event)
+            secondTapCandidate = false
+            tapDownPoint = nil
+            tapMovedFar = true
+            onTouchFinished?()
+        }
         private let marker = UIView()
         private let neutralFill = UIView()
         override func tintColorDidChange() {
@@ -343,12 +448,31 @@ struct DefaultSlider: UIViewRepresentable {
         weak var slider: UISlider?
         private let feedback = UISelectionFeedbackGenerator()
         private var interacting = false
+        private var suppressTracking = false
+        private var suppressBegan = false
+        private var lastEndedUptime: TimeInterval = -.infinity
         private var defaultSide = 0
         private func side(of value: Double) -> Int {
             value < parent.defaultValue ? -1 : (value > parent.defaultValue ? 1 : 0)
         }
         init(_ parent: DefaultSlider) { self.parent = parent }
+        func singleTouchBegan(secondTapCandidate: Bool) {
+            suppressTracking = false
+            suppressBegan = secondTapCandidate
+        }
+        func promoteSuppressedBegin() {
+            guard suppressBegan else { return }
+            suppressBegan = false
+            if slider?.isTracking == true { began() }
+        }
+        func touchFinished() {
+            suppressBegan = false
+            if suppressTracking {
+                DispatchQueue.main.async { [weak self] in self?.suppressTracking = false }
+            }
+        }
         @objc func began() {
+            guard !suppressTracking, !suppressBegan else { return }
             guard !interacting else { return }
             interacting = true
             defaultSide = side(of: parent.value)
@@ -356,10 +480,19 @@ struct DefaultSlider: UIViewRepresentable {
             parent.onEditingChanged(true)
         }
         @objc func ended() {
+            if suppressTracking {
+                DispatchQueue.main.async { [weak self] in self?.suppressTracking = false }
+            }
+            guard interacting else { return }
             interacting = false
+            lastEndedUptime = ProcessInfo.processInfo.systemUptime
             parent.onEditingChanged(false)
         }
         @objc func changed(_ slider: UISlider) {
+            guard !suppressTracking else {
+                slider.setValue(parent.position(parent.value), animated: false)
+                return
+            }
             if (slider as? PrecisionSlider)?.neutralOrigin != nil { slider.setNeedsLayout() }
             let raw =
                 parent.bounds.lowerBound + Double(slider.value)
@@ -381,16 +514,36 @@ struct DefaultSlider: UIViewRepresentable {
             slider?.setValue(parent.position(parent.value), animated: false)
             ended()
         }
-        @objc func reset() {
+        @objc func reset(_ recognizer: UITapGestureRecognizer? = nil) {
+            if let recognizer, recognizer.state != .ended { return }
             guard slider?.isEnabled == true else { return }
-            began()
-            parent.value = parent.defaultValue
+            let changed = abs(parent.value - parent.defaultValue) > 1e-9
+            let now = ProcessInfo.processInfo.systemUptime
+            suppressTracking = true
+            suppressBegan = false
+            if recognizer != nil, slider?.isTracking == true {
+                slider?.cancelTracking(with: nil)
+            }
+            if changed {
+                if !interacting && now - lastEndedUptime > 0.45 {
+                    interacting = true
+                    parent.onEditingChanged(true)
+                }
+                parent.value = parent.defaultValue
+            }
             slider?.setValue(parent.position(parent.defaultValue), animated: false)
-            ended()
-            feedback.selectionChanged()
+            slider?.setNeedsLayout()
+            slider?.layoutIfNeeded()
+            if interacting {
+                interacting = false
+                lastEndedUptime = now
+                parent.onEditingChanged(false)
+            }
+            DispatchQueue.main.async { [weak self] in self?.suppressTracking = false }
+            if changed { feedback.selectionChanged() }
         }
         @objc func accessibleReset() -> Bool {
-            reset()
+            reset(nil)
             return true
         }
         func gestureRecognizer(

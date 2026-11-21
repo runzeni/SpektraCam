@@ -3,24 +3,27 @@ import UniformTypeIdentifiers
 
 struct ExportPanel: View {
     private let session: EditorSession?
+    private let isRAW: Bool
     @State private var original: OriginalPhotoExporter?
-    @State private var raw: OriginalRAWExporter?
+    @State private var originalFile: OriginalFileExporter
     init(session: EditorSession) {
         self.session = session
-        _raw = State(initialValue: session.photo.sourceDescription?.isRAW == true
-            ? OriginalRAWExporter(data: session.photo.data, filename: session.sourceFilename,
-                type: session.photo.sourceType, width: session.photo.width, height: session.photo.height) : nil)
+        isRAW = session.photo.sourceDescription?.isRAW == true
+        _originalFile = State(initialValue: OriginalFileExporter(
+            data: session.photo.data, filename: session.sourceFilename,
+            type: session.photo.sourceType, width: session.photo.width, height: session.photo.height))
         _original = State(initialValue: nil)
     }
     init(originalURL: URL, sourceFilename: String? = nil) {
         session = nil
-        _raw = State(initialValue: UTType(filenameExtension: originalURL.pathExtension)?.conforms(to: .rawImage) == true
-            ? OriginalRAWExporter(source: originalURL, filename: sourceFilename) : nil)
+        isRAW = UTType(filenameExtension: originalURL.pathExtension)?.conforms(to: .rawImage) == true
+        _originalFile = State(initialValue: OriginalFileExporter(
+            source: originalURL, filename: sourceFilename))
         _original = State(initialValue: OriginalPhotoExporter(source: originalURL, sourceFilename: sourceFilename))
     }
     @Environment(\.dismiss) private var dismiss
     @State private var format = PhotoExporter.Format.jpeg
-    @State private var exportsRAW = false
+    @State private var exportsOriginal = false
     /// The last size chosen is kept for the next export.
     @AppStorage("export.size") private var storedSize = PhotoExporter.Size.original.rawValue
     private var size: PhotoExporter.Size {
@@ -43,22 +46,24 @@ struct ExportPanel: View {
     @State private var saveFailure: String?
     @State private var renderTask: Task<(URL, Int, Int), Error>?
     private struct Request: Hashable {
-        let format: String, size: String, quality: Double, retry: Int, raw: Bool
+        let format: String, size: String, quality: Double, retry: Int, original: Bool
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                if raw != nil {
-                    Section {
-                        Picker(String(localized: "export.file", defaultValue: "File"), selection: $exportsRAW) {
-                            Text(String(localized: "export.processed", defaultValue: "Processed photo")).tag(false)
-                            Text(String(localized: "export.original_raw", defaultValue: "Original RAW")).tag(true)
-                        }
-                        .pickerStyle(.segmented).accessibilityIdentifier("export.file")
+                Section {
+                    Picker(String(localized: "export.file", defaultValue: "File"), selection: $exportsOriginal) {
+                        Text(String(localized: "export.processed", defaultValue: "Processed photo")).tag(false)
+                        Text(
+                            isRAW
+                                ? String(localized: "export.original_raw", defaultValue: "Original RAW")
+                                : String(localized: "export.original_file", defaultValue: "Original file")
+                        ).tag(true)
                     }
+                    .pickerStyle(.segmented).accessibilityIdentifier("export.file")
                 }
-                if exportsRAW {
+                if exportsOriginal {
                     Section {
                         if url != nil, !dimensions.isEmpty {
                             LabeledContent(String(localized: "export.output", defaultValue: "Output"),
@@ -106,7 +111,7 @@ struct ExportPanel: View {
             }
             .task(
                 id: Request(
-                    format: format.rawValue, size: size.rawValue, quality: quality, retry: retry, raw: exportsRAW)
+                    format: format.rawValue, size: size.rawValue, quality: quality, retry: retry, original: exportsOriginal)
             ) {
                 await prepareExport()
             }
@@ -127,7 +132,7 @@ struct ExportPanel: View {
                 session?.discardExport()
                 if let url { try? FileManager.default.removeItem(at: url) }
                 if let original { Task { await original.discard() } }
-                if let raw { Task { await raw.discard() } }
+                Task { await originalFile.discard() }
             }
         }
         .presentationDetents([.fraction(0.68), .large], selection: $detent)
@@ -195,12 +200,12 @@ struct ExportPanel: View {
         let requestedSize = size
         let requestedFormat = format
         let requestedQuality = quality
-        let requestedRAW = exportsRAW
+        let requestedOriginal = exportsOriginal
         let job = Task {
             if let previous { _ = await previous.result }
             if let previousURL { try? FileManager.default.removeItem(at: previousURL) }
             try Task.checkCancellation()
-            if requestedRAW, let raw { return try await raw.export() }
+            if requestedOriginal { return try await originalFile.export() }
             if let session {
                 return try await session.export(
                     size: requestedSize, format: requestedFormat, quality: requestedQuality)

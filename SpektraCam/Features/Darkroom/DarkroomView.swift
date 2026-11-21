@@ -110,7 +110,7 @@ struct DarkroomView: View {
         }
     }
 
-    private enum FormatChoice: String { case film35, cine35, roll120 }
+    private enum FormatChoice: String { case film35, roll120 }
     /// Auto, or one of the film-edge types (by raw value).
     private struct EdgeChoice: RawRepresentable, Hashable {
         let rawValue: String
@@ -118,8 +118,7 @@ struct DarkroomView: View {
     }
     private var formatChoice: FormatChoice {
         guard let edge else { return .film35 }
-        if edge.format == .roll120 { return .roll120 }
-        return edge.cinePerforations ? .cine35 : .film35
+        return edge.format == .roll120 ? .roll120 : .film35
     }
     /// Change the film edge, starting from the default when there is none yet.
     private func setEdge(_ change: (inout FilmEdgeLayout) -> Void) {
@@ -161,16 +160,21 @@ struct DarkroomView: View {
                     .font(.caption).accessibilityIdentifier("darkroom.edge.resolved")
             }
             PanelTabs(
-                options: [(FormatChoice.film35, "35 mm"),
-                          (.cine35, String(localized: "darkroom.edge.cine35", defaultValue: "35 mm cine")),
-                          (.roll120, "120")],
+                options: [(FormatChoice.film35, "35 mm"), (.roll120, "120")],
                 selection: Binding(get: { formatChoice }, set: { choice in
-                    setEdge {
-                        $0.format = choice == .roll120 ? .roll120 : .film35
-                        $0.cinePerforations = choice == .cine35
-                    }
+                    setEdge { $0.format = choice == .roll120 ? .roll120 : .film35 }
                 }),
                 prefix: "darkroom.edge.format.")
+            if (edge ?? FilmEdgeLayout()).format == .film35 {
+                PanelTabs(
+                    options: [
+                        (.auto, String(localized: "common.auto", defaultValue: "Auto")),
+                        (.stillKS, String(localized: "darkroom.perforations.still", defaultValue: "35 mm still (KS)")),
+                        (.cineBH, String(localized: "darkroom.perforations.cine", defaultValue: "35 mm cine (BH)")),
+                    ],
+                    selection: edgeBinding(\.sourcePerforations),
+                    prefix: "darkroom.edge.perforations.")
+            }
             if edge?.format == .roll120 {
                 PanelTabs(
                     options: FilmEdgeLayout.RollFrame.allCases.map { ($0, $0.title) },
@@ -246,9 +250,25 @@ struct DarkroomView: View {
                     distressGroup(String(localized: "darkroom.distress.handling", defaultValue: "Handling")) {
                         distressSlider(String(localized: "darkroom.distress.extra_tilt", defaultValue: "Crooked loading"), \.tilt,
                                        step: 0.05, unit: "°", identifier: "tilt", fillOrigin: 0)
+                        if abs(distress.amount - 1) > 0.005 {
+                            let effectiveTilt = distress.effective.tilt.formatted(
+                                .number.precision(.fractionLength(0...2)).sign(strategy: .always(includingZero: false))
+                            ) + "°"
+                            Text(String(localized: "darkroom.distress.effective", defaultValue: "Effective: \(effectiveTilt)"))
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("darkroom.distress.tilt.effective")
+                        }
                         distressSlider(String(localized: "darkroom.distress.curl", defaultValue: "Film curl"), \.bulge,
                                        scale: 100, step: 1, unit: "%", identifier: "bulge", fillOrigin: 0)
-                        distressSlider(String(localized: "darkroom.distress.hole_variation", defaultValue: "Hole variation"), \.holeVariation,
+                        if abs(distress.amount - 1) > 0.005 {
+                            let effectiveBulge = (distress.effective.bulge * 100).formatted(
+                                .number.precision(.fractionLength(0)).sign(strategy: .always(includingZero: false))
+                            ) + "%"
+                            Text(String(localized: "darkroom.distress.effective", defaultValue: "Effective: \(effectiveBulge)"))
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("darkroom.distress.bulge.effective")
+                        }
+                        distressSlider(String(localized: "darkroom.distress.hole_variation", defaultValue: "Sprocket variation"), \.holeVariation,
                                        scale: 100, step: 1, unit: "%", identifier: "holeVariation")
                     }
                     distressGroup(String(localized: "darkroom.distress.light", defaultValue: "Fog and leaks")) {
@@ -308,11 +328,12 @@ struct DarkroomView: View {
                                 step: Double, unit: String, identifier: String, fillOrigin: Double? = nil) -> some View {
         let range = FilmEdgeDistress.ranges[path] ?? (0...1)
         let scaled = (range.lowerBound * scale)...(range.upperBound * scale)
+        let presetDefault = path == \.amount ? 1.0 : (distress.preset ?? .lab).values[keyPath: path]
         return NumericControl(
             title: title, value: distressBinding(path, scale: scale), range: scaled, step: step,
             minimum: scaled.lowerBound, maximum: scaled.upperBound, unit: unit,
             identifier: "darkroom.distress." + identifier,
-            defaultValue: FilmEdgeLayout.newDefault().distress[keyPath: path] * scale,
+            defaultValue: presetDefault * scale,
             fillOrigin: fillOrigin ?? scaled.lowerBound, onEditingChanged: onEdgeEditingChanged)
     }
     // MARK: Enlarger — the head's height sets how much of the frame the easel opening shows.

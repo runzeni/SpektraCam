@@ -45,7 +45,7 @@ extension EditRecipe {
             return (String(localized: "photo.original", defaultValue: "Original"), nil)
         }
         if look.mode == .lut {
-            let names = [look.first.id, look.second.id].compactMap { luts?.name($0) }
+            let names = look.activeSlots.compactMap { $0.id.flatMap { id in luts?.name(id) } }
             return (
                 "3D LUT",
                 names.isEmpty

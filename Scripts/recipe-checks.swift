@@ -227,6 +227,56 @@ import Foundation
         precondition(darkroomOnly.luts.isEmpty && darkroomOnly.missingLUTs(installed: []).isEmpty)
         precondition(darkroomOnly.recipe.processingRecipe == EditRecipe().processingRecipe)
 
+        // Switching to Spektrafilm with a dormant LUT id retained in the slot must not export any
+        // LUT metadata or require that LUT when the formula is saved or shared.
+        var filmWithDormantLUT = edit
+        filmWithDormantLUT.look.enabled = true
+        filmWithDormantLUT.look.mode = .spektrafilm
+        precondition(filmWithDormantLUT.look.activeSlots.isEmpty && filmWithDormantLUT.look.activeIdentifiers.isEmpty)
+        let filmDormantFormula = try Formula(name: "Spektrafilm", parts: [.look], from: filmWithDormantLUT, luts: references)
+        precondition(filmDormantFormula.luts.isEmpty && filmDormantFormula.missingLUTs(installed: []).isEmpty)
+        precondition(filmDormantFormula.recipe.look.first.id == nil && filmDormantFormula.recipe.look.second.id == nil)
+
+        // Original mode must also ignore dormant LUTs and unedited tones.
+        var originalWithDormant = filmWithDormantLUT
+        originalWithDormant.look.enabled = false
+        originalWithDormant.tone = EditRecipe.Tone()
+        precondition(!originalWithDormant.hasEditedLook)
+        let originalFormula = try Formula(name: "Original", parts: [.look], from: originalWithDormant, luts: references)
+        precondition(originalFormula.luts.isEmpty && originalFormula.recipe.look.first.id == nil)
+
+        // A 0-mix secondary LUT slot is inactive and excluded from LUT requirements.
+        let secondLUT = String(repeating: "d", count: 64)
+        var singleActiveLUT = edit
+        singleActiveLUT.look.enabled = true
+        singleActiveLUT.look.mode = .lut
+        singleActiveLUT.look.first.mix = 0.8
+        singleActiveLUT.look.second = .init(id: secondLUT, mix: 0)
+        precondition(singleActiveLUT.look.activeIdentifiers == [lut])
+        let activeFormula = try Formula(
+            name: "Single LUT", parts: [.look], from: singleActiveLUT,
+            luts: references + [Formula.LUT(id: secondLUT, name: "Muted", size: 17)])
+        precondition(activeFormula.luts.map(\.id) == [lut] && activeFormula.recipe.look.second.id == nil)
+        precondition(activeFormula.missingLUTs(installed: [lut]).isEmpty)
+
+        // Extended S-curve values (±10 -> 0.30...1.70) survive sanitization and FormulaLink round-trip.
+        for extreme in [0.30, 1.70] {
+            var wide = EditRecipe()
+            wide.tone.contrast = extreme
+            let f = try Formula(name: "Extreme", parts: [.look], from: wide, luts: [])
+            let back = try Formula(data: try FormulaLink.file(from: try FormulaLink.url(for: f.data()).absoluteString))
+            precondition(abs(back.recipe.tone.contrast - extreme) < 1e-9, "S-curve contrast was clipped: \(back.recipe.tone.contrast)")
+        }
+
+        // Unedited RAW camera temperature matches neutralTemperature and is not treated as an exposure edit.
+        var rawRecipe = EditRecipe()
+        rawRecipe.temperature = 5200
+        precondition(!rawRecipe.has(.exposure, neutralTemperature: 5200))
+        precondition(rawRecipe.has(.exposure, neutralTemperature: 6500))
+        let rawLookOnly = try Formula(
+            name: "RAW Look", parts: [.look], from: rawRecipe, luts: [], neutralTemperature: 5200)
+        precondition(rawLookOnly.recipe.temperature == nil)
+
         let data = try formula.data()
         let read = try Formula(data: data)
         precondition(read == formula, "A formula file did not read back the same")

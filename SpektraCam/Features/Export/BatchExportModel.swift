@@ -68,7 +68,7 @@ import Observation
         library.luts.protect(
             owner,
             ids: pending.reduce(into: Set<String>()) {
-                $0.formUnion($1.recipe?.look.identifiers ?? [])
+                $0.formUnion($1.recipe?.look.activeIdentifiers ?? [])
             })
         task = Task {
             await library.images.beginExport()

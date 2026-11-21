@@ -48,8 +48,10 @@ struct FormulaFacts: View {
 
     private var needed: [Formula.LUT] {
         guard formula.parts.contains(.look) else { return [] }
-        return [formula.recipe.look.first.id, formula.recipe.look.second.id].compactMap { $0 }.map { id in
-            formula.luts.first { $0.id == id } ?? Formula.LUT(id: id, name: "", size: 0)
+        var seen: Set<String> = []
+        return formula.recipe.look.activeSlots.compactMap { slot in
+            guard let id = slot.id, seen.insert(id).inserted else { return nil }
+            return formula.luts.first { $0.id == id } ?? Formula.LUT(id: id, name: "", size: 0)
         }
     }
     var body: some View {
@@ -309,7 +311,7 @@ struct FormulaDetailView: View {
         if let formula = library.formulae.formula(id) {
             let usesInstalledLUT =
                 formula.parts.contains(.look)
-                && library.luts.items.contains { formula.recipe.look.identifiers.contains($0.id) }
+                && library.luts.items.contains { formula.recipe.look.activeIdentifiers.contains($0.id) }
             List {
                 FormulaFacts(
                     library: library, formula: formula, chooseLUT: { replacing = $0 }, importLUT: { wanted = $0 })

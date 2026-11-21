@@ -67,6 +67,11 @@ nonisolated struct EditRecipe: Codable, Equatable, Sendable {
         var first = LUTSlot()
         var second = LUTSlot(mix: 0)
         var identifiers: Set<String> { Set([first.id, second.id].compactMap { $0 }) }
+        var activeSlots: [LUTSlot] {
+            guard enabled, mode == .lut else { return [] }
+            return [first, second].filter { $0.id != nil && $0.mix > 0 }
+        }
+        var activeIdentifiers: Set<String> { Set(activeSlots.compactMap(\.id)) }
         init() {}
         enum CodingKeys: String, CodingKey { case enabled, mode, first, second }
         init(from decoder: Decoder) throws {

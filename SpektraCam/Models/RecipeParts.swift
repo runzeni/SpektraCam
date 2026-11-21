@@ -93,13 +93,24 @@ nonisolated extension EditRecipe {
         return result
     }
 
-    /// Whether a part holds anything, so an empty part is not offered for pasting.
-    func has(_ part: Part) -> Bool {
+    /// Whether Look itself has any active film/LUT, tonal curve, saturation or monochrome edit.
+    var hasEditedLook: Bool {
+        look.enabled || tone.contrast != 1 || tone.shadows != 0 || tone.highlights != 0
+            || tone.monochrome || source.saturation != 1
+    }
+
+    /// Whether a part holds anything, so an empty part is not offered for pasting or saving.
+    func has(_ part: Part, neutralTemperature: Double? = nil) -> Bool {
         switch part {
         case .look: true
-        case .exposure: taking([.exposure], from: EditRecipe(), rawTarget: false) != self
+        case .exposure:
+            taking([.exposure], from: EditRecipe(), rawTarget: false) != self
+                || (neutralTemperature != nil && temperature != nil && abs(temperature! - neutralTemperature!) > 1)
         case .darkroom: printLayout != nil || filmEdgeLayout != nil || filmEdgeSelection != nil
         }
+    }
+    func has(_ part: Part) -> Bool {
+        has(part, neutralTemperature: nil)
     }
 }
 
@@ -116,6 +127,9 @@ nonisolated struct LookClip: Equatable, Sendable {
         self.recipe = copy
         self.sourceID = sourceID
     }
-    var parts: [EditRecipe.Part] { EditRecipe.Part.allCases.filter { recipe.has($0) } }
+    func parts(neutralTemperature: Double? = nil) -> [EditRecipe.Part] {
+        EditRecipe.Part.allCases.filter { recipe.has($0, neutralTemperature: neutralTemperature) }
+    }
+    var parts: [EditRecipe.Part] { parts(neutralTemperature: nil) }
     func removingLUTs(_ ids: Set<String>) -> Self { Self(recipe.removingLUTs(ids), sourceID: sourceID) }
 }

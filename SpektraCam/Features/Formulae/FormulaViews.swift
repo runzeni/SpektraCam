@@ -20,8 +20,9 @@ extension Formula {
         guard parts.contains(.look) else { return parts.map(\.title).joined(separator: " · ") }
         if recipe.look.enabled, recipe.look.mode == .lut {
             // A LUT that is not installed is still named, from the formula's own record of it.
-            let names = [recipe.look.first.id, recipe.look.second.id].compactMap { $0 }.map { id in
-                luts.name(id) ?? self.luts.first { $0.id == id }?.name ?? ""
+            let names = recipe.look.activeSlots.compactMap { slot -> String? in
+                guard let id = slot.id else { return nil }
+                return luts.name(id) ?? self.luts.first { $0.id == id }?.name ?? ""
             }.filter { !$0.isEmpty }
             return (["3D LUT"] + names).joined(separator: " · ")
         }
@@ -123,6 +124,7 @@ private struct CapsuleActionPrimitiveStyle: PrimitiveButtonStyle {
 struct SaveFormulaSheet: View {
     let library: PhotoLibrary
     let recipe: EditRecipe
+    let neutralTemperature: Double?
     @State private var name = ""
     @State private var note = ""
     @State private var selection: Set<EditRecipe.Part>
@@ -132,12 +134,20 @@ struct SaveFormulaSheet: View {
     @Environment(\.dismiss) private var dismiss
     private let available: [EditRecipe.Part]
 
-    init(library: PhotoLibrary, recipe: EditRecipe) {
+    init(library: PhotoLibrary, recipe: EditRecipe, neutralTemperature: Double? = nil) {
         self.library = library
         self.recipe = recipe
-        available = LookClip(recipe).parts
-        // The Look and any Darkroom travel by default; exposure belongs to this photo.
-        _selection = State(initialValue: Set(available).subtracting([.exposure]))
+        self.neutralTemperature = neutralTemperature
+        let availableParts = LookClip(recipe).parts(neutralTemperature: neutralTemperature)
+        available = availableParts
+        let lookEdited = recipe.hasEditedLook
+        let darkroomEdited = availableParts.contains(.darkroom)
+        let exposureEdited = availableParts.contains(.exposure)
+        var initial: Set<EditRecipe.Part> = []
+        if lookEdited || (!darkroomEdited && !exposureEdited) { initial.insert(.look) }
+        if darkroomEdited { initial.insert(.darkroom) }
+        if exposureEdited && !lookEdited && !darkroomEdited { initial.insert(.exposure) }
+        _selection = State(initialValue: initial)
     }
     private var chosen: Set<EditRecipe.Part> { selection.intersection(available) }
 
@@ -195,7 +205,9 @@ struct SaveFormulaSheet: View {
             do {
                 let references = library.luts.items.map { Formula.LUT(id: $0.id, name: $0.name, size: $0.size) }
                 try await library.formulae.save(
-                    Formula(name: name, note: note, parts: chosen, from: recipe, luts: references))
+                    Formula(
+                        name: name, note: note, parts: chosen, from: recipe, luts: references,
+                        neutralTemperature: neutralTemperature))
                 dismiss()
             } catch { failure = error.localizedDescription }
             saving = false

@@ -50,7 +50,68 @@ import Foundation
         ("print_render.glare.active", String(localized: "effects.print_glare", defaultValue: "Print glare")),
     ]
 
+    private static let lutPrefixes = [
+        "film_render.grain.", "film_render.halation.",
+        "camera.diffusion_filter.", "enlarger.diffusion_filter.",
+    ]
+
+    private static func toneRows(_ recipe: EditRecipe) -> [Row] {
+        var rows: [Row] = []
+        let tone = recipe.tone
+        if tone.contrast != 1 {
+            let value =
+                tone.algorithm >= 5
+                ? signed((tone.contrast - 1) / 0.07, digits: 1)
+                : plain(tone.contrast)
+            rows.append(
+                Row(
+                    id: "contrast", label: String(localized: "adjust.s_curve", defaultValue: "S-curve"),
+                    value: value))
+            if tone.pivot != EditRecipe.Tone().pivot {
+                rows.append(
+                    Row(
+                        id: "pivot", label: String(localized: "adjust.pivot", defaultValue: "Pivot"),
+                        value: plain(tone.pivot)))
+            }
+        }
+        if tone.highlights != 0 {
+            rows.append(
+                Row(
+                    id: "highlights",
+                    label: String(localized: "adjust.highlights", defaultValue: "Highlights"),
+                    value: signed(tone.highlights)))
+        }
+        if tone.shadows != 0 {
+            rows.append(
+                Row(
+                    id: "shadows", label: String(localized: "adjust.shadows", defaultValue: "Shadows"),
+                    value: signed(tone.shadows)))
+        }
+        if recipe.source.saturation != 1 {
+            rows.append(
+                Row(
+                    id: "saturation",
+                    label: String(localized: "adjust.saturation", defaultValue: "Saturation"),
+                    value: percent(recipe.source.saturation)))
+        }
+        if tone.monochrome {
+            rows.append(
+                Row(
+                    id: "monochrome",
+                    label: String(localized: "adjust.black_white", defaultValue: "Black & White"),
+                    value: on))
+        }
+        return rows
+    }
+
     private static func look(_ recipe: EditRecipe, formula: Formula, luts: LUTLibrary) -> [Row] {
+        guard recipe.look.enabled else {
+            return [
+                Row(
+                    id: "look", label: EditRecipe.Part.look.title,
+                    value: String(localized: "photo.original", defaultValue: "Original"))
+            ] + toneRows(recipe)
+        }
         var rows: [Row] = []
         let film = recipe.look.mode == .spektrafilm
         if film {
@@ -59,10 +120,13 @@ import Foundation
             if let print = names.print {
                 rows.append(Row(id: "print", label: String(localized: "develop.print", defaultValue: "Print"), value: print))
             }
+            if recipe.mix != 1 {
+                rows.append(Row(id: "mix", label: String(localized: "common.mix", defaultValue: "Mix"), value: percent(recipe.mix)))
+            }
         } else {
             // A LUT that is not installed is still named, from the formula's own record of it.
-            let slots = [recipe.look.first, recipe.look.second].compactMap { slot -> String? in
-                guard let id = slot.id, slot.mix > 0 else { return nil }
+            let slots = recipe.look.activeSlots.compactMap { slot -> String? in
+                guard let id = slot.id else { return nil }
                 let name =
                     luts.name(id) ?? formula.luts.first { $0.id == id }?.name
                     ?? String(localized: "formula.lut.unnamed", defaultValue: "Unnamed LUT")
@@ -75,50 +139,52 @@ import Foundation
                         ? String(localized: "lut.none_selected", defaultValue: "No LUT selected")
                         : slots.joined(separator: " · ")))
         }
-        if recipe.mix != 1 {
-            rows.append(Row(id: "mix", label: String(localized: "common.mix", defaultValue: "Mix"), value: percent(recipe.mix)))
-        }
-        let tone = recipe.tone
-        if tone.contrast != 1 {
-            rows.append(Row(id: "contrast", label: String(localized: "adjust.s_curve", defaultValue: "S-curve"), value: plain(tone.contrast)))
-            if tone.pivot != EditRecipe.Tone().pivot {
-                rows.append(Row(id: "pivot", label: String(localized: "adjust.pivot", defaultValue: "Pivot"), value: plain(tone.pivot)))
-            }
-        }
-        if tone.highlights != 0 {
-            rows.append(Row(id: "highlights", label: String(localized: "adjust.highlights", defaultValue: "Highlights"), value: signed(tone.highlights)))
-        }
-        if tone.shadows != 0 {
-            rows.append(Row(id: "shadows", label: String(localized: "adjust.shadows", defaultValue: "Shadows"), value: signed(tone.shadows)))
-        }
-        if recipe.source.saturation != 1 {
-            rows.append(Row(id: "saturation", label: String(localized: "adjust.saturation", defaultValue: "Saturation"), value: percent(recipe.source.saturation)))
-        }
-        if tone.monochrome {
-            rows.append(Row(id: "monochrome", label: String(localized: "adjust.black_white", defaultValue: "Black & White"), value: on))
-        }
+        rows += toneRows(recipe)
         let grain = recipe.flag("film_render.grain.active")
+        let grainValue =
+            !grain
+            ? off
+            : (film && recipe.monochromeGrain
+                ? String(localized: "effects.b_w_grain", defaultValue: "B&W Grain") : on)
+        rows.append(
+            Row(id: "grain", label: String(localized: "effects.grain", defaultValue: "Grain"), value: grainValue))
         rows.append(
             Row(
-                id: "grain", label: String(localized: "effects.grain", defaultValue: "Grain"),
-                value: !grain
-                    ? off
-                    : recipe.monochromeGrain ? String(localized: "effects.b_w_grain", defaultValue: "B&W Grain") : on))
-        var named: Set<String> = ["film_render.grain.active"]
-        if film {
-            rows.append(
-                Row(
-                    id: "halation", label: String(localized: "effects.halation", defaultValue: "Halation"),
-                    value: recipe.flag("film_render.halation.active") ? on : off))
-            named.insert("film_render.halation.active")
-        }
-        for effect in switches where recipe.flags[effect.path] != nil {
+                id: "halation", label: String(localized: "effects.halation", defaultValue: "Halation"),
+                value: recipe.flag("film_render.halation.active") ? on : off))
+        var named: Set<String> = ["film_render.grain.active", "film_render.halation.active"]
+        for effect in switches {
+            let activeForMode: Bool
+            if film {
+                activeForMode = !recipe.bypassesPrint || (!effect.path.hasPrefix("enlarger.") && !effect.path.hasPrefix("print_render."))
+            } else {
+                activeForMode = effect.path != "print_render.glare.active"
+            }
+            guard activeForMode, recipe.flags[effect.path] != nil else { continue }
             rows.append(Row(id: effect.path, label: effect.title, value: recipe.flag(effect.path) ? on : off))
             named.insert(effect.path)
         }
-        let fine =
-            recipe.numbers.keys.filter { !EditRecipe.exposureNumbers.contains($0) }.count
-            + recipe.flags.keys.filter { !named.contains($0) }.count + recipe.choices.count
+        let fineNumbers = recipe.numbers.keys.filter { key in
+            guard !EditRecipe.exposureNumbers.contains(key) else { return false }
+            if film {
+                return !recipe.bypassesPrint || (!key.hasPrefix("enlarger.") && !key.hasPrefix("print_render."))
+            }
+            return key == "camera.film_format_mm" || lutPrefixes.contains { key.hasPrefix($0) }
+        }.count
+        let fineFlags = recipe.flags.keys.filter { key in
+            guard !named.contains(key) else { return false }
+            if film {
+                return !recipe.bypassesPrint || (!key.hasPrefix("enlarger.") && !key.hasPrefix("print_render."))
+            }
+            return lutPrefixes.contains { key.hasPrefix($0) }
+        }.count
+        let fineChoices = recipe.choices.keys.filter { key in
+            if film {
+                return !recipe.bypassesPrint || (!key.hasPrefix("enlarger.") && !key.hasPrefix("print_render."))
+            }
+            return lutPrefixes.contains { key.hasPrefix($0) }
+        }.count
+        let fine = fineNumbers + fineFlags + fineChoices
         if fine > 0 {
             rows.append(
                 Row(
@@ -167,10 +233,20 @@ import Foundation
     private static func darkroom(_ recipe: EditRecipe) -> [Row] {
         var rows: [Row] = []
         if let edge = recipe.filmEdgeLayout {
+            let value: String =
+                if edge.format == .roll120 {
+                    "120 · " + edge.rollFrame.title
+                } else {
+                    switch edge.sourcePerforations {
+                    case .auto: "35 mm"
+                    case .stillKS: String(localized: "darkroom.perforations.still", defaultValue: "35 mm still (KS)")
+                    case .cineBH: String(localized: "darkroom.perforations.cine", defaultValue: "35 mm cine (BH)")
+                    }
+                }
             rows.append(
                 Row(
                     id: "edge", label: String(localized: "darkroom.film_edge", defaultValue: "Film edge"),
-                    value: edge.format == .film35 ? "35 mm" : "120 · " + edge.rollFrame.title))
+                    value: value))
         }
         if let layout = recipe.printLayout {
             rows.append(Row(id: "paper", label: String(localized: "darkroom.paper", defaultValue: "Paper"), value: layout.paper.title))

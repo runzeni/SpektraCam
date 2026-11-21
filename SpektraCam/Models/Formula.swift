@@ -47,17 +47,33 @@ nonisolated struct Formula: Identifiable, Equatable, Sendable {
 
     /// A new formula from an edit. Only the chosen parts are kept, so a part the author left
     /// out is not carried along in the file.
-    init(name: String, note: String = "", parts: Set<EditRecipe.Part>, from source: EditRecipe, luts: [LUT]) throws {
+    init(
+        name: String, note: String = "", parts: Set<EditRecipe.Part>, from source: EditRecipe,
+        luts: [LUT], neutralTemperature: Double? = nil
+    ) throws {
         id = UUID()
         self.name = try Self.validated(name)
         self.note = note.trimmingCharacters(in: .whitespacesAndNewlines)
         created = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))  // As stored.
         let clip = LookClip(source)
-        self.parts = clip.parts.filter(parts.contains)
+        self.parts = clip.parts(neutralTemperature: neutralTemperature).filter(parts.contains)
         unreadable = []
-        let kept = EditRecipe().taking(Set(self.parts), from: clip.recipe, rawTarget: true)
+        var kept = EditRecipe().taking(Set(self.parts), from: clip.recipe, rawTarget: true)
+        if self.parts.contains(.look) {
+            if !kept.look.enabled || kept.look.mode != .lut {
+                kept.look.first = EditRecipe.LUTSlot()
+                kept.look.second = EditRecipe.LUTSlot(mix: 0)
+            } else {
+                if kept.look.first.id == nil || kept.look.first.mix <= 0 {
+                    kept.look.first = EditRecipe.LUTSlot(id: nil, mix: kept.look.first.mix)
+                }
+                if kept.look.second.id == nil || kept.look.second.mix <= 0 {
+                    kept.look.second = EditRecipe.LUTSlot(id: nil, mix: 0)
+                }
+            }
+        }
         recipe = kept
-        self.luts = self.parts.contains(.look) ? luts.filter { kept.look.identifiers.contains($0.id) } : []
+        self.luts = self.parts.contains(.look) ? luts.filter { kept.look.activeIdentifiers.contains($0.id) } : []
     }
     static func validated(_ name: String) throws -> String {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -67,7 +83,7 @@ nonisolated struct Formula: Identifiable, Equatable, Sendable {
     /// LUTs the formula calls for that are not installed.
     func missingLUTs(installed: Set<String>) -> [LUT] {
         guard parts.contains(.look) else { return [] }
-        let needed = recipe.look.identifiers.subtracting(installed)
+        let needed = recipe.look.activeIdentifiers.subtracting(installed)
         return needed.sorted().map { id in luts.first { $0.id == id } ?? LUT(id: id, name: "", size: 0) }
     }
 
@@ -270,7 +286,7 @@ nonisolated extension EditRecipe {
         if let id = look.first.id, !Self.validLUT(id) { copy.look.first.id = nil }
         if let id = look.second.id, !Self.validLUT(id) { copy.look.second.id = nil }
         copy.tone.exposureEV = finite(tone.exposureEV, 0, -10...10)
-        copy.tone.contrast = finite(tone.contrast, 1, 0.65...1.35)
+        copy.tone.contrast = finite(tone.contrast, 1, 0.30...1.70)
         copy.tone.pivot = finite(tone.pivot, 0.35, 0...1)
         copy.tone.shadows = finite(tone.shadows, 0, -5...5)
         copy.tone.highlights = finite(tone.highlights, 0, -5...5)

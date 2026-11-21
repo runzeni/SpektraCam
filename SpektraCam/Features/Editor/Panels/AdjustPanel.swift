@@ -17,11 +17,16 @@ struct AdjustPanel: View {
     var section: Section = .exposure
     @State private var extendedBalance = false
     @State private var extendedLiftGain = false
+    @State private var extendedSCurve = false
     /// A value outside ±2 keeps the wide range on, so the slider can always show it.
     private var liftGainNeedsWideRange: Bool {
         abs(session.recipe.tone.highlights) > 2 || abs(session.recipe.tone.shadows) > 2
     }
     private var wideLiftGain: Bool { extendedLiftGain || liftGainNeedsWideRange }
+    private var sCurveNeedsWideRange: Bool {
+        abs(session.recipe.tone.contrast - 1) > 0.3501
+    }
+    private var wideSCurve: Bool { extendedSCurve || sCurveNeedsWideRange }
     /// Film controls do nothing with the look off or in LUT mode; print controls also need a print.
     private var filmDisabled: Bool { !session.recipe.look.enabled || session.recipe.look.mode == .lut }
     private var printDisabled: Bool { filmDisabled || session.recipe.bypassesPrint }
@@ -81,10 +86,33 @@ struct AdjustPanel: View {
                 }
                 .disabled(filmDisabled)
                 Divider()
-                toneControl(
-                    String(localized: "adjust.s_curve", defaultValue: "S-curve"), path: \.contrast,
-                    range: -0.35...0.35, defaultValue: 0,
-                    id: "contrast")
+                HStack {
+                    Text(String(localized: "adjust.s_curve", defaultValue: "S-curve"))
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    ControlRangeButton(
+                        title: wideSCurve ? "±10" : "±5",
+                        label: String(
+                            localized: "adjust.change_s_curve_range",
+                            defaultValue: "Change S-curve range"),
+                        identifier: "adjust.sCurveRange"
+                    ) { extendedSCurve = !wideSCurve }
+                    .disabled(sCurveNeedsWideRange)
+                }
+                NumericControl(
+                    title: String(localized: "adjust.s_curve", defaultValue: "S-curve"),
+                    value: Binding(
+                        get: { (session.recipe.tone.contrast - 1) / 0.07 },
+                        set: { value in
+                            session.update(key: "tone.contrast") {
+                                $0.tone.algorithm = 5
+                                $0.tone.contrast = min(max(1 + value * 0.07, 0.30), 1.70)
+                            }
+                        }),
+                    range: wideSCurve ? -10...10 : -5...5, step: 0.1,
+                    minimum: -10, maximum: 10,
+                    identifier: "tone.contrast", defaultValue: 0,
+                    onEditingChanged: { session.setInteraction(key: "tone.contrast", active: $0) })
                 toneControl(
                     String(localized: "adjust.pivot", defaultValue: "Pivot"), path: \.pivot,
                     range: 0...1, defaultValue: 0.35, id: "pivot")

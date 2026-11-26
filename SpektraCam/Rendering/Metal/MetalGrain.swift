@@ -9,9 +9,7 @@ actor MetalGrain {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw Failure.unavailable
         }
-        let options = MTLCompileOptions()
-        options.mathMode = .safe
-        options.mathFloatingPointFunctions = .precise
+        let options = MTLCompileOptions.safeMath
         let library = try device.makeLibrary(source: source, options: options)
         guard let function = library.makeFunction(name: "particle_noise") else { throw Failure.unavailable }
         self.device = device

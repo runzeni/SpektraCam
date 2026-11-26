@@ -1,5 +1,89 @@
+import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
+
+/// Shared 3-source Formula import state, menu options, and stable sheet/picker host.
+struct FormulaImportController {
+    var showingFiles = false
+    var showingPhotos = false
+    var pickedPhoto: PhotosPickerItem?
+    var arrival: FormulaArrival?
+    var failure: String?
+
+    mutating func arrive(_ read: () throws -> FormulaArrival) {
+        do { arrival = try read() } catch { failure = error.localizedDescription }
+    }
+}
+
+struct FormulaImportMenuItems: View {
+    @Binding var controller: FormulaImportController
+    var identifierPrefix = "formula"
+
+    var body: some View {
+        Button(String(localized: "library.from_files", defaultValue: "From Files"), systemImage: "folder") {
+            controller.showingFiles = true
+        }
+        .accessibilityIdentifier(identifierPrefix + ".import.files")
+        Button(
+            String(localized: "formula.import.card", defaultValue: "From Card Image"),
+            systemImage: "qrcode.viewfinder"
+        ) { controller.showingPhotos = true }
+        .accessibilityIdentifier(identifierPrefix + ".import.card")
+        Button(String(localized: "formula.import.paste", defaultValue: "Paste Link"), systemImage: "link") {
+            let pasteboard = UIPasteboard.general
+            controller.arrive { try FormulaArrival(link: pasteboard.url?.absoluteString ?? pasteboard.string ?? "") }
+        }
+        .accessibilityIdentifier(identifierPrefix + ".import.paste")
+    }
+}
+
+private struct FormulaImportHostModifier: ViewModifier {
+    let library: PhotoLibrary
+    @Binding var controller: FormulaImportController
+
+    func body(content: Content) -> some View {
+        content
+            .fileImporter(
+                isPresented: $controller.showingFiles,
+                allowedContentTypes: [.spektraFormula, .json, .image]
+            ) { result in
+                switch result {
+                case .success(let url):
+                    controller.arrive { try FormulaArrival(url: url) }
+                case .failure(let error):
+                    let nsError = error as NSError
+                    if (error as? CocoaError)?.code == .userCancelled
+                        || (nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError)
+                    {
+                        return
+                    }
+                    controller.failure = error.localizedDescription
+                }
+            }
+            .photosPicker(isPresented: $controller.showingPhotos, selection: $controller.pickedPhoto, matching: .images)
+            .onChange(of: controller.pickedPhoto) { _, item in
+                guard let item else { return }
+                controller.pickedPhoto = nil
+                Task {
+                    let data = try? await item.loadTransferable(type: Data.self)
+                    controller.arrive {
+                        guard let data else { throw FormulaLink.Failure.noCode }
+                        return try FormulaArrival(data: FormulaCode.file(inImage: data))
+                    }
+                }
+            }
+            .sheet(item: $controller.arrival) { FormulaImportSheet(library: library, arrival: $0) }
+            .failureAlert(
+                String(localized: "formula.import.failed", defaultValue: "Couldn’t Open Formula"),
+                message: $controller.failure)
+    }
+}
+
+extension View {
+    func formulaImportHost(library: PhotoLibrary, controller: Binding<FormulaImportController>) -> some View {
+        modifier(FormulaImportHostModifier(library: library, controller: controller))
+    }
+}
 
 /// A formula file that has arrived from outside and waits for the user to add it.
 struct FormulaArrival: Identifiable {
@@ -48,8 +132,10 @@ struct FormulaFacts: View {
 
     private var needed: [Formula.LUT] {
         guard formula.parts.contains(.look) else { return [] }
-        return [formula.recipe.look.first.id, formula.recipe.look.second.id].compactMap { $0 }.map { id in
-            formula.luts.first { $0.id == id } ?? Formula.LUT(id: id, name: "", size: 0)
+        var seen: Set<String> = []
+        return formula.recipe.look.activeSlots.compactMap { slot in
+            guard let id = slot.id, seen.insert(id).inserted else { return nil }
+            return formula.luts.first { $0.id == id } ?? Formula.LUT(id: id, name: "", size: 0)
         }
     }
     var body: some View {
@@ -227,7 +313,8 @@ struct FormulaImportSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(
                         String(localized: "common.cancel", defaultValue: "Cancel"), systemImage: "xmark"
-                    ) { dismiss() }.labelStyle(.iconOnly).accessibilityIdentifier("formula.import.cancel")
+                    ) { dismiss() }.labelStyle(.iconOnly).buttonBorderShape(.circle)
+                        .accessibilityIdentifier("formula.import.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(
@@ -309,7 +396,7 @@ struct FormulaDetailView: View {
         if let formula = library.formulae.formula(id) {
             let usesInstalledLUT =
                 formula.parts.contains(.look)
-                && library.luts.items.contains { formula.recipe.look.identifiers.contains($0.id) }
+                && library.luts.items.contains { formula.recipe.look.activeIdentifiers.contains($0.id) }
             List {
                 FormulaFacts(
                     library: library, formula: formula, chooseLUT: { replacing = $0 }, importLUT: { wanted = $0 })

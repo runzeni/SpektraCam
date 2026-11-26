@@ -11,7 +11,30 @@ import UniformTypeIdentifiers
 
 /// File identity is independent of a recipe's white balance or creative look.
 nonisolated enum PhotoSource {
-    private static let previewContext = CIContext(options: [.cacheIntermediates: false])
+    private static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+    private static let contextLock = NSLock()
+    private nonisolated(unsafe) static var _previewContext: CIContext?
+    private static var previewContext: CIContext {
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        if let existing = _previewContext { return existing }
+        let created = CIContext(options: [
+            .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false,
+        ])
+        _previewContext = created
+        return created
+    }
+    static var initializedContextCountForTesting: Int {
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        return _previewContext != nil ? 1 : 0
+    }
+    static func clearCaches() {
+        contextLock.lock()
+        let existing = _previewContext
+        contextLock.unlock()
+        existing?.clearCaches()
+    }
     static func checkDevelopmentMemory(width: Int, height: Int) throws {
         guard width > 0, height > 0, width <= 65536, height <= 65536,
             let device = MTLCreateSystemDefaultDevice(),
@@ -26,6 +49,25 @@ nonisolated enum PhotoSource {
         let width: Int
         let height: Int
         let temperature: Double?
+        let bitDepth: Int
+
+        init(
+            type: String, isRAW: Bool, width: Int, height: Int,
+            temperature: Double?, bitDepth: Int? = nil
+        ) {
+            self.type = type
+            self.isRAW = isRAW
+            self.width = width
+            self.height = height
+            self.temperature = temperature
+            self.bitDepth = bitDepth ?? (isRAW ? 16 : 8)
+        }
+
+        /// True for linear sensor RAWs and deep (>10-bit, e.g. 12/14/16-bit PNG or TIFF) sources.
+        /// Compressed 8/10-bit JPEGs, HEICs and 8-bit PNGs fit losslessly in IEEE 754 binary16.
+        var prefersDeepPipeline: Bool {
+            isRAW || bitDepth > 10
+        }
     }
     /// Every size used by Crop/finishing describes the upright decoded image, not sensor storage.
     static func uprightSize(width: Int, height: Int, orientation: CGImagePropertyOrientation) -> CGSize {
@@ -37,6 +79,27 @@ nonisolated enum PhotoSource {
 
     static func typeHint(for url: URL) -> String? {
         UTType(filenameExtension: url.pathExtension)?.identifier
+    }
+
+    /// Lightweight header-only bit-depth probe for memory admission without decoding pixels.
+    static func prefersDeepPipeline(at url: URL) -> Bool {
+        let hint = typeHint(for: url)
+        if let hint, UTType(hint)?.conforms(to: .rawImage) == true { return true }
+        var options: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        if let hint { options[kCGImageSourceTypeIdentifierHint] = hint }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, options as CFDictionary) else {
+            return true
+        }
+        if let detected = CGImageSourceGetType(source) as String?,
+            UTType(detected)?.conforms(to: .rawImage) == true
+        {
+            return true
+        }
+        guard CGImageSourceGetCount(source) > 0,
+            let p = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        else { return false }
+        let depth = max(1, (p[kCGImagePropertyDepth] as? NSNumber)?.intValue ?? 8)
+        return depth > 10
     }
 
     static func imageSource(_ data: Data, typeHint: String? = nil) -> CGImageSource? {
@@ -61,8 +124,9 @@ nonisolated enum PhotoSource {
                 raw.neutralTemperature.isFinite, (1000...50000).contains(raw.neutralTemperature)
             else { return nil }
             let size = uprightSize(width: Int(raw.nativeSize.width), height: Int(raw.nativeSize.height), orientation: raw.orientation)
-            return .init(type: type, isRAW: true, width: Int(size.width),
-                height: Int(size.height), temperature: Double(raw.neutralTemperature))
+            return .init(
+                type: type, isRAW: true, width: Int(size.width),
+                height: Int(size.height), temperature: Double(raw.neutralTemperature), bitDepth: 16)
         }
         guard CGImageSourceGetCount(source) > 0,
             let p = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -71,8 +135,11 @@ nonisolated enum PhotoSource {
             (1...65536).contains(width), (1...65536).contains(height)
         else { return nil }
         let orientation = CGImagePropertyOrientation(rawValue: (p[kCGImagePropertyOrientation] as? NSNumber)?.uint32Value ?? 1) ?? .up
+        let depth = max(1, (p[kCGImagePropertyDepth] as? NSNumber)?.intValue ?? 8)
         let size = uprightSize(width: width, height: height, orientation: orientation)
-        return .init(type: detected, isRAW: false, width: Int(size.width), height: Int(size.height), temperature: nil)
+        return .init(
+            type: detected, isRAW: false, width: Int(size.width), height: Int(size.height),
+            temperature: nil, bitDepth: depth)
     }
 
     /// Neutral development for viewing, photo LUTs and the film Mix zero endpoint.
@@ -93,7 +160,11 @@ nonisolated enum PhotoSource {
                     data: data,
                     options: [
                         .applyOrientationProperty: true,
-                        .expandToHDR: false, .toneMapHDRtoSDR: false,
+                        .expandToHDR: false,
+                        .toneMapHDRtoSDR: {
+                            if #available(iOS 18.0, macOS 15.0, *) { return false }
+                            return true
+                        }(),
                     ])
             else { return nil }
             image = output
@@ -104,15 +175,21 @@ nonisolated enum PhotoSource {
     /// Materialize the tone-mapping operation before exporting pixels to a floating-point
     /// working buffer. A destination-dependent decode flag alone may leave HDR values intact.
     static func toSDR(_ image: CIImage) -> CIImage {
-        let headroom = image.contentHeadroom
-        guard headroom > 1 else { return image }
-        return image.applyingFilter(
-            "CIToneMapHeadroom",
-            parameters: [
-                "inputSourceHeadroom": headroom, "inputTargetHeadroom": 1.0,
-            ]
-        )
-        .settingContentHeadroom(1)
+        if #available(iOS 18.0, macOS 15.0, *) {
+            let headroom = image.contentHeadroom
+            guard headroom > 1 else { return image }
+            let mapped = image.applyingFilter(
+                "CIToneMapHeadroom",
+                parameters: [
+                    "inputSourceHeadroom": headroom, "inputTargetHeadroom": 1.0,
+                ]
+            )
+            if #available(iOS 26.0, macOS 26.0, *) {
+                return mapped.settingContentHeadroom(1)
+            }
+            return mapped
+        }
+        return image
     }
 
     static func resized(_ image: CIImage, maximum: Int) -> CIImage {
@@ -127,6 +204,29 @@ nonisolated enum PhotoSource {
                 x: image.extent.minX * scale, y: image.extent.minY * scale,
                 width: max(1, floor(image.extent.width * scale)),
                 height: max(1, floor(image.extent.height * scale))))
+    }
+
+    /// Decode an embedded RAW thumbnail on the CPU when it matches the sensor's aspect ratio
+    /// and meets `maximum`, avoiding a GPU CIRAWFilter demosaic while the camera is active.
+    static func embeddedThumbnail(
+        _ source: CGImageSource, description: Description, maximum: Int
+    ) -> CGImage? {
+        guard description.isRAW,
+            let thumb = CGImageSourceCreateThumbnailAtIndex(
+                source, 0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maximum,
+                ] as CFDictionary)
+        else { return nil }
+        let minRequired = min(maximum, max(description.width, description.height))
+        guard max(thumb.width, thumb.height) >= minRequired else { return nil }
+        let thumbAspect = Double(thumb.width) / Double(max(thumb.height, 1))
+        let fullAspect = Double(description.width) / Double(max(description.height, 1))
+        guard abs(thumbAspect - fullAspect) / max(fullAspect, 1e-4) < 0.025 else { return nil }
+        return thumb
     }
 
     static func preview(_ data: Data, description: Description, maximum: Int) -> CGImage? {

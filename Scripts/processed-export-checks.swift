@@ -21,7 +21,7 @@ import ImageIO
             recipe.temperature = photo.rawTemperature
             let start = ProcessInfo.processInfo.systemUptime
             let preview = try await renderer.render(recipe)
-            precondition(max(preview.width, preview.height) <= 1081)
+            precondition(max(preview.width, preview.height) <= PreviewQuality.editorMaximum + 1)
             var full: (URL, Int, Int)?
             do {
                 full = try await renderer.export(recipe, size: .full, format: .jpeg, quality: 0.95)

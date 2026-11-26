@@ -87,22 +87,60 @@ actor LibraryFiles {
                 try manager.removeItem(at: folder)
             }
         }
+        // Remove orphaned per-photo cache directories without touching ephemeral formula previews.
+        if let cacheEntries = try? manager.contentsOfDirectory(
+            at: cache, includingPropertiesForKeys: nil)
+        {
+            for folder in cacheEntries
+            where UUID(uuidString: folder.lastPathComponent).map({ !validIDs.contains($0) }) == true
+            {
+                try? manager.removeItem(at: folder)
+            }
+        }
+        Self.pruneFormulaPreviews(in: cache.appendingPathComponent("FormulaPreviews"))
+    }
+    private static func pruneFormulaPreviews(in directory: URL, keepLimit: Int = 64) {
+        let manager = FileManager.default
+        guard
+            let entries = try? manager.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]),
+            entries.count > keepLimit
+        else { return }
+        let sorted = entries.sorted {
+            let d0 =
+                (try? $0.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+            let d1 =
+                (try? $1.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+            return d0 > d1
+        }
+        for stale in sorted.dropFirst(keepLimit) {
+            try? manager.removeItem(at: stale)
+        }
     }
     func pendingCaptures() throws -> [URL] { try CameraInbox(root: root).pending() }
+    func unreadableCaptures() throws -> [URL] { try CameraInbox(root: root).unreadable() }
+    func quarantineCapture(_ url: URL) throws -> URL { try CameraInbox(root: root).quarantine(url) }
     func removeCapture(_ url: URL) throws { try CameraInbox(root: root).remove(url) }
     nonisolated func sourceURL(_ photo: LibraryPhoto) -> URL {
         root.appendingPathComponent("Originals").appendingPathComponent(photo.id.uuidString)
             .appendingPathComponent("original." + photo.fileExtension)
     }
-    private func cacheURL(
+    nonisolated private func cacheURL(
         _ photo: LibraryPhoto, thumbnail: Bool, maximum: Int = PreviewQuality.libraryMaximum
     ) -> URL {
         // Render changes must rebuild saved previews even when the edit recipe is unchanged.
-        let hasFilmEdge = photo.recipeData.flatMap { try? JSONDecoder().decode(EditRecipe.self, from: $0) }?.filmEdgeLayout != nil
-        let revision = hasFilmEdge ? "v14-distress-" : "v11-"
-        return cache.appendingPathComponent(photo.id.uuidString)
-            .appendingPathComponent(
-                revision + photo.renderKey + (thumbnail ? "-thumb.jpg" : "-preview-\(maximum).jpg"))
+        let revision = photo.usesSurfaceRenderCache
+            ? RenderCacheRevision.filmSurface
+            : RenderCacheRevision.standard
+        let suffix = revision + photo.renderKey + (thumbnail ? "-thumb.jpg" : "-preview-\(maximum).jpg")
+        if photo.isEphemeralPreview {
+            return cache.appendingPathComponent("FormulaPreviews")
+                .appendingPathComponent(photo.id.uuidString + "-" + suffix)
+        }
+        return cache.appendingPathComponent(photo.id.uuidString).appendingPathComponent(suffix)
     }
     func importPhoto(from url: URL, now: Date = Date()) throws -> LibraryPhoto {
         try Task.checkCancellation()
@@ -138,15 +176,31 @@ actor LibraryFiles {
         try? Self.writeJPEG(thumbnail, to: cacheURL(photo, thumbnail: true))
         return photo
     }
-    func cachedImage(
+    nonisolated func cachedImage(
         _ photo: LibraryPhoto, thumbnail: Bool, maximum: Int = PreviewQuality.libraryMaximum
     ) -> CGImage? {
-        guard
+        guard !Task.isCancelled,
             let source = CGImageSourceCreateWithURL(
-                cacheURL(photo, thumbnail: thumbnail, maximum: maximum) as CFURL, nil)
+                cacheURL(photo, thumbnail: thumbnail, maximum: maximum) as CFURL,
+                [kCGImageSourceShouldCache: false] as CFDictionary)
         else { return nil }
         return CGImageSourceCreateImageAtIndex(
             source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+    }
+    func sourceForRendering(_ photo: LibraryPhoto) throws -> (data: Data, description: PhotoSource.Description) {
+        try Task.checkCancellation()
+        if let preparedPhoto, preparedPhoto.id == photo.id,
+            let description = preparedPhoto.photo.sourceDescription
+        {
+            return (preparedPhoto.photo.data, description)
+        }
+        let url = sourceURL(photo)
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard let description = PhotoSource.describe(data, typeHint: PhotoSource.typeHint(for: url))
+        else {
+            throw Failure.image
+        }
+        return (data, description)
     }
     func originalImage(
         _ photo: LibraryPhoto, thumbnail: Bool, maximum: Int = PreviewQuality.libraryMaximum
@@ -191,8 +245,27 @@ actor LibraryFiles {
         else { return nil }
         return exif[kCGImagePropertyExifLensModel] as? String
     }
+    func rawNeedsDimensionRepair(_ photo: LibraryPhoto) -> Bool {
+        if max(photo.metadata.width, photo.metadata.height) <= 1080 { return true }
+        guard
+            let source = CGImageSourceCreateWithURL(
+                sourceURL(photo) as CFURL,
+                [kCGImageSourceShouldCache: false] as CFDictionary),
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        else { return false }
+        let rawOrientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.uint32Value ?? 1
+        let orientation = CGImagePropertyOrientation(rawValue: rawOrientation) ?? .up
+        let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
+        let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+        let expected = PhotoSource.uprightSize(width: width, height: height, orientation: orientation)
+        guard expected.width > 0, expected.height > 0 else { return false }
+        return (photo.metadata.width > photo.metadata.height) != (expected.width > expected.height)
+    }
     func nativeRAWSize(_ photo: LibraryPhoto) -> CGSize? {
-        CIRAWFilter(imageURL: sourceURL(photo))?.nativeSize
+        guard let raw = CIRAWFilter(imageURL: sourceURL(photo)) else { return nil }
+        return PhotoSource.uprightSize(
+            width: Int(raw.nativeSize.width), height: Int(raw.nativeSize.height),
+            orientation: raw.orientation)
     }
     /// A grid rebuild must never replace the independent 1080 px photo preview.
     @discardableResult func storeThumbnail(_ image: CGImage, photo: LibraryPhoto) throws -> CGImage
@@ -219,7 +292,20 @@ actor LibraryFiles {
             guard let result = context.makeImage() else { throw Failure.image }
             small = result
         }
-        try Self.writeJPEG(small, to: cacheURL(photo, thumbnail: true))
+        let target = cacheURL(photo, thumbnail: true)
+        try Self.writeJPEG(small, to: target)
+        if photo.isEphemeralPreview {
+            Self.pruneFormulaPreviews(in: target.deletingLastPathComponent())
+        } else if let entries = try? FileManager.default.contentsOfDirectory(
+            at: target.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+        {
+            for url in entries
+            where url.lastPathComponent.hasSuffix("-thumb.jpg")
+                && url.lastPathComponent != target.lastPathComponent
+            {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
         return small
     }
     func storePreview(
@@ -234,12 +320,13 @@ actor LibraryFiles {
         try Self.writeJPEG(small, to: cacheURL(photo, thumbnail: true))
         // Retain one cached recipe per photo. The original can rebuild older frames.
         let keep = Set([
-            cacheURL(photo, thumbnail: true), cacheURL(photo, thumbnail: false, maximum: maximum),
+            cacheURL(photo, thumbnail: true).lastPathComponent,
+            cacheURL(photo, thumbnail: false, maximum: maximum).lastPathComponent,
         ])
         if let entries = try? FileManager.default.contentsOfDirectory(
             at: cache.appendingPathComponent(photo.id.uuidString), includingPropertiesForKeys: nil)
         {
-            for url in entries where !keep.contains(url) {
+            for url in entries where !keep.contains(url.lastPathComponent) {
                 try? FileManager.default.removeItem(at: url)
             }
         }
@@ -310,25 +397,53 @@ actor LibraryFiles {
 
 /// Captures stay in Application Support until their library index commit succeeds.
 nonisolated struct CameraInbox: Sendable {
+    private static let supportedExtensions: Set<String> = ["dng", "heic", "jpg", "jpeg"]
     let directory: URL
+    var unreadableDirectory: URL { directory.appendingPathComponent("Unreadable", isDirectory: true) }
     init(root: URL) { directory = root.appendingPathComponent("CameraInbox", isDirectory: true) }
-    func store(_ data: Data) throws -> URL {
+    func store(_ data: Data, fileExtension: String = "dng") throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("dng")
+        let ext = Self.supportedExtensions.contains(fileExtension.lowercased())
+            ? fileExtension.lowercased() : "dng"
+        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
         try data.write(to: url, options: .atomic)
         return url
     }
     func pending() throws -> [URL] {
-        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+        try listSupported(in: directory)
+    }
+    func unreadable() throws -> [URL] {
+        try listSupported(in: unreadableDirectory)
+    }
+    private func listSupported(in folder: URL) throws -> [URL] {
+        guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
         )
-        .filter { $0.pathExtension.lowercased() == "dng" }.sorted {
-            $0.lastPathComponent < $1.lastPathComponent
+        .filter { url in
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            return !isDir && Self.supportedExtensions.contains(url.pathExtension.lowercased())
         }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+    func quarantine(_ url: URL) throws -> URL {
+        guard url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL,
+            FileManager.default.fileExists(atPath: url.path)
+        else { throw LibraryFiles.Failure.missing }
+        try FileManager.default.createDirectory(at: unreadableDirectory, withIntermediateDirectories: true)
+        var target = unreadableDirectory.appendingPathComponent(url.lastPathComponent)
+        if FileManager.default.fileExists(atPath: target.path) {
+            let base = url.deletingPathExtension().lastPathComponent
+            let ext = url.pathExtension
+            target = unreadableDirectory.appendingPathComponent("\(base)-\(UUID().uuidString.prefix(8))")
+                .appendingPathExtension(ext)
+        }
+        try FileManager.default.moveItem(at: url, to: target)
+        return target
     }
     func remove(_ url: URL) throws {
-        guard url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL
+        let parent = url.deletingLastPathComponent().standardizedFileURL
+        guard parent == directory.standardizedFileURL || parent == unreadableDirectory.standardizedFileURL
         else {
             throw LibraryFiles.Failure.missing
         }

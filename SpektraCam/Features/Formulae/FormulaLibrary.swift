@@ -21,7 +21,7 @@ import UniformTypeIdentifiers
     /// LUTs a formula calls for. A plain LUT delete keeps them.
     var lutIdentifiers: Set<String> {
         items.reduce(into: Set<String>()) { result, formula in
-            if formula.parts.contains(.look) { result.formUnion(formula.recipe.look.identifiers) }
+            if formula.parts.contains(.look) { result.formUnion(formula.recipe.look.activeIdentifiers) }
         }
     }
     func formula(_ id: UUID) -> Formula? { items.first { $0.id == id } }
@@ -244,7 +244,7 @@ extension FormulaLibrary {
     func file(_ formula: Formula, carryingLUTs luts: LUTLibrary? = nil) -> FormulaFile {
         var carried: [FormulaFile.Carried] = []
         if let luts, formula.parts.contains(.look) {
-            carried = luts.items.filter { formula.recipe.look.identifiers.contains($0.id) }.map {
+            carried = luts.items.filter { formula.recipe.look.activeIdentifiers.contains($0.id) }.map {
                 .init(name: $0.name, url: luts.directory.appendingPathComponent($0.id).appendingPathExtension("cube"))
             }
         }

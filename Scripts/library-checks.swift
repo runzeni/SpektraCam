@@ -240,7 +240,20 @@ import UniformTypeIdentifiers
         try await library!.undoPaste()
         let shown = library!.preview(library!.photo(target.id)!, applying: formula)
         precondition(
-            shown?.hasEdits == true && !library!.photo(target.id)!.hasEdits, "A preview saved an edit")
+            shown?.hasEdits == true && shown?.isEphemeralPreview == true
+                && !library!.photo(target.id)!.hasEdits,
+            "A preview saved an edit or was not marked ephemeral")
+        let formulaThumb = try await library!.images.image(shown!, thumbnail: true)
+        precondition(formulaThumb.width > 0 && formulaThumb.height > 0)
+        let targetCacheFolder = cache.appendingPathComponent(target.id.uuidString)
+        let polluted = (try? FileManager.default.contentsOfDirectory(at: targetCacheFolder, includingPropertiesForKeys: nil))?
+            .contains { $0.lastPathComponent.contains(shown!.renderKey) } ?? false
+        precondition(!polluted, "Ephemeral formula preview polluted permanent per-photo cache directory")
+        let groupedAll = library!.grouped(for: .all)
+        precondition(
+            groupedAll.visible.count == library!.photos.count
+                && groupedAll.editedIDs == Set(library!.photos.filter(\.hasEdits).map(\.id)),
+            "Memoized library filter snapshot diverged from photos")
         var lutLook = recipe
         lutLook.look.mode = .lut
         lutLook.look.first.id = String(repeating: "d", count: 64)
@@ -411,7 +424,7 @@ import UniformTypeIdentifiers
         try await library!.finishEditing(tallPhoto.id, recipe: EditRecipe())
         let editedTall = library!.photo(tallPhoto.id)!
         let grid = try await library!.images.image(editedTall, thumbnail: true)
-        let earlyPreview = await library!.files.cachedImage(editedTall, thumbnail: false)
+        let earlyPreview = library!.files.cachedImage(editedTall, thumbnail: false)
         precondition(
             max(grid.width, grid.height) == 384 && earlyPreview == nil,
             "Grid rebuild made a full preview or stored its small image as the photo preview")
@@ -439,6 +452,132 @@ import UniformTypeIdentifiers
         print("PASS: 720/1080/2160 preview settings, independent cache identity and no upscaling")
         try await library!.delete([tallPhoto.id])
         print("PASS: independent 384 px grid rebuild and configured photo preview")
+        // Burn orientation parity across Library grid thumbnail, PhotoDetailView preview, and Export
+        // on 24 MP 4:3 images (previously 3:2 cropped extent integer rounding flipped leakPosition=0.3).
+        for (name, w, h) in [("24mp-landscape.png", 5712, 4284), ("24mp-portrait.png", 4284, 5712)] {
+            let fileURL = temporary.appendingPathComponent(name)
+            let darkCtx = CGContext(
+                data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            darkCtx.setFillColor(CGColor(red: 0.08, green: 0.10, blue: 0.12, alpha: 1))
+            darkCtx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            let dest = CGImageDestinationCreateWithURL(
+                fileURL as CFURL, UTType.png.identifier as CFString, 1, nil)!
+            CGImageDestinationAddImage(dest, darkCtx.makeImage()!, nil)
+            precondition(CGImageDestinationFinalize(dest))
+            let importedBurn = try await library!.importPhoto(fileURL)
+            var burnRecipe = EditRecipe()
+            burnRecipe.filmID = "fujifilm_c200"
+            burnRecipe.printID = "fujifilm_crystal_archive_typeii"
+            burnRecipe.flags["camera.auto_exposure"] = false
+            burnRecipe.flags["film_render.grain.active"] = false
+            burnRecipe.flags["print_render.glare.active"] = false
+            var edgeSel = FilmEdgeSelection(); edgeSel.mode = .manual; edgeSel.manualType = .invertedScan
+            burnRecipe.filmEdgeSelection = edgeSel
+            var layout = FilmEdgeLayout()
+            layout.distress.leakShape = .burn
+            layout.distress.leak = 0.9
+            layout.distress.burnCoverage = 0.25
+            layout.distress.leakPosition = 0.3
+            burnRecipe.filmEdgeLayout = layout
+            try await library!.finishEditing(importedBurn.id, recipe: burnRecipe)
+            let savedBurn = library!.photo(importedBurn.id)!
+            let gridImg = try await library!.images.image(savedBurn, thumbnail: true)
+            let viewerImg = try await library!.images.image(savedBurn, thumbnail: false)
+            let burnBytes = try Data(contentsOf: fileURL)
+            let burnDecoded = ImportedPhoto.decode(burnBytes, maximum: 1080)!
+            let expRenderer = PhotoRenderer(
+                source: burnDecoded.preview, directory: dataDirectory, data: burnBytes,
+                resources: library!.images.resources, sourceType: burnDecoded.sourceType,
+                description: burnDecoded.sourceDescription)
+            let (expURL, _, _) = try await expRenderer.export(
+                burnRecipe, size: .longEdge(2048), format: .png, quality: 1)
+            defer { try? FileManager.default.removeItem(at: expURL) }
+            let expImg = CGImageSourceCreateImageAtIndex(
+                CGImageSourceCreateWithURL(expURL as CFURL, nil)!, 0, nil)!
+            func edgeSide(_ cg: CGImage) -> String {
+                let px = try! PhotoColorBridge.decode(cg)
+                func luma(_ nx: Double, _ ny: Double) -> Double {
+                    let x = min(max(Int(nx * Double(cg.width)), 0), cg.width - 1)
+                    let y = min(max(Int(ny * Double(cg.height)), 0), cg.height - 1)
+                    let v = px[y * cg.width + x]
+                    return Double(v.x + v.y + v.z) / 3
+                }
+                let sides = [
+                    ("top", luma(0.5, 0.08)),
+                    ("right", luma(0.92, 0.5)),
+                    ("bottom", luma(0.5, 0.92)),
+                    ("left", luma(0.08, 0.5)),
+                ]
+                return sides.max { $0.1 < $1.1 }!.0
+            }
+            let gridSide = edgeSide(gridImg), viewerSide = edgeSide(viewerImg), expSide = edgeSide(expImg)
+            precondition(
+                gridSide == viewerSide && viewerSide == expSide,
+                "Burn edge drifted on \(name): grid=\(gridSide), viewer=\(viewerSide), export=\(expSide)")
+            let cacheFiles = (try? FileManager.default.contentsOfDirectory(
+                at: library!.files.cache.appendingPathComponent(savedBurn.id.uuidString),
+                includingPropertiesForKeys: nil).map(\.lastPathComponent)) ?? []
+            precondition(
+                cacheFiles.contains { $0.hasPrefix(RenderCacheRevision.filmSurface) },
+                "Film-edge cache did not bump to \(RenderCacheRevision.filmSurface): \(cacheFiles)")
+
+            // Upgrade cache-invalidation check: a stale v20-distress- disk cache for a high-scratch
+            // edit must be ignored and replaced by RenderCacheRevision.filmSurface matching fresh render.
+            var scratchRecipe = burnRecipe
+            var scratchDistress = scratchRecipe.filmEdgeLayout!.distress
+            scratchDistress.scratches = 0.85
+            scratchDistress.scratchesInImage = true
+            scratchRecipe.filmEdgeLayout!.distress = scratchDistress
+            library!.queueRecipe(scratchRecipe, for: savedBurn.id)
+            try library!.flushForLibrary()
+            let scratchPhoto = library!.photo(savedBurn.id)!
+            let photoCacheDir = library!.files.cache.appendingPathComponent(scratchPhoto.id.uuidString)
+            try? FileManager.default.removeItem(at: photoCacheDir)
+            try FileManager.default.createDirectory(at: photoCacheDir, withIntermediateDirectories: true)
+            let staleCacheURL = photoCacheDir.appendingPathComponent(
+                "v20-distress-\(scratchPhoto.renderKey)-preview-\(PreviewQuality.libraryMaximum).jpg")
+            let staleCtx = CGContext(
+                data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            staleCtx.setFillColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1))
+            staleCtx.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+            let staleCG = staleCtx.makeImage()!
+            let staleData = NSMutableData()
+            let staleDest = CGImageDestinationCreateWithData(staleData, UTType.jpeg.identifier as CFString, 1, nil)!
+            CGImageDestinationAddImage(staleDest, staleCG, nil)
+            CGImageDestinationFinalize(staleDest)
+            try (staleData as Data).write(to: staleCacheURL)
+            await library!.images.discardMemory()
+            let upgradedPreview = try await library!.images.image(scratchPhoto, thumbnail: false)
+            precondition(upgradedPreview.width > 64, "Library returned stale v20-distress- preview instead of rebuilding")
+            let upgradedFiles = (try? FileManager.default.contentsOfDirectory(
+                at: photoCacheDir, includingPropertiesForKeys: nil).map(\.lastPathComponent)) ?? []
+            precondition(upgradedFiles.contains { $0.hasPrefix(RenderCacheRevision.filmSurface) }
+                && !upgradedFiles.contains { $0.hasPrefix("v20-distress-") },
+                "Cache upgrade did not write \(RenderCacheRevision.filmSurface) and prune v20-distress-: \(upgradedFiles)")
+
+            // Clean-print surface distress must also route through RenderCacheRevision.filmSurface.
+            var cleanDistressRecipe = EditRecipe()
+            var cleanSurface = FilmEdgeDistress.cleanPrintFallback
+            cleanSurface.scratches = 0.85
+            cleanSurface.scratchesInImage = true
+            cleanDistressRecipe.distress = cleanSurface
+            library!.queueRecipe(cleanDistressRecipe, for: savedBurn.id)
+            try library!.flushForLibrary()
+            let cleanDistressPhoto = library!.photo(savedBurn.id)!
+            precondition(cleanDistressPhoto.usesSurfaceRenderCache && !cleanDistressPhoto.hasFilmEdge)
+            _ = try await library!.images.image(cleanDistressPhoto, thumbnail: false)
+            let cleanCacheFiles = (try? FileManager.default.contentsOfDirectory(
+                at: photoCacheDir, includingPropertiesForKeys: nil).map(\.lastPathComponent)) ?? []
+            precondition(cleanCacheFiles.contains { $0.hasPrefix(RenderCacheRevision.filmSurface) },
+                "Clean-print distress did not cache under \(RenderCacheRevision.filmSurface): \(cleanCacheFiles)")
+
+            try await library!.delete([importedBurn.id])
+        }
+        print("PASS: 24 MP landscape/portrait burn orientation agrees across grid, PhotoDetailView, and export")
         // Real local sources use the same importer. They stay outside the app store.
         for path in CommandLine.arguments.dropFirst(2) {
             let url = URL(fileURLWithPath: path)
@@ -510,21 +649,60 @@ import UniformTypeIdentifiers
             let savedRecipe = try captureLibrary!.recipe(captured.id)
             precondition(
                 duplicateCount == 1 && captureLibrary!.photos.count == 1 && savedRecipe == recipe)
-            try await captureLibrary!.delete([captured.id])
+            try await captureLibrary!.purge([captured.id])
         }
+        let validCaptureData = try Data(contentsOf: source)
         let damaged = try inbox.store(Data([0, 1, 2]))
+        _ = try inbox.store(validCaptureData)
         let captureLibrary = try PhotoLibrary(
             root: captureRoot, cache: captureCache, modelDirectory: dataDirectory)
         do {
             try await captureLibrary.recoverCaptures()
-            preconditionFailure("A damaged capture was accepted")
-        } catch {
+            preconditionFailure("A damaged capture was accepted without throwing")
+        } catch LibraryFiles.Failure.image {
+            let quarantined = try inbox.unreadable()
+            let quarantinedBytes = try? Data(contentsOf: quarantined[0])
+            let pendingAfter = try inbox.pending()
             precondition(
-                FileManager.default.fileExists(atPath: damaged.path),
-                "Failed import lost the capture")
+                quarantined.count == 1
+                    && quarantined[0].lastPathComponent == damaged.lastPathComponent
+                    && quarantinedBytes == Data([0, 1, 2]),
+                "Failed import lost or corrupted the unreadable capture")
+            precondition(
+                pendingAfter.isEmpty,
+                "Quarantined capture stayed in pending inbox")
+            precondition(
+                captureLibrary.photos.count == 1,
+                "Quarantined capture blocked valid sibling capture")
         }
+        // Subsequent recovery succeeds immediately without tripping over the quarantined file, and
+        // new captures still import cleanly.
+        let repeatRecoveryCount = try await captureLibrary.recoverCaptures()
+        precondition(repeatRecoveryCount == 0 && captureLibrary.photos.count == 1)
+        let extraPNG = temporary.appendingPathComponent("extra-capture.png")
+        let extraDest = CGImageDestinationCreateWithURL(
+            extraPNG as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(extraDest, context.makeImage()!, nil)
+        precondition(CGImageDestinationFinalize(extraDest))
+        let extraBytes = try Data(contentsOf: extraPNG)
+        _ = try inbox.store(extraBytes)
+        let afterExtraCount = try await captureLibrary.recoverCaptures()
+        let remainingUnreadable = try inbox.unreadable()
+        precondition(afterExtraCount == 1 && captureLibrary.photos.count == 2)
+        precondition(remainingUnreadable.count == 1)
+        try await captureLibrary.purge(Set(captureLibrary.photos.map(\.id)))
+        for leftover in remainingUnreadable { try inbox.remove(leftover) }
+        // Byte-preserving export of a non-RAW JPEG original via OriginalFileExporter.
+        let jpegExporter = OriginalFileExporter(source: source, filename: "capture.jpg")
+        let (exportedRegularURL, _, _) = try await jpegExporter.export()
+        let exportedRegularBytes = try Data(contentsOf: exportedRegularURL)
+        precondition(
+            exportedRegularBytes == originalBytes
+                && exportedRegularURL.lastPathComponent == "capture.jpg",
+            "Regular JPEG OriginalFileExporter changed bytes or filename")
+        await jpegExporter.discard()
         print(
-            "PASS: capture inbox restart, exact original bytes, duplicate edit preservation and failed-import retention"
+            "PASS: capture inbox restart, unreadable quarantine non-blocking, exact original bytes, duplicate edit preservation and regular OriginalFileExporter parity"
         )
         let fallback = temporary.appendingPathComponent("fallback.png")
         let png = CGImageDestinationCreateWithURL(
@@ -559,9 +737,34 @@ import UniformTypeIdentifiers
         let linked = try await migrated.importPhoto(source, assetIdentifier: "legacy-source")
         precondition(
             linked.id == legacy.id && migrated.importedAssetIdentifiers == ["legacy-source"])
+        let futureURL = temporary.appendingPathComponent("future-exif.jpg")
+        let futureDest = CGImageDestinationCreateWithURL(futureURL as CFURL, UTType.jpeg.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(
+            futureDest, context.makeImage()!,
+            [kCGImagePropertyExifDictionary: [kCGImagePropertyExifDateTimeOriginal: "2099:01:01 12:00:00"]] as CFDictionary)
+        precondition(CGImageDestinationFinalize(futureDest))
+        let futurePhoto = try await migrated.importPhoto(futureURL)
+        try await Task.sleep(for: .milliseconds(20))
+        let newerURL = temporary.appendingPathComponent("latest-capture.jpg")
+        let recentCtx = CGContext(
+            data: nil, width: 24, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        recentCtx.setFillColor(CGColor(red: 0.2, green: 0.7, blue: 0.3, alpha: 1))
+        recentCtx.fill(CGRect(x: 0, y: 0, width: 24, height: 32))
+        let recentDest = CGImageDestinationCreateWithURL(newerURL as CFURL, UTType.jpeg.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(
+            recentDest, recentCtx.makeImage()!,
+            [kCGImagePropertyExifDictionary: [kCGImagePropertyExifDateTimeOriginal: "2020:06:15 12:34:56"]] as CFDictionary)
+        precondition(CGImageDestinationFinalize(recentDest))
+        let latestCapture = try await migrated.importPhoto(newerURL)
+        precondition(
+            migrated.latestAddedPhoto?.id == latestCapture.id && futurePhoto.date > latestCapture.date,
+            "latestAddedPhoto was fooled by future EXIF date")
         print(
             "PASS: version 1 migration, Photos source links, duplicate linking and deletion cleanup"
         )
+        try await checkRecentlyDeleted(root: temporary, source: source, dataDirectory: dataDirectory)
         print(
             "PASS: import bytes, capture date/GPS, RAW classification, duplicate preservation, recipe restart, interrupted-delete recovery, cache rebuild, date fallback, original export and app-only deletion"
         )
@@ -594,4 +797,155 @@ import UniformTypeIdentifiers
         return photo
     }
 
+    @MainActor private static func checkRecentlyDeleted(
+        root: URL, source: URL, dataDirectory: URL
+    ) async throws {
+        let base = root.appendingPathComponent("RecentlyDeleted-\(UUID().uuidString)")
+        let libRoot = base.appendingPathComponent("Root")
+        let libCache = base.appendingPathComponent("Cache")
+        try FileManager.default.createDirectory(at: libRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        // Injected clock for deterministic 30-day window tests.
+        var clock = Date(timeIntervalSince1970: 1_750_000_000)
+        func makeImg(_ name: String, r: CGFloat, g: CGFloat, b: CGFloat, date: String) throws -> URL {
+            let url = base.appendingPathComponent(name)
+            let ctx = CGContext(
+                data: nil, width: 60, height: 40, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.setFillColor(CGColor(red: r, green: g, blue: b, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: 60, height: 40))
+            let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil)!
+            CGImageDestinationAddImage(
+                dest, ctx.makeImage()!,
+                [kCGImagePropertyExifDictionary: [kCGImagePropertyExifDateTimeOriginal: date]] as CFDictionary)
+            precondition(CGImageDestinationFinalize(dest))
+            return url
+        }
+
+        let filesURL = try makeImg("files.jpg", r: 0.9, g: 0.2, b: 0.1, date: "2024:01:10 10:00:00")
+        let photosURL = try makeImg("photos.jpg", r: 0.1, g: 0.8, b: 0.2, date: "2024:02:10 10:00:00")
+        let capURL = try makeImg("cap.jpg", r: 0.2, g: 0.3, b: 0.9, date: "2024:03:10 10:00:00")
+        let filesBytes = try Data(contentsOf: filesURL)
+        let capBytes = try Data(contentsOf: capURL)
+
+        var lib: PhotoLibrary? = try PhotoLibrary(root: libRoot, cache: libCache, modelDirectory: dataDirectory, now: { clock })
+        // Install a user LUT referenced by a soft-deleted photo to verify LUT protection.
+        let lutFile = base.appendingPathComponent("del.cube")
+        try Data("LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n".utf8).write(to: lutFile)
+        let importedLUT = try await lib!.luts.importFile(lutFile)
+        try await lib!.luts.load()
+
+        let pFiles = try await lib!.importPhoto(filesURL, now: clock)
+        let pPhotos = try await lib!.importPhoto(photosURL, now: clock, assetIdentifier: "apple-asset-1")
+        let pCap = try await lib!.importPhoto(capURL, now: clock)
+        var editRecipe = EditRecipe()
+        editRecipe.look.enabled = true; editRecipe.look.mode = .lut; editRecipe.look.first.id = importedLUT.id
+        editRecipe.tone.exposureEV = 0.75
+        // Queue a pending non-immediate slider edit on pPhotos BEFORE delete (must flush atomically!).
+        lib!.queueRecipe(editRecipe, for: pPhotos.id, immediate: false)
+        try await lib!.finishEditing(pFiles.id, recipe: editRecipe)
+
+        // Failed DB save on delete leaves photo active and pending edit intact.
+        lib!.failNextSaveForTesting = true
+        do {
+            try await lib!.delete([pPhotos.id])
+            preconditionFailure("Simulated DB save failure did not throw")
+        } catch {}
+        precondition(lib!.photo(pPhotos.id) != nil && lib!.deletedPhotos.isEmpty)
+        let keptAfterFail = try lib!.recipe(pPhotos.id)
+        precondition(keptAfterFail?.tone.exposureEV == 0.75, "Failed delete dropped pending slider edit")
+
+        // Mixed soft-delete (Files + Photos-linked + capture) + reload test.
+        try await lib!.delete([pFiles.id, pPhotos.id, pCap.id])
+        precondition(lib!.photos.isEmpty && lib!.deletedPhotos.count == 3)
+        precondition(lib!.deletedPhotos.allSatisfy { $0.daysRemaining(at: clock) == 30 })
+        precondition(lib!.importedAssetIdentifiers.isEmpty, "Soft-deleted Photos link stayed preselected")
+        precondition(lib!.applePhotosIDs.contains(pPhotos.id), "applePhotosIDs lost source link during retention")
+        precondition(lib!.usedLUTIdentifiers.contains(importedLUT.id), "Soft-deleted edit lost LUT protection")
+
+        // Relaunch and recover middle photo + capture + Photos photo.
+        lib = nil
+        lib = try PhotoLibrary(root: libRoot, cache: libCache, modelDirectory: dataDirectory, now: { clock })
+        precondition(lib!.photos.isEmpty && lib!.deletedPhotos.count == 3)
+        let currentFilesBytes = try Data(contentsOf: filesURL)
+        precondition(currentFilesBytes == filesBytes, "Soft delete modified external Files source")
+
+        // Deliberate duplicate reimport throws DeletedDuplicateError; background inbox retry ignores it.
+        do {
+            _ = try await lib!.importPhoto(filesURL)
+            preconditionFailure("Reimporting soft-deleted Files copy did not throw DeletedDuplicateError")
+        } catch is PhotoLibrary.DeletedDuplicateError {}
+        do {
+            _ = try await lib!.importPhoto(photosURL, assetIdentifier: "apple-asset-1")
+            preconditionFailure("Reimporting soft-deleted Photos asset did not throw DeletedDuplicateError")
+        } catch is PhotoLibrary.DeletedDuplicateError {}
+        let inbox = CameraInbox(root: libRoot)
+        _ = try inbox.store(capBytes, fileExtension: "jpg")
+        let bgReport = await lib!.recoverCaptureBatch()
+        precondition(bgReport.imported == 1 && lib!.photos.isEmpty && lib!.deletedPhotos.count == 3,
+                     "Background inbox retry resurrected soft-deleted capture")
+
+        // Recover out of chronological order and confirm chronology, recipe, bytes, UUID, link survive.
+        try await lib!.recover([pPhotos.id, pFiles.id])
+        precondition(lib!.photos.map(\.id) == [pFiles.id, pPhotos.id], "Chronological order not restored on recover")
+        precondition(lib!.importedAssetIdentifiers == ["apple-asset-1"])
+        let recoveredPhotosRecipe = try lib!.recipe(pPhotos.id)
+        precondition(recoveredPhotosRecipe?.tone.exposureEV == 0.75, "Pending slider edit lost across delete/relaunch/recover")
+        let recoveredFilesBytes = try Data(contentsOf: lib!.files.sourceURL(lib!.photo(pFiles.id)!))
+        precondition(recoveredFilesBytes == filesBytes)
+
+        // Opaque unknown-version recipe survives soft-delete -> relaunch -> recover.
+        let opaqueData = Data(#"{"version":999,"customUnknown":true}"#.utf8)
+        // Store opaque recipe directly in V1.Record for compatibility testing using a fresh store.
+        let opaqueRoot = base.appendingPathComponent("OpaqueRoot")
+        let opaqueCache = base.appendingPathComponent("OpaqueCache")
+        let opaqueSchema = Schema(versionedSchema: LibrarySchemaV3.self)
+        let opaqueCfg = ModelConfiguration(
+            "Library", schema: opaqueSchema, url: opaqueRoot.appendingPathComponent("Library.store"),
+            cloudKitDatabase: .none)
+        try FileManager.default.createDirectory(at: opaqueRoot, withIntermediateDirectories: true)
+        var opaqueLib: PhotoLibrary? = try PhotoLibrary(root: opaqueRoot, cache: opaqueCache, modelDirectory: dataDirectory, now: { clock })
+        let pOpaque = try await opaqueLib!.importPhoto(filesURL, now: clock)
+        opaqueLib = nil
+        do {
+            let opaqueContainer = try ModelContainer(for: opaqueSchema, migrationPlan: LibraryMigrationPlan.self, configurations: [opaqueCfg])
+            let opaqueCtx = ModelContext(opaqueContainer)
+            let fetchedOpaque = try opaqueCtx.fetch(FetchDescriptor<LibrarySchemaV1.Record>())
+            fetchedOpaque[0].recipeData = opaqueData
+            fetchedOpaque[0].renderKey = LibraryPhoto.key(opaqueData)
+            try opaqueCtx.save()
+        }
+        opaqueLib = try PhotoLibrary(root: opaqueRoot, cache: opaqueCache, modelDirectory: dataDirectory, now: { clock })
+        try await opaqueLib!.delete([pOpaque.id])
+        opaqueLib = nil
+        opaqueLib = try PhotoLibrary(root: opaqueRoot, cache: opaqueCache, modelDirectory: dataDirectory, now: { clock })
+        precondition(opaqueLib!.usedLUTIdentifiers.contains(importedLUT.id) || opaqueLib!.deletedPhotos.count == 1)
+        try await opaqueLib!.recover([pOpaque.id])
+        precondition(opaqueLib!.photo(pOpaque.id)?.recipeData == opaqueData, "Opaque unknown-version recipe mutated during soft-delete")
+
+        // 30-day clock boundaries on remaining pCap in `lib`: 29d 23h 59m vs exact 30d.
+        clock = clock.addingTimeInterval(29 * 86_400 + 23 * 3600 + 59 * 60)
+        await lib!.purgeExpired()
+        precondition(lib!.deletedPhotos.count == 1 && lib!.deletedPhotos[0].daysRemaining(at: clock) == 1,
+                     "29d23h59m expired early or wrong daysRemaining")
+        clock = Date(timeIntervalSince1970: 1_750_000_000).addingTimeInterval(30 * 86_400)
+        precondition(lib!.deletedPhotos.first?.daysRemaining(at: clock) == 0, "Exact 30d boundary should report 0 days")
+        try await lib!.recover([pCap.id])  // Must refuse expired item and purge it!
+        precondition(lib!.photos.count == 2 && lib!.deletedPhotos.isEmpty)
+        precondition(!FileManager.default.fileExists(atPath: lib!.files.sourceURL(pCap).path), "Expired item file remained on disk")
+
+        // Explicit purge + interrupted Trash recovery.
+        try await lib!.delete([pFiles.id])
+        let pFilesSnap = lib!.deletedPhotos[0].photo
+        _ = try await lib!.files.stageRemoval(pFilesSnap)  // Simulated interrupted hard delete before DB commit.
+        lib = nil
+        lib = try PhotoLibrary(root: libRoot, cache: libCache, modelDirectory: dataDirectory, now: { clock })
+        precondition(FileManager.default.fileExists(atPath: lib!.files.sourceURL(pFilesSnap).path),
+                     "Startup did not restore Trash folder for retained soft-deleted record")
+        try await lib!.purge([pFiles.id])
+        precondition(lib!.deletedPhotos.isEmpty && !FileManager.default.fileExists(atPath: lib!.files.sourceURL(pFilesSnap).path))
+        print("PASS: 30-day Recently Deleted retention, chronological recover, atomic pending edit flush, rollback, 30d clock expiry, duplicate policy, opaque recipe survival & V3 migration")
+    }
 }

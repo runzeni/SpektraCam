@@ -59,9 +59,22 @@ struct LUTPanel: View {
                     .lineLimit(2).multilineTextAlignment(.leading)
                     Spacer()
                     Image(systemName: "chevron.up.chevron.down").foregroundStyle(.secondary)
-                }.frame(maxWidth: .infinity, minHeight: 30)
+                }
+                .foregroundStyle(Color.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .background {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.primary.opacity(0.08))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.18), lineWidth: 0.75)
+                        }
+                }
+                .contentShape(.rect)
             }
-            .buttonStyle(.glass).buttonBorderShape(.roundedRectangle(radius: 12))
+            .buttonStyle(.plain)
             .accessibilityIdentifier("lut.slot.\(slot.rawValue)")
             NumericControl(
                 title: String(localized: "common.mix", defaultValue: "Mix"),
@@ -96,12 +109,35 @@ struct LUTLibraryView: View {
     let library: PhotoLibrary
     var assigned: String? = nil
     var choose: ((String?) -> Void)? = nil
-    /// Set when this list is one tab of the combined Formulae and LUTs manager.
-    var tab: Binding<ManagerTab>? = nil
+    @State private var search = ""
+    var body: some View {
+        NavigationStack {
+            LUTLibraryContent(
+                library: library, assigned: assigned, choose: choose, search: $search,
+                showsCloseButton: true
+            )
+            .searchable(text: $search)
+            .navigationTitle(
+                choose == nil
+                    ? String(localized: "lut.manager", defaultValue: "LUT Manager")
+                    : String(localized: "lut.luts", defaultValue: "LUTs")
+            )
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+/// Reusable LUT management list body shared between the standalone sheet and LibraryManagerView.
+struct LUTLibraryContent: View {
+    let library: PhotoLibrary
+    var assigned: String? = nil
+    var choose: ((String?) -> Void)? = nil
+    @Binding var search: String
+    var showsCloseButton = false
     @Environment(\.dismiss) private var dismiss
     @State private var selection = Set<String>()
     @State private var editing = false
-    @State private var search = ""
     @State private var showImport = false
     @State private var confirmDelete = false
     @State private var working = false
@@ -116,158 +152,151 @@ struct LUTLibraryView: View {
         }
     }
     var body: some View {
-        NavigationStack {
-            List(selection: $selection) {
-                if !editing, let choose {
-                    Button(String(localized: "lut.none", defaultValue: "None")) {
-                        choose(nil)
-                        dismiss()
-                    }.foregroundStyle(.primary)
-                        .accessibilityIdentifier("lut.none")
-                }
-                ForEach(matches) { item in
-                    if editing {
-                        row(item).tag(item.id)
-                    } else {
-                        Button {
-                            if let choose {
-                                choose(item.id)
-                                dismiss()
-                            } else {
-                                rename(item)
-                            }
-                        } label: {
-                            row(item)
-                        }
-                        .foregroundStyle(.primary).accessibilityIdentifier("lut.choose." + item.id)
-                        .contextMenu {
-                            Button(
-                                String(localized: "lut.rename", defaultValue: "Rename"),
-                                systemImage: "pencil"
-                            ) { rename(item) }
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(String(localized: "lut.rename", defaultValue: "Rename")) {
-                                rename(item)
-                            }.tint(.gray)
-                        }
-                    }
-                }
-                .onMove { offsets, destination in
-                    guard search.isEmpty, !working else { return }
-                    working = true
-                    Task {
-                        do { try await library.luts.move(from: offsets, to: destination) } catch {
-                            failure = error.localizedDescription
-                        }
-                        working = false
-                    }
-                }
-                .moveDisabled(!search.isEmpty || working)
+        List(selection: $selection) {
+            if !editing, let choose {
+                Button(String(localized: "lut.none", defaultValue: "None")) {
+                    choose(nil)
+                    dismiss()
+                }.foregroundStyle(.primary)
+                    .accessibilityIdentifier("lut.none")
             }
-            .environment(\.editMode, .constant(editing ? .active : .inactive))
-            .searchable(text: $search).navigationTitle(
-                choose == nil
-                    ? String(localized: "lut.manager", defaultValue: "LUT Manager")
-                    : String(localized: "lut.luts", defaultValue: "LUTs")
-            )
-            .navigationBarTitleDisplayMode(.inline)
-            .overlay { if working { ImportProgress(text: progress) } }
-            .toolbar {
+            ForEach(matches) { item in
+                if editing {
+                    row(item).tag(item.id)
+                } else {
+                    Button {
+                        if let choose {
+                            choose(item.id)
+                            dismiss()
+                        } else {
+                            rename(item)
+                        }
+                    } label: {
+                        row(item)
+                    }
+                    .foregroundStyle(.primary).accessibilityIdentifier("lut.choose." + item.id)
+                    .contextMenu {
+                        Button(
+                            String(localized: "lut.rename", defaultValue: "Rename"),
+                            systemImage: "pencil"
+                        ) { rename(item) }
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(String(localized: "lut.rename", defaultValue: "Rename")) {
+                            rename(item)
+                        }.tint(.gray)
+                    }
+                }
+            }
+            .onMove { offsets, destination in
+                guard search.isEmpty, !working else { return }
+                working = true
+                Task {
+                    do { try await library.luts.move(from: offsets, to: destination) } catch {
+                        failure = error.localizedDescription
+                    }
+                    working = false
+                }
+            }
+            .moveDisabled(!search.isEmpty || working)
+        }
+        .environment(\.editMode, .constant(editing ? .active : .inactive))
+        .overlay { if working { ImportProgress(text: progress) } }
+        .toolbar {
+            if showsCloseButton {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(
                         String(localized: "common.close", defaultValue: "Close"), systemImage: "xmark"
                     ) { dismiss() }.labelStyle(.iconOnly)
                         .buttonBorderShape(.circle).accessibilityIdentifier("lut.library.close")
                 }
-                if let tab { ToolbarItem(placement: .principal) { ManagerTabPicker(tab: tab) } }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(
-                        editing
-                            ? String(localized: "common.cancel", defaultValue: "Cancel")
-                            : String(localized: "common.select", defaultValue: "Select")
-                    ) {
-                        editing.toggle()
-                        selection.removeAll()
-                    }
-                    .disabled(working || library.luts.items.isEmpty).accessibilityIdentifier(
-                        "lut.library.select")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(
+                    editing
+                        ? String(localized: "common.cancel", defaultValue: "Cancel")
+                        : String(localized: "common.select", defaultValue: "Select")
+                ) {
+                    editing.toggle()
+                    selection.removeAll()
                 }
-                ToolbarItem(placement: .bottomBar) {
+                .disabled(working || library.luts.items.isEmpty).accessibilityIdentifier(
+                    "lut.library.select")
+            }
+            ToolbarItem(placement: .bottomBar) {
+                Button(
+                    String(localized: "common.import", defaultValue: "Import"),
+                    systemImage: "plus"
+                ) { showImport = true }
+                .disabled(working).accessibilityIdentifier("lut.import")
+            }
+            AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
+            AdaptiveToolbarItem(placement: .bottomBar, background: .hidden) {
+                Text(
+                    String(
+                        localized: "lut.item_count",
+                        defaultValue: "\(library.luts.items.count) LUTs")
+                )
+                .font(.footnote).foregroundStyle(.secondary)
+            }
+            AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button(
+                    String(localized: "common.delete", defaultValue: "Delete"),
+                    systemImage: "trash", role: .destructive
+                ) { confirmDelete = true }
+                .disabled(!editing || selection.isEmpty || working)
+                .accessibilityIdentifier("lut.delete")
+                .confirmationDialog(
+                    String(
+                        localized: "lut.delete_confirm",
+                        defaultValue: "Delete selected LUTs?"), isPresented: $confirmDelete,
+                    titleVisibility: .visible
+                ) {
                     Button(
-                        String(localized: "common.import", defaultValue: "Import"),
-                        systemImage: "plus"
-                    ) { showImport = true }
-                    .disabled(working).accessibilityIdentifier("lut.import")
-                }
-                ToolbarSpacer(.flexible, placement: .bottomBar)
-                ToolbarItem(placement: .bottomBar) {
+                        String(localized: "lut.delete_luts", defaultValue: "Delete LUTs"),
+                        role: .destructive
+                    ) { remove() }
+                    Button(
+                        String(localized: "lut.force_delete", defaultValue: "Force Delete"),
+                        role: .destructive
+                    ) { remove(force: true) }
+                } message: {
                     Text(
                         String(
-                            localized: "lut.item_count",
-                            defaultValue: "\(library.luts.items.count) LUTs")
-                    )
-                    .font(.footnote).foregroundStyle(.secondary)
-                }.sharedBackgroundVisibility(.hidden)
-                ToolbarSpacer(.flexible, placement: .bottomBar)
-                ToolbarItem(placement: .bottomBar) {
-                    Button(
-                        String(localized: "common.delete", defaultValue: "Delete"),
-                        systemImage: "trash", role: .destructive
-                    ) { confirmDelete = true }
-                    .disabled(!editing || selection.isEmpty || working)
-                    .accessibilityIdentifier("lut.delete")
-                    .confirmationDialog(
-                        String(
-                            localized: "lut.delete_confirm",
-                            defaultValue: "Delete selected LUTs?"), isPresented: $confirmDelete,
-                        titleVisibility: .visible
-                    ) {
-                        Button(
-                            String(localized: "lut.delete_luts", defaultValue: "Delete LUTs"),
-                            role: .destructive
-                        ) { remove() }
-                        Button(
-                            String(localized: "lut.force_delete", defaultValue: "Force Delete"),
-                            role: .destructive
-                        ) { remove(force: true) }
-                    } message: {
-                        Text(
-                            String(
-                                localized: "lut.delete_message",
-                                defaultValue:
-                                    "Delete keeps LUTs used by saved edits or Undo. Force Delete clears those LUT references, including Undo/Redo. Other adjustments and originals stay."
-                            )
+                            localized: "lut.delete_message",
+                            defaultValue:
+                                "Delete keeps LUTs used by saved edits or Undo. Force Delete clears those LUT references, including Undo/Redo. Other adjustments and originals stay."
                         )
-                    }
+                    )
                 }
             }
-            .fileImporter(
-                isPresented: $showImport, allowedContentTypes: [.data],
-                allowsMultipleSelection: true
-            ) { result in
-                switch result {
-                case .success(let urls): importFiles(urls)
-                case .failure(let error): failure = error.localizedDescription
-                }
+        }
+        .fileImporter(
+            isPresented: $showImport, allowedContentTypes: [.data],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls): importFiles(urls)
+            case .failure(let error): failure = error.localizedDescription
             }
-            .task {
-                do { try await library.luts.load() } catch { failure = error.localizedDescription }
+        }
+        .task {
+            do { try await library.luts.load() } catch { failure = error.localizedDescription }
+        }
+        .alert(
+            String(localized: "lut.rename_lut", defaultValue: "Rename LUT"),
+            isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
+        ) {
+            TextField(String(localized: "lut.name", defaultValue: "Name"), text: $name)
+                .accessibilityIdentifier("lut.rename.name")
+            Button(String(localized: "common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                renaming = nil
             }
-            .alert(
-                String(localized: "lut.rename_lut", defaultValue: "Rename LUT"),
-                isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
-            ) {
-                TextField(String(localized: "lut.name", defaultValue: "Name"), text: $name)
-                    .accessibilityIdentifier("lut.rename.name")
-                Button(String(localized: "common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                    renaming = nil
-                }
-                Button(String(localized: "common.save", defaultValue: "Save")) { saveName() }.disabled(
-                    name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            .failureAlert(String(localized: "lut.lut_library", defaultValue: "LUT Library"), message: $failure)
-        }.presentationDetents([.medium, .large])
+            Button(String(localized: "common.save", defaultValue: "Save")) { saveName() }.disabled(
+                name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .failureAlert(String(localized: "lut.lut_library", defaultValue: "LUT Library"), message: $failure)
     }
     private func row(_ item: InstalledLUT) -> some View {
         HStack {

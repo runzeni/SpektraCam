@@ -3,9 +3,14 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
+nonisolated enum LibraryRoute: Hashable, Sendable {
+    case photo(UUID)
+    case editor(UUID)
+}
+
 struct LibraryView: View {
     let library: PhotoLibrary
-    @Binding var path: [UUID]
+    @Binding var path: [LibraryRoute]
     var scrollToLatestRequest = 0
     @State private var filter = LibraryFilter.all
     @State private var selecting = false
@@ -16,6 +21,8 @@ struct LibraryView: View {
     @State private var failure: String?
     @State private var confirmDelete = false
     @State private var confirmRevert = false
+    @State private var duplicateDeletedIDs: Set<UUID> = []
+    @State private var confirmRecoverDuplicate = false
     @State private var showLUTs = false
     @State private var showInformation = false
     @State private var importFilesAfterInfo = false
@@ -25,28 +32,27 @@ struct LibraryView: View {
     @State private var pasteTargets: Set<UUID> = []
     @State private var showPasteLook = false
     @State private var systemVerticalBar = false
+    @State private var editorRoutes: [UUID: EditorRoute] = [:]
     @Environment(\.openCamera) private var openCamera
+    private struct EditorRoute {
+        let session: EditorSession
+        let photoID: UUID
+        let locationName: String?
+    }
+    private var hasEditorInPath: Bool {
+        path.contains {
+            if case .editor = $0 { return true }
+            return false
+        }
+    }
     private struct BatchRequest: Identifiable {
         let id = UUID()
         let items: [BatchExportItem]
     }
     private enum ImportSource { case photos, files }
-    private var visible: [LibraryPhoto] { library.photos.filter { filter.includes($0) } }
-    /// Newest day first, newest photo first. The library keeps its photos in date order, so
-    /// one pass from the end groups them without hashing or sorting.
-    private var sections: [(day: Date, photos: [LibraryPhoto])] {
-        let calendar = Calendar.current
-        var result: [(day: Date, photos: [LibraryPhoto])] = []
-        for photo in visible.reversed() {
-            let day = calendar.startOfDay(for: photo.date)
-            if result.last?.day == day {
-                result[result.count - 1].photos.append(photo)
-            } else {
-                result.append((day, [photo]))
-            }
-        }
-        return result
-    }
+    private var snapshot: PhotoLibrary.FilterSnapshot { library.grouped(for: filter) }
+    private var visible: [LibraryPhoto] { snapshot.visible }
+    private var sections: [(day: Date, photos: [LibraryPhoto])] { snapshot.sections }
     private func presented(_ source: ImportSource) -> Binding<Bool> {
         Binding(
             get: { importSource == source },
@@ -62,11 +68,8 @@ struct LibraryView: View {
         NavigationStack(path: $path) {
             gallery
                 .overlay(alignment: .bottomTrailing) {
-                    // Where the system keeps a bar on the side, the camera joins it.
-                    if !systemVerticalBar {
-                        CameraButton(prominent: true)
-                            .padding(.trailing, 26).padding(.bottom, 12)
-                    }
+                    CameraButton(prominent: true)
+                        .padding(.trailing, 26).padding(.bottom, 12)
                 }
                 .onSystemVerticalBar { systemVerticalBar = $0 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -86,7 +89,7 @@ struct LibraryView: View {
                                         working = false
                                     }
                                 }
-                                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                                .capsuleActionButton()
                                 .disabled(working).accessibilityIdentifier("library.look.undo")
                             }
                             .padding(.top, 6)
@@ -111,7 +114,7 @@ struct LibraryView: View {
                         importSource = .files
                     }
                 }) {
-                    AppInformationView(importFiles: { importFilesAfterInfo = true })
+                    AppInformationView(library: library, importFiles: { importFilesAfterInfo = true })
                 }
                 .sheet(isPresented: $showLUTs) { LibraryManagerView(library: library) }
                 .sheet(item: $batchRequest) { request in
@@ -152,7 +155,7 @@ struct LibraryView: View {
                         }
                         .accessibilityIdentifier("library.filter").disabled(working)
                     }
-                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                    AdaptiveToolbarSpacer(.fixed, placement: .topBarTrailing)
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             selecting.toggle()
@@ -241,10 +244,7 @@ struct LibraryView: View {
                             ) { confirmRevert = true }
                             .accessibilityIdentifier("library.revert")
                             .disabled(
-                                working
-                                    || !library.photos.contains {
-                                        selection.contains($0.id) && $0.hasEdits
-                                    }
+                                working || selection.isDisjoint(with: snapshot.editedIDs)
                             )
                             .confirmationDialog(
                                 String(
@@ -287,17 +287,18 @@ struct LibraryView: View {
                             .accessibilityHint(String(localized: "library.from_photos", defaultValue: "From Photos"))
                         }
                     }
-                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
                     ToolbarItem(placement: .bottomBar) {
                         Button {
                             showLUTs = true
                         } label: {
-                            if systemVerticalBar {
+                            if systemVerticalBar || selecting {
                                 Label(
                                     String(localized: "formula.formulae", defaultValue: "Formulae"),
                                     systemImage: "flask")
                             } else {
                                 Text(String(localized: "formula.formulae", defaultValue: "Formulae"))
+                                    .dynamicTypeSize(...DynamicTypeSize.xLarge)
                             }
                         }
                         .accessibilityHint(
@@ -305,16 +306,7 @@ struct LibraryView: View {
                         )
                         .accessibilityIdentifier("library.formulae").disabled(working)
                     }
-                    if systemVerticalBar {
-                        ToolbarItem(placement: .bottomBar) {
-                            Button(
-                                String(localized: "camera.camera", defaultValue: "Camera"),
-                                systemImage: "camera"
-                            ) { openCamera?() }
-                            .tint(Color.accentColor).accessibilityIdentifier("camera.open")
-                        }
-                    }
-                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    AdaptiveToolbarSpacer(.flexible, placement: .bottomBar)
                     ToolbarItem(placement: .bottomBar) {
                         Button(
                             String(localized: "common.delete", defaultValue: "Delete"),
@@ -346,18 +338,63 @@ struct LibraryView: View {
                                 }
                             }
                         } message: {
+                            let linkedCount = selection.filter { library.applePhotosIDs.contains($0) }.count
                             Text(
-                                String(
-                                    localized: "library.delete_message",
-                                    defaultValue:
-                                        "This removes the app copies and their edits. Your source photos stay unchanged."
-                                )
+                                linkedCount == selection.count
+                                    ? String(
+                                        localized: "library.delete_message",
+                                        defaultValue:
+                                            "This moves the app copies and their edits to Recently Deleted for 30 days. Your source photos in Apple Photos stay unchanged.")
+                                    : linkedCount == 0
+                                        ? String(
+                                            localized: "library.delete_app_only_message",
+                                            defaultValue:
+                                                "This moves the selected photos and their edits to Recently Deleted for 30 days before permanent removal from SpektraCam.")
+                                        : String(
+                                            localized: "library.delete_mixed_message",
+                                            defaultValue:
+                                                "This moves the selected photos and their edits to Recently Deleted for 30 days before permanent removal. Your Apple Photos originals stay unchanged.")
                             )
                         }
                     }
                 }
-                .navigationDestination(for: UUID.self) { id in
-                    PhotoDetailView(library: library, id: id, filter: filter)
+                .navigationDestination(for: LibraryRoute.self) { route in
+                    switch route {
+                    case .photo(let id):
+                        PhotoDetailView(
+                            library: library, id: id, filter: filter,
+                            isPresentingEditor: hasEditorInPath
+                        ) { session, photoID, locationName in
+                            let routeID = UUID()
+                            editorRoutes[routeID] = EditorRoute(
+                                session: session, photoID: photoID, locationName: locationName)
+                            path.append(.editor(routeID))
+                        }
+                    case .editor(let routeID):
+                        if let entry = editorRoutes[routeID] {
+                            EditorView(
+                                session: entry.session, locationName: entry.locationName,
+                                photoID: entry.photoID, library: library
+                            ) {
+                                let recipe = entry.session.hasEdits ? entry.session.recipe : nil
+                                try await library.finishEditing(entry.photoID, recipe: recipe)
+                            }
+                        } else {
+                            Color.clear.onAppear {
+                                path.removeAll { $0 == .editor(routeID) }
+                            }
+                        }
+                    }
+                }
+                .onChange(of: path) { _, current in
+                    let active = Set(
+                        current.compactMap { route -> UUID? in
+                            if case .editor(let id) = route { return id }
+                            return nil
+                        })
+                    for key in editorRoutes.keys where !active.contains(key) {
+                        editorRoutes.removeValue(forKey: key)
+                    }
                 }
                 .sheet(isPresented: presented(.photos)) {
                     PhotoImportPicker(importedIdentifiers: library.importedAssetIdentifiers) { photos in
@@ -385,6 +422,47 @@ struct LibraryView: View {
                 }
 
                 .failureAlert(String(localized: "library.library", defaultValue: "Library"), message: $failure)
+                .confirmationDialog(
+                    duplicateDeletedIDs.count == 1
+                        ? String(
+                            localized: "recently_deleted.duplicate_title_one",
+                            defaultValue: "Photo Is in Recently Deleted")
+                        : String(
+                            localized: "recently_deleted.duplicate_title_many",
+                            defaultValue: "\(duplicateDeletedIDs.count) Photos Are in Recently Deleted"),
+                    isPresented: $confirmRecoverDuplicate,
+                    titleVisibility: .visible
+                ) {
+                    Button(
+                        duplicateDeletedIDs.count == 1
+                            ? String(
+                                localized: "recently_deleted.recover_existing",
+                                defaultValue: "Recover Existing Photo")
+                            : String(
+                                localized: "recently_deleted.recover_existing_many",
+                                defaultValue: "Recover Existing Photos")
+                    ) {
+                        let ids = duplicateDeletedIDs
+                        duplicateDeletedIDs.removeAll()
+                        working = true
+                        Task {
+                            defer { working = false }
+                            do {
+                                try await library.recover(ids)
+                                filter = .all
+                                scrollRevision += 1
+                            } catch { failure = error.localizedDescription }
+                        }
+                    }
+                    Button(String(localized: "common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                        duplicateDeletedIDs.removeAll()
+                    }
+                } message: {
+                    Text(
+                        String(
+                            localized: "recently_deleted.duplicate_prompt",
+                            defaultValue: "Recovering restores the existing copy and its saved edits."))
+                }
         }
     }
     private var gallery: some View {
@@ -420,7 +498,7 @@ struct LibraryView: View {
                                                     selection.insert(photo.id)
                                                 }
                                             } else {
-                                                path.append(photo.id)
+                                                path.append(.photo(photo.id))
                                             }
                                         } label: {
                                             LibraryThumbnail(
@@ -494,7 +572,7 @@ struct LibraryView: View {
                             }
                         }
                     }
-                    .defaultScrollAnchor(.top, for: .initialOffset)
+                    .adaptiveInitialTopScrollAnchor()
                     .onChange(of: scrollRevision) { _, _ in
                         proxy.scrollTo("library.latest", anchor: .top)
                         handledCameraRequest = scrollToLatestRequest
@@ -577,6 +655,7 @@ struct LibraryView: View {
         selecting = false
         selection.removeAll()
         var errors = 0
+        var duplicateIDs: Set<UUID> = []
         for (index, photo) in photos.enumerated() {
             progress = String(
                 localized: "common.import_progress",
@@ -584,9 +663,11 @@ struct LibraryView: View {
             do {
                 let file = try await PhotoImportPicker.file(for: photo)
                 try await library.importPhoto(file.url, assetIdentifier: photo.assetIdentifier)
+            } catch let dup as PhotoLibrary.DeletedDuplicateError {
+                duplicateIDs.formUnion(dup.photoIDs)
             } catch { errors += 1 }
         }
-        completeImport(errors)
+        completeImport(errors, duplicateDeleted: duplicateIDs)
     }
     private func importFiles(_ urls: [URL]) async {
         guard !working else { return }
@@ -594,21 +675,30 @@ struct LibraryView: View {
         selecting = false
         selection.removeAll()
         var errors = 0
+        var duplicateIDs: Set<UUID> = []
         for (index, url) in urls.enumerated() {
             progress = String(
                 localized: "common.import_progress",
                 defaultValue: "Importing \(index + 1) of \(urls.count)…")
             let scoped = url.startAccessingSecurityScopedResource()
-            do { try await library.importPhoto(url) } catch { errors += 1 }
+            do {
+                try await library.importPhoto(url)
+            } catch let dup as PhotoLibrary.DeletedDuplicateError {
+                duplicateIDs.formUnion(dup.photoIDs)
+            } catch { errors += 1 }
             if scoped { url.stopAccessingSecurityScopedResource() }
         }
-        completeImport(errors)
+        completeImport(errors, duplicateDeleted: duplicateIDs)
     }
-    private func completeImport(_ errors: Int) {
+    private func completeImport(_ errors: Int, duplicateDeleted: Set<UUID> = []) {
         working = false
         progress = ""
         filter = .all
         scrollRevision += 1
+        if !duplicateDeleted.isEmpty {
+            duplicateDeletedIDs.formUnion(duplicateDeleted)
+            confirmRecoverDuplicate = true
+        }
         if errors > 0 {
             failure = String(
                 localized: "library.import_failed",

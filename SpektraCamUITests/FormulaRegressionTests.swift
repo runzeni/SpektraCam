@@ -128,7 +128,16 @@ final class FormulaRegressionTests: XCTestCase {
             XCTAssertTrue(app.buttons["library.info"].waitForExistence(timeout: 15))
             app.buttons["library.info"].tap()
             let setting = app.switches["about.rememberFlash"]
-            for _ in 0..<4 where !setting.isHittable { app.swipeUp() }
+            for _ in 0..<6
+            where !(setting.exists && setting.isHittable
+                && setting.frame.minY >= 120 && setting.frame.maxY <= app.frame.height - 24)
+            {
+                let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+                let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+                start.press(
+                    forDuration: 0.05, thenDragTo: end, withVelocity: .slow,
+                    thenHoldForDuration: 0.15)
+            }
             XCTAssertTrue(setting.isHittable)
         }
         openSettings()
@@ -136,7 +145,7 @@ final class FormulaRegressionTests: XCTestCase {
         func setRemember(_ enabled: Bool) {
             let value = enabled ? "1" : "0"
             if remember.value as? String != value {
-                remember.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+                remember.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
             }
             XCTAssertEqual(remember.value as? String, value)
         }

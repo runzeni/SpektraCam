@@ -2,16 +2,123 @@ import CoreGraphics
 import CoreImage
 import Foundation
 
+/// Working floating-point depth for Core Image, cached intermediates, grading textures and
+/// tiled stores. Going below 16-bit float (e.g. 8-bit integer) clips scene-linear highlights
+/// above 1.0 and bands shadows; IEEE 754 binary16 preserves ~16 stops of headroom at half memory.
+nonisolated enum RenderPrecision: String, CaseIterable, Identifiable, Sendable {
+    case automatic = "auto"
+    case float32 = "float32"
+    case float16 = "float16"
+
+    static let storageKey = "render.precision"
+    var id: String { rawValue }
+
+    /// Intended use for the render pass: live interactive adjustments run in 16-bit float under
+    /// `.automatic` for speed and memory headroom, while settled/output passes promote RAW and
+    /// >10-bit sources to 32-bit float on capable devices.
+    enum Use: Hashable, Sendable { case interactive, output }
+
+    /// Bound by `PhotoRenderer` and `BatchPhotoExporter` so `.automatic` adapts to source bit depth:
+    /// RAW and >10-bit images (e.g. 16-bit PNG/TIFF) use 32-bit float on capable devices, while
+    /// 8/10-bit JPEGs, HEICs and 8-bit PNGs use 16-bit float at half the working memory.
+    @TaskLocal static var activeSourcePrefersDeep: Bool?
+    @TaskLocal static var activeUse: Use = .output
+
+    /// Devices under ~5.5 GB physical RAM (2–4 GB iPhones and iPads) default to 16-bit float.
+    static var devicePrefersHalfFloat: Bool {
+        #if os(iOS) && !targetEnvironment(simulator)
+            return ProcessInfo.processInfo.physicalMemory < 5_500_000_000
+        #else
+            return false
+        #endif
+    }
+
+    static var selected: Self {
+        Self(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .automatic
+    }
+
+    static func resolved(sourcePrefersDeep: Bool?, use: Use = activeUse) -> Self {
+        switch selected {
+        case .automatic:
+            if use == .interactive { return .float16 }
+            if devicePrefersHalfFloat { return .float16 }
+            return (sourcePrefersDeep ?? true) ? .float32 : .float16
+        case .float16:
+            return .float16
+        case .float32:
+            return .float32
+        }
+    }
+
+    static var resolved: Self {
+        resolved(sourcePrefersDeep: activeSourcePrefersDeep, use: activeUse)
+    }
+
+    nonisolated(nonsending) static func withContext<T>(
+        sourcePrefersDeep: Bool?, use: Use,
+        operation: () async throws -> T
+    ) async rethrows -> T {
+        try await $activeSourcePrefersDeep.withValue(sourcePrefersDeep) {
+            try await $activeUse.withValue(use) {
+                try await operation()
+            }
+        }
+    }
+
+    var usesHalfFloat: Bool {
+        (self == .automatic ? Self.resolved : self) == .float16
+    }
+
+    var ciFormat: CIFormat { usesHalfFloat ? .RGBAh : .RGBAf }
+    var bytesPerPixel: Int { usesHalfFloat ? 8 : 16 }
+}
+
 /// Color-managed boundary: tagged photo → linear extended sRGB → encoded SDR sRGB.
 /// No transfer curve is applied twice; the film graph consumes linear RGB and returns encoded RGB.
 nonisolated enum PhotoColorBridge {
     enum Failure: Error { case invalidImage, bitmap }
     private static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
     private static let display = CGColorSpace(name: CGColorSpace.sRGB)!
-    private static let context = CIContext(options: [
-        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf,
-        .cacheIntermediates: false,
-    ])
+    private static let contextLock = NSLock()
+    private nonisolated(unsafe) static var _context32: CIContext?
+    private nonisolated(unsafe) static var _context16: CIContext?
+    private static var context: CIContext {
+        let halfFloat = RenderPrecision.resolved.usesHalfFloat
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        if halfFloat {
+            if let existing = _context16 { return existing }
+            let created = CIContext(options: [
+                .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf,
+                .cacheIntermediates: false,
+            ])
+            _context16 = created
+            return created
+        } else {
+            if let existing = _context32 { return existing }
+            let created = CIContext(options: [
+                .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf,
+                .cacheIntermediates: false,
+            ])
+            _context32 = created
+            return created
+        }
+    }
+
+    static var initializedContextCountForTesting: Int {
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        return (_context16 != nil ? 1 : 0) + (_context32 != nil ? 1 : 0)
+    }
+
+    static func clearCaches() {
+        contextLock.lock()
+        let c16 = _context16
+        let c32 = _context32
+        contextLock.unlock()
+        c16?.clearCaches()
+        c32?.clearCaches()
+    }
 
     static func decode(_ source: CGImage) throws -> [SIMD4<Float>] {
         let count = source.width * source.height
@@ -34,14 +141,24 @@ nonisolated enum PhotoColorBridge {
 
     /// Preserve extended-range film output until all creative grading has finished.
     static func workingImage(_ data: Data, width: Int, height: Int, encoded: Bool = true) throws -> CGImage {
-        guard data.count == width * height * 16 else { throw Failure.invalidImage }
+        let inputFormat: CIFormat
+        let rowBytes: Int
+        if data.count == width * height * 16 {
+            inputFormat = .RGBAf
+            rowBytes = width * 16
+        } else if data.count == width * height * 8 {
+            inputFormat = .RGBAh
+            rowBytes = width * 8
+        } else {
+            throw Failure.invalidImage
+        }
         let input = CIImage(
-            bitmapData: data, bytesPerRow: width * 16,
-            size: CGSize(width: width, height: height), format: .RGBAf,
+            bitmapData: data, bytesPerRow: rowBytes,
+            size: CGSize(width: width, height: height), format: inputFormat,
             colorSpace: encoded ? CGColorSpace(name: CGColorSpace.extendedSRGB)! : linear)
         guard
             let image = context.createCGImage(
-                input, from: input.extent, format: .RGBAf,
+                input, from: input.extent, format: RenderPrecision.resolved.ciFormat,
                 colorSpace: linear, deferred: false)
         else { throw Failure.bitmap }
         return image

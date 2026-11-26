@@ -55,17 +55,18 @@ struct ParameterControl: View {
                         }
                     }
                 } label: {
-                    HStack(spacing: 5) {
-                        Text(choiceTitle(session.recipe.choice(definition.id)))
-                            .multilineTextAlignment(.trailing).lineLimit(2)
-                        Image(systemName: "chevron.up.chevron.down").font(.caption2)
-                    }.fixedSize(horizontal: false, vertical: true)
+                    CapsuleActionSurface(selected: true) {
+                        HStack(spacing: 5) {
+                            Text(choiceTitle(session.recipe.choice(definition.id)))
+                                .multilineTextAlignment(.trailing).lineLimit(2)
+                            Image(systemName: "chevron.up.chevron.down").font(.caption2)
+                        }.fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-                .buttonStyle(.glassProminent).foregroundStyle(.onAccent).tint(Color.accentColor)
                 .accessibilityLabel(definition.title)
                 .accessibilityValue(choiceTitle(session.recipe.choice(definition.id)))
                 .accessibilityIdentifier(definition.id)
-            }.font(.caption).frame(minHeight: 44)
+            }.font(.footnote).frame(minHeight: 36)
         } else {
             NumericControl(
                 title: isScatterMix
@@ -128,7 +129,7 @@ struct NumericControl: View {
         min(value, range.lowerBound)...max(value, range.upperBound)
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
                     .fixedSize(horizontal: false, vertical: true)
@@ -144,13 +145,20 @@ struct NumericControl: View {
     /// One rounding rule for the label and the editor: what is shown is what is edited.
     private var digits: Int {
         let key = identifier.lowercased()
-        return key.contains("exposure") || key.hasSuffix(".pivot") ? 2
+        return key.contains("exposure") || key.hasSuffix(".pivot") || key.hasSuffix(".tilt") ? 2
             : key.contains("mix") || key.hasSuffix(".temperature") || key.hasSuffix(".warmth")
-                || key.hasSuffix(".scatter_amount") ? 0 : 1
+                || key.hasSuffix(".scatter_amount") || key.hasSuffix(".bulge") ? 0 : 1
+    }
+    private var showsSign: Bool {
+        let key = identifier.lowercased()
+        return key.hasSuffix(".tilt") || key.hasSuffix(".bulge")
     }
     private var displayValue: String {
-        value.formatted(.number.precision(.fractionLength(digits)))
-            + (unit.isEmpty ? "" : " " + unit)
+        let normalized = abs(value) < 1e-9 ? 0.0 : value
+        let formatted = normalized.formatted(
+            .number.precision(.fractionLength(digits))
+                .sign(strategy: showsSign ? .always(includingZero: false) : .automatic))
+        return formatted + (unit.isEmpty ? "" : " " + unit)
     }
     private var valueButton: some View {
         Button {
@@ -158,12 +166,14 @@ struct NumericControl: View {
         } label: {
             // A quiet capsule says the number is editable without competing with the slider.
             Text(displayValue)
-            .monospacedDigit()
-            .fixedSize()
-            .foregroundStyle(Color.primary)
-            .padding(.horizontal, 8).padding(.vertical, 2)
-            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                .monospacedDigit()
+                .fixedSize()
+                .foregroundStyle(Color.primary)
+                .padding(.horizontal, 8).padding(.vertical, 2)
+                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                .contentShape(Rectangle().inset(by: -6))
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(String(localized: "control.enter", defaultValue: "Enter \(title)"))
         .accessibilityValue(displayValue)
         .accessibilityIdentifier(identifier + ".value")
@@ -198,19 +208,34 @@ struct DefaultSlider: UIViewRepresentable {
         slider.adjustAccessibility = { [weak coordinator = context.coordinator] direction in
             coordinator?.adjustAccessibility(direction)
         }
+        slider.onDoubleTap = { [weak coordinator = context.coordinator] in
+            coordinator?.reset(nil)
+        }
+        slider.onSingleTouchBegan = { [weak coordinator = context.coordinator] isSecondTapCandidate in
+            coordinator?.singleTouchBegan(secondTapCandidate: isSecondTapCandidate)
+        }
+        slider.onDragPromoted = { [weak coordinator = context.coordinator] in
+            coordinator?.promoteSuppressedBegin()
+        }
+        slider.onTouchFinished = { [weak coordinator = context.coordinator] in
+            coordinator?.touchFinished()
+        }
         slider.addTarget(
             context.coordinator, action: #selector(Coordinator.changed), for: .valueChanged)
         slider.addTarget(context.coordinator, action: #selector(Coordinator.began), for: .touchDown)
         slider.addTarget(
             context.coordinator, action: #selector(Coordinator.ended),
             for: [.touchUpInside, .touchUpOutside, .touchCancel])
-        let reset = UITapGestureRecognizer(
-            target: context.coordinator, action: #selector(Coordinator.reset))
-        reset.numberOfTapsRequired = 2
-        reset.cancelsTouchesInView = false
-        reset.delaysTouchesEnded = false
-        reset.delegate = context.coordinator
-        slider.addGestureRecognizer(reset)
+        if #available(iOS 26.0, *) {
+            let reset = UITapGestureRecognizer(
+                target: context.coordinator, action: #selector(Coordinator.reset(_:)))
+            reset.numberOfTapsRequired = 2
+            reset.cancelsTouchesInView = false
+            reset.delaysTouchesBegan = false
+            reset.delaysTouchesEnded = false
+            reset.delegate = context.coordinator
+            slider.addGestureRecognizer(reset)
+        }
         slider.accessibilityCustomActions = [
             UIAccessibilityCustomAction(
                 name: String(
@@ -231,42 +256,199 @@ struct DefaultSlider: UIViewRepresentable {
         let configuration = [
             bounds.lowerBound, bounds.upperBound, defaultValue, fillOrigin ?? defaultValue,
         ]
+        let neutral = position(fillOrigin ?? defaultValue)
         if context.coordinator.configuration != configuration {
-            slider.trackConfiguration = .init(
-                allowsTickValuesOnly: false, neutralValue: position(fillOrigin ?? defaultValue),
-                ticks: [])
+            if #available(iOS 26.0, *) {
+                slider.trackConfiguration = .init(
+                    allowsTickValuesOnly: false, neutralValue: neutral,
+                    ticks: [])
+            } else {
+                (slider as? PrecisionSlider)?.neutralOrigin = neutral
+            }
             (slider as? PrecisionSlider)?.defaultTick = position(defaultValue)
             context.coordinator.configuration = configuration
         }
         slider.minimumValue = 0
         slider.maximumValue = 1
-        if !slider.isTracking { slider.setValue(position(value), animated: false) }
+        if !slider.isTracking {
+            slider.setValue(position(value), animated: false)
+            slider.setNeedsLayout()
+        }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UISlider, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 100, height: 32)
+        CGSize(width: proposal.width ?? 100, height: 28)
     }
     /// UIKit couples configured ticks to magnetic stops. A marker view keeps fine straightening continuous.
     final class PrecisionSlider: UISlider {
         var defaultTick: Float? { didSet { setNeedsLayout() } }
+        var neutralOrigin: Float? { didSet { updateLegacyTrackColors(); setNeedsLayout() } }
         var adjustAccessibility: ((Int) -> Void)?
+        var onDoubleTap: (() -> Void)?
+        var onSingleTouchBegan: ((Bool) -> Void)?
+        var onDragPromoted: (() -> Void)?
+        var onTouchFinished: (() -> Void)?
+        private var tapDownPoint: CGPoint?
+        private var tapDownTime: TimeInterval = 0
+        private var tapMovedFar = false
+        private var secondTapCandidate = false
+        private var lastTapPoint: CGPoint?
+        private var lastTapUpTime: TimeInterval = -.infinity
+
         override func accessibilityIncrement() { adjustAccessibility?(1) }
         override func accessibilityDecrement() { adjustAccessibility?(-1) }
+        override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer is UITapGestureRecognizer { return isEnabled }
+            return super.gestureRecognizerShouldBegin(gestureRecognizer)
+        }
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+            let now = ProcessInfo.processInfo.systemUptime
+            if let touch = touches.first, touches.count == 1 {
+                let loc = touch.location(in: self)
+                let isCandidate: Bool
+                if let prev = lastTapPoint,
+                    now - lastTapUpTime <= 0.45,
+                    hypot(loc.x - prev.x, loc.y - prev.y) <= 28
+                {
+                    isCandidate = true
+                } else {
+                    isCandidate = false
+                }
+                secondTapCandidate = isCandidate
+                onSingleTouchBegan?(isCandidate)
+                tapDownPoint = loc
+                tapDownTime = now
+                tapMovedFar = false
+            } else {
+                secondTapCandidate = false
+                tapMovedFar = true
+            }
+            super.touchesBegan(touches, with: event)
+        }
+        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+            if let touch = touches.first, let start = tapDownPoint {
+                let p = touch.location(in: self)
+                if hypot(p.x - start.x, p.y - start.y) > 10 {
+                    if !tapMovedFar && secondTapCandidate {
+                        secondTapCandidate = false
+                        onDragPromoted?()
+                    }
+                    tapMovedFar = true
+                    lastTapPoint = nil
+                }
+            }
+            super.touchesMoved(touches, with: event)
+        }
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesEnded(touches, with: event)
+            let now = ProcessInfo.processInfo.systemUptime
+            if !tapMovedFar, let start = tapDownPoint, let touch = touches.first,
+                now - tapDownTime <= 0.35
+            {
+                let end = touch.location(in: self)
+                if hypot(end.x - start.x, end.y - start.y) <= 10 {
+                    if let prev = lastTapPoint,
+                        now - lastTapUpTime <= 0.45,
+                        hypot(end.x - prev.x, end.y - prev.y) <= 28
+                    {
+                        lastTapPoint = nil
+                        lastTapUpTime = -.infinity
+                        secondTapCandidate = false
+                        onDoubleTap?()
+                    } else {
+                        lastTapPoint = end
+                        lastTapUpTime = now
+                    }
+                } else {
+                    lastTapPoint = nil
+                }
+            } else {
+                lastTapPoint = nil
+            }
+            secondTapCandidate = false
+            tapDownPoint = nil
+            onTouchFinished?()
+        }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesCancelled(touches, with: event)
+            secondTapCandidate = false
+            tapDownPoint = nil
+            tapMovedFar = true
+            onTouchFinished?()
+        }
         private let marker = UIView()
+        private let neutralFill = UIView()
+        override func tintColorDidChange() {
+            super.tintColorDidChange()
+            if neutralOrigin != nil { neutralFill.backgroundColor = tintColor }
+        }
+        override func setValue(_ value: Float, animated: Bool) {
+            super.setValue(value, animated: animated)
+            if neutralOrigin != nil || defaultTick != nil { setNeedsLayout() }
+        }
         override init(frame: CGRect) {
             super.init(frame: frame)
+            neutralFill.isUserInteractionEnabled = false
+            neutralFill.isAccessibilityElement = false
+            neutralFill.isHidden = true
+            addSubview(neutralFill)
             marker.backgroundColor = .tertiaryLabel
             marker.isUserInteractionEnabled = false
             marker.isAccessibilityElement = false
             addSubview(marker)
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        private func updateLegacyTrackColors() {
+            guard let origin = neutralOrigin, origin > 0.001 else {
+                if neutralOrigin != nil {
+                    minimumTrackTintColor = nil
+                    maximumTrackTintColor = nil
+                }
+                neutralFill.isHidden = true
+                return
+            }
+            if minimumTrackTintColor != .secondarySystemFill {
+                minimumTrackTintColor = .secondarySystemFill
+            }
+            if maximumTrackTintColor != .secondarySystemFill {
+                maximumTrackTintColor = .secondarySystemFill
+            }
+            neutralFill.backgroundColor = tintColor
+        }
         override func layoutSubviews() {
             super.layoutSubviews()
-            marker.isHidden = defaultTick == nil
-            if let value = defaultTick {
-                let track = trackRect(forBounds: bounds)
-                let thumb = thumbRect(forBounds: bounds, trackRect: track, value: value)
+            let track = trackRect(forBounds: bounds)
+            let currentThumb = thumbRect(forBounds: bounds, trackRect: track, value: value)
+            if let origin = neutralOrigin, origin > 0.001 {
+                neutralFill.backgroundColor = tintColor
+                let anchorX = thumbRect(forBounds: bounds, trackRect: track, value: origin).midX
+                let startX: CGFloat
+                let endX: CGFloat
+                if currentThumb.midX >= anchorX {
+                    startX = anchorX
+                    endX = max(anchorX, min(track.maxX, currentThumb.minX + 1))
+                } else {
+                    startX = max(track.minX, min(anchorX, currentThumb.maxX - 1))
+                    endX = anchorX
+                }
+                let width = endX - startX
+                neutralFill.isHidden = width < 0.5
+                neutralFill.layer.cornerRadius = track.height / 2
+                neutralFill.frame = CGRect(
+                    x: startX, y: track.minY, width: width, height: track.height)
+            } else {
+                neutralFill.isHidden = true
+            }
+            if let tick = defaultTick {
+                let thumb = thumbRect(forBounds: bounds, trackRect: track, value: tick)
                 marker.frame = CGRect(x: thumb.midX - 0.5, y: track.midY - 3, width: 1, height: 6)
+                if #available(iOS 26.0, *) {
+                    marker.isHidden = false
+                } else {
+                    marker.isHidden = currentThumb.insetBy(dx: 2, dy: 0).contains(
+                        CGPoint(x: thumb.midX, y: track.midY))
+                }
+            } else {
+                marker.isHidden = true
             }
         }
     }
@@ -276,12 +458,31 @@ struct DefaultSlider: UIViewRepresentable {
         weak var slider: UISlider?
         private let feedback = UISelectionFeedbackGenerator()
         private var interacting = false
+        private var suppressTracking = false
+        private var suppressBegan = false
+        private var lastEndedUptime: TimeInterval = -.infinity
         private var defaultSide = 0
         private func side(of value: Double) -> Int {
             value < parent.defaultValue ? -1 : (value > parent.defaultValue ? 1 : 0)
         }
         init(_ parent: DefaultSlider) { self.parent = parent }
+        func singleTouchBegan(secondTapCandidate: Bool) {
+            suppressTracking = false
+            suppressBegan = secondTapCandidate
+        }
+        func promoteSuppressedBegin() {
+            guard suppressBegan else { return }
+            suppressBegan = false
+            if slider?.isTracking == true { began() }
+        }
+        func touchFinished() {
+            suppressBegan = false
+            if suppressTracking {
+                DispatchQueue.main.async { [weak self] in self?.suppressTracking = false }
+            }
+        }
         @objc func began() {
+            guard !suppressTracking, !suppressBegan else { return }
             guard !interacting else { return }
             interacting = true
             defaultSide = side(of: parent.value)
@@ -289,10 +490,20 @@ struct DefaultSlider: UIViewRepresentable {
             parent.onEditingChanged(true)
         }
         @objc func ended() {
+            if suppressTracking {
+                DispatchQueue.main.async { [weak self] in self?.suppressTracking = false }
+            }
+            guard interacting else { return }
             interacting = false
+            lastEndedUptime = ProcessInfo.processInfo.systemUptime
             parent.onEditingChanged(false)
         }
         @objc func changed(_ slider: UISlider) {
+            guard !suppressTracking else {
+                slider.setValue(parent.position(parent.value), animated: false)
+                return
+            }
+            if (slider as? PrecisionSlider)?.neutralOrigin != nil { slider.setNeedsLayout() }
             let raw =
                 parent.bounds.lowerBound + Double(slider.value)
                 * (parent.bounds.upperBound - parent.bounds.lowerBound)
@@ -313,16 +524,36 @@ struct DefaultSlider: UIViewRepresentable {
             slider?.setValue(parent.position(parent.value), animated: false)
             ended()
         }
-        @objc func reset() {
+        @objc func reset(_ recognizer: UITapGestureRecognizer? = nil) {
+            if let recognizer, recognizer.state != .ended { return }
             guard slider?.isEnabled == true else { return }
-            began()
-            parent.value = parent.defaultValue
+            let changed = abs(parent.value - parent.defaultValue) > 1e-9
+            let now = ProcessInfo.processInfo.systemUptime
+            suppressTracking = true
+            suppressBegan = false
+            if recognizer != nil, slider?.isTracking == true {
+                slider?.cancelTracking(with: nil)
+            }
+            if changed {
+                if !interacting && now - lastEndedUptime > 0.45 {
+                    interacting = true
+                    parent.onEditingChanged(true)
+                }
+                parent.value = parent.defaultValue
+            }
             slider?.setValue(parent.position(parent.defaultValue), animated: false)
-            ended()
-            feedback.selectionChanged()
+            slider?.setNeedsLayout()
+            slider?.layoutIfNeeded()
+            if interacting {
+                interacting = false
+                lastEndedUptime = now
+                parent.onEditingChanged(false)
+            }
+            DispatchQueue.main.async { [weak self] in self?.suppressTracking = false }
+            if changed { feedback.selectionChanged() }
         }
         @objc func accessibleReset() -> Bool {
-            reset()
+            reset(nil)
             return true
         }
         func gestureRecognizer(
@@ -345,6 +576,8 @@ private struct NumericEntry: View {
     let defaultValue: Double
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var initialText = ""
+    @State private var committed = false
     @FocusState private var isFocused: Bool
 
     private func format(_ number: Double) -> String {
@@ -364,11 +597,17 @@ private struct NumericEntry: View {
     private func set(_ number: Double) {
         let snapped = clamp((number / step).rounded() * step)
         value = snapped
-        text = format(snapped)
+        let formatted = format(snapped)
+        text = formatted
+        initialText = formatted
     }
     private func commit() {
         guard let parsed else { return }
-        value = clamp(parsed)
+        committed = true
+        if text != initialText {
+            value = clamp(parsed)
+        }
+        isFocused = false
         dismiss()
     }
     private var rangeText: String? {
@@ -383,15 +622,15 @@ private struct NumericEntry: View {
                 Spacer(minLength: 4)
                 Button(String(localized: "control.reset_to_default", defaultValue: "Reset to Default"),
                        systemImage: "arrow.counterclockwise") { set(defaultValue) }
-                    .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle)
+                    .panelIconButton()
                 if (minimum ?? -1) < 0 {
                     Button(String(localized: "control.change_sign", defaultValue: "Change Sign"), systemImage: "plusminus") {
                         text = text.hasPrefix("-") ? String(text.dropFirst()) : "-" + text
                     }
-                    .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle)
+                    .panelIconButton()
                 }
                 Button(String(localized: "common.done", defaultValue: "Done"), action: commit)
-                    .buttonStyle(.glassProminent).foregroundStyle(.onAccent).disabled(parsed == nil)
+                    .adaptiveGlassButton(prominent: true).foregroundStyle(.onAccent).disabled(parsed == nil)
                     .accessibilityIdentifier("numeric.done")
             }
             HStack(spacing: 10) {
@@ -416,10 +655,18 @@ private struct NumericEntry: View {
             }
         }
         .padding(16)
-        .frame(width: 310)
+        .frame(minWidth: 260, idealWidth: 304, maxWidth: 310)
         .onAppear {
-            text = format(value)
+            let formatted = format(value)
+            text = formatted
+            initialText = formatted
+            committed = false
             isFocused = true
+        }
+        .onDisappear {
+            if !committed, text != initialText, let parsed {
+                value = clamp(parsed)
+            }
         }
     }
     private func nudge(_ direction: Double, systemImage: String) -> some View {
@@ -428,7 +675,7 @@ private struct NumericEntry: View {
                systemImage: systemImage) {
             set((parsed ?? value) + direction * step)
         }
-        .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.large)
+        .panelIconButton()
         .buttonRepeatBehavior(.enabled)
     }
 }
@@ -456,7 +703,7 @@ struct EffectSection: View {
     var printOnly = false
     var showsDetails = true
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             AdaptiveToggle(
                 title,
                 isOn: Binding(
@@ -466,7 +713,7 @@ struct EffectSection: View {
                     })
             )
             .accessibilityIdentifier(prefix + ".active")
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 ParameterFields(session: session, prefix: prefix, names: prominent)
                 if showsDetails {
                     EffectDetails(prefix: prefix, prominent: prominent, session: session)
@@ -484,9 +731,9 @@ struct EffectDetails: View {
     let session: EditorSession
     var body: some View {
         DisclosureGroup {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
                 ParameterFields(session: session, prefix: prefix, excluding: ["active"] + prominent)
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 12).padding(
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8).padding(
                 .trailing, 8)
         } label: {
             Text(String(localized: "common.details", defaultValue: "Details"))

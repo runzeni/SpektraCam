@@ -103,6 +103,7 @@ final class FormulaTests: XCTestCase {
         app.buttons["photo.info"].tap()
         XCTAssertTrue(tile.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["photo.formula.save"].isEnabled, "An untouched photo has no look to save")
+        XCTAssertTrue(app.buttons["photo.formula.import"].isEnabled, "Import Formula must stay enabled on an original photo")
         sleep(3)
         capture(app, "formula-viewer-preview")
         tile.tap()
@@ -121,6 +122,9 @@ final class FormulaTests: XCTestCase {
         // A formula has its own page: what it carries, sharing, and Rename.
         XCTAssertTrue(app.buttons["formula.share"].waitForExistence(timeout: 5))
         capture(app, "formula-detail")
+        let copyLink = app.buttons["formula.link.copy"]
+        XCTAssertTrue(copyLink.exists)
+        copyLink.tap()
         app.buttons["formula.detail.rename"].tap()
         let alert = app.alerts.firstMatch
         if !alert.waitForExistence(timeout: 5) { capture(app, "formula-rename-missing") }
@@ -146,5 +150,35 @@ final class FormulaTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["No Formulae"].waitForExistence(timeout: 5))
         app.buttons["formula.library.close"].tap()
         waitForEdited(2, in: app)
+
+        // Importing from the floating info panel adds to the library without altering an original photo.
+        cells(app).element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["photo.revert"].waitForExistence(timeout: 10))
+        app.buttons["photo.revert"].tap()
+        app.buttons["photo.revert.menuAction"].tap()
+        app.buttons["Revert to Original"].tap()
+        expectation(for: NSPredicate(format: "isEnabled == false"), evaluatedWith: app.buttons["photo.revert"])
+        waitForExpectations(timeout: 10)
+        app.buttons["photo.info"].tap()
+        let importButton = app.buttons["photo.formula.import"]
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(importButton.isEnabled)
+        XCTAssertFalse(app.buttons["photo.formula.save"].isEnabled)
+        importButton.tap()
+        let pasteAction = app.buttons["photo.formula.import.paste"]
+        XCTAssertTrue(pasteAction.waitForExistence(timeout: 5))
+        pasteAction.tap()
+        let allowPaste = app.alerts.buttons["Allow Paste"]
+        if allowPaste.waitForExistence(timeout: 2) { allowPaste.tap() }
+        let addImported = app.buttons["formula.import.add"]
+        XCTAssertTrue(addImported.waitForExistence(timeout: 10))
+        addImported.tap()
+        XCTAssertTrue(app.buttons["photo.formula.Tree test"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["photo.info"].label.contains("Original"))
+        XCTAssertFalse(app.buttons["photo.formula.save"].isEnabled)
+        XCTAssertFalse(app.buttons["photo.revert"].isEnabled)
+        app.buttons["photo.info"].tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        waitForEdited(1, in: app)
     }
 }

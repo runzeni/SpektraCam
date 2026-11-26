@@ -17,16 +17,21 @@ struct AdjustPanel: View {
     var section: Section = .exposure
     @State private var extendedBalance = false
     @State private var extendedLiftGain = false
+    @State private var extendedSCurve = false
     /// A value outside ±2 keeps the wide range on, so the slider can always show it.
     private var liftGainNeedsWideRange: Bool {
         abs(session.recipe.tone.highlights) > 2 || abs(session.recipe.tone.shadows) > 2
     }
     private var wideLiftGain: Bool { extendedLiftGain || liftGainNeedsWideRange }
+    private var sCurveNeedsWideRange: Bool {
+        abs(session.recipe.tone.contrast - 1) > 0.3501
+    }
+    private var wideSCurve: Bool { extendedSCurve || sCurveNeedsWideRange }
     /// Film controls do nothing with the look off or in LUT mode; print controls also need a print.
     private var filmDisabled: Bool { !session.recipe.look.enabled || session.recipe.look.mode == .lut }
     private var printDisabled: Bool { filmDisabled || session.recipe.bypassesPrint }
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             switch section {
             case .exposure:
                 NumericControl(
@@ -37,12 +42,12 @@ struct AdjustPanel: View {
                     onEditingChanged: { session.setInteraction(key: "tone.exposure", active: $0) })
                 field("camera.exposure_compensation_ev").disabled(filmDisabled)
                 DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 10) {
                         field("camera.auto_exposure")
                         if session.recipe.flag("camera.auto_exposure") {
                             field("camera.auto_exposure_method")
                         }
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
                             NumericControl(
                                 title: String(
                                     localized: "adjust.print_exposure",
@@ -66,10 +71,10 @@ struct AdjustPanel: View {
                                     range: -5...5,
                                     step: 0.05, minimum: -10, maximum: 10, unit: "EV",
                                     identifier: "source.exposure")
-                                field("enlarger.normalize_print_exposure").padding(.top, 8)
+                                field("enlarger.normalize_print_exposure").padding(.top, 6)
                             }
                         }.disabled(printDisabled)
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 12)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
                 } label: {
                     Text(
                         String(
@@ -81,16 +86,39 @@ struct AdjustPanel: View {
                 }
                 .disabled(filmDisabled)
                 Divider()
-                toneControl(
-                    String(localized: "adjust.s_curve", defaultValue: "S-curve"), path: \.contrast,
-                    range: -0.35...0.35, defaultValue: 0,
-                    id: "contrast")
+                HStack {
+                    Text(String(localized: "adjust.s_curve", defaultValue: "S-curve"))
+                        .font(.footnote.weight(.semibold))
+                    Spacer()
+                    ControlRangeButton(
+                        title: wideSCurve ? "±10" : "±5",
+                        label: String(
+                            localized: "adjust.change_s_curve_range",
+                            defaultValue: "Change S-curve range"),
+                        identifier: "adjust.sCurveRange"
+                    ) { extendedSCurve = !wideSCurve }
+                    .disabled(sCurveNeedsWideRange)
+                }
+                NumericControl(
+                    title: String(localized: "adjust.s_curve", defaultValue: "S-curve"),
+                    value: Binding(
+                        get: { (session.recipe.tone.contrast - 1) / 0.07 },
+                        set: { value in
+                            session.update(key: "tone.contrast") {
+                                $0.tone.algorithm = 5
+                                $0.tone.contrast = min(max(1 + value * 0.07, 0.30), 1.70)
+                            }
+                        }),
+                    range: wideSCurve ? -10...10 : -5...5, step: 0.1,
+                    minimum: -10, maximum: 10,
+                    identifier: "tone.contrast", defaultValue: 0,
+                    onEditingChanged: { session.setInteraction(key: "tone.contrast", active: $0) })
                 toneControl(
                     String(localized: "adjust.pivot", defaultValue: "Pivot"), path: \.pivot,
                     range: 0...1, defaultValue: 0.35, id: "pivot")
             case .liftGain:
                 HStack {
-                    Text(Section.liftGain.title).font(.subheadline.weight(.semibold))
+                    Text(Section.liftGain.title).font(.footnote.weight(.semibold))
                     Spacer()
                     ControlRangeButton(
                         title: wideLiftGain ? "±5" : "±2",
@@ -109,17 +137,19 @@ struct AdjustPanel: View {
                     String(localized: "adjust.shadows", defaultValue: "Shadows"), path: \.shadows,
                     range: wideLiftGain ? -5...5 : -2...2, defaultValue: 0, id: "shadows")
             case .color:
-                if let temperature = session.recipe.temperature {
+                if let neutral = session.photo.rawTemperature ?? session.recipe.temperature {
                     NumericControl(
                         title: String(localized: "adjust.temperature", defaultValue: "Temperature"),
                         value: Binding(
-                            get: { session.recipe.temperature ?? temperature },
+                            get: { session.recipe.temperature ?? neutral },
                             set: { value in
-                                session.update(key: "temperature") { $0.temperature = value }
+                                session.update(key: "temperature") {
+                                    $0.temperature = abs(value - neutral) <= 0.5 ? nil : value
+                                }
                             }),
                         range: 2500...8000, step: 25, minimum: 1000, maximum: 50000, unit: "K",
                         identifier: "source.temperature",
-                        defaultValue: session.photo.rawTemperature ?? temperature,
+                        defaultValue: neutral,
                         onEditingChanged: { session.setInteraction(key: "temperature", active: $0) }
                     )
                 } else {
@@ -170,7 +200,7 @@ struct AdjustPanel: View {
                     ).padding(.top, 8)
                 }.disabled(filmDisabled)
                 DisclosureGroup(String(localized: "common.details", defaultValue: "Details")) {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
                         ParameterFields(session: session, prefix: "scanner")
                         ParameterFields(
                             session: session, prefix: "enlarger",
@@ -185,7 +215,7 @@ struct AdjustPanel: View {
                         ParameterFields(
                             session: session, prefix: "camera",
                             names: ["lens_blur_um", "film_format_mm", "filter_uv", "filter_ir"])
-                    }.padding(.top, 8)
+                    }.padding(.top, 6)
                 }
                 .disabled(filmDisabled)
             }
@@ -193,10 +223,10 @@ struct AdjustPanel: View {
     }
     private var printBalance: some View {
         DisclosureGroup(String(localized: "adjust.print_balance", defaultValue: "Print balance")) {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text(String(localized: "adjust.color_balance", defaultValue: "Color balance"))
-                        .font(.subheadline.weight(.semibold))
+                        .font(.footnote.weight(.semibold))
                     Spacer()
                     ControlRangeButton(
                         title: extendedBalance
@@ -224,9 +254,9 @@ struct AdjustPanel: View {
                             localized: "adjust.print_chemistry", defaultValue: "Print chemistry"),
                         prefix: "print_render.density_curves_morph",
                         prominent: ["gamma_factor"], session: session, printOnly: true
-                    ).padding(.top, 12)
+                    ).padding(.top, 8)
                 }
-            }
+            }.padding(.top, 6)
             if session.recipe.bypassesPrint {
                 Text(
                     String(

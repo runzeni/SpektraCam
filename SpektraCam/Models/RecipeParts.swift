@@ -23,17 +23,15 @@ nonisolated extension EditRecipe {
             case .exposure:
                 String(
                     localized: "part.exposure.detail",
-                    defaultValue: "Exposure, white balance and print balance")
+                    defaultValue: "Exposure and white balance")
             case .darkroom:
-                String(localized: "part.darkroom.detail", defaultValue: "Paper, border and film edge")
+                String(localized: "part.darkroom.detail", defaultValue: "Paper, border, film edge and distress")
             }
         }
     }
 
-    /// Physical parameters corrected for one photo: how much light, and the filter pack that
-    /// balanced this negative. Every other parameter is part of the Look, including whether
-    /// exposure is metered automatically.
-    static let exposureNumbers: Set<String> = [
+    /// Numbers that belonged to Exposure in part v1 and moved to Look in part v2.
+    static let legacyExposureNumbers: Set<String> = [
         "camera.exposure_compensation_ev", "enlarger.print_exposure",
         "enlarger.y_filter_shift", "enlarger.m_filter_shift",
     ]
@@ -44,10 +42,16 @@ nonisolated extension EditRecipe {
     ///
     /// The switch has no default on purpose. A new stored field does not compile until it
     /// is given to a part here, so later Darkroom settings cannot be left out by accident.
-    func taking(_ parts: Set<Part>, from source: EditRecipe, rawTarget: Bool) -> EditRecipe {
+    func taking(
+        _ parts: Set<Part>, from source: EditRecipe, rawTarget: Bool,
+        partVersions: [Part: Int] = [:]
+    ) -> EditRecipe {
         let look = parts.contains(.look)
         let exposure = parts.contains(.exposure)
         let darkroom = parts.contains(.darkroom)
+        let lookVersion = partVersions[.look] ?? 2
+        let exposureVersion = partVersions[.exposure] ?? 2
+        let takeExposureOverrides = (exposure && exposureVersion == 1) || (look && lookVersion >= 2)
         var result = self
         for key in CodingKeys.allCases {
             switch key {
@@ -64,27 +68,39 @@ nonisolated extension EditRecipe {
                 if look { result.tone = source.tone }
                 result.tone.exposureEV = stops
             case .source:
-                if look { result.source.saturation = source.source.saturation }
+                if look {
+                    result.source.saturation = source.source.saturation
+                }
                 if exposure {
                     result.source.exposureEV = source.source.exposureEV
                     result.source.warmth = source.source.warmth
+                }
+                if takeExposureOverrides {
                     result.source.tint = source.source.tint
                 }
             case .temperature:
                 // A RAW white balance means nothing to a rendered file, and the reverse.
-                if exposure, rawTarget, let kelvin = source.temperature { result.temperature = kelvin }
+                // In v1, nil meant no temperature override was saved; in v2, nil means Auto WB.
+                if exposure, rawTarget {
+                    if exposureVersion == 1 {
+                        if let kelvin = source.temperature { result.temperature = kelvin }
+                    } else {
+                        result.temperature = source.temperature
+                    }
+                }
             case .numbers:
                 let lookNumbers = (look ? source : self).numbers.filter {
-                    !Self.exposureNumbers.contains($0.key)
+                    !Self.legacyExposureNumbers.contains($0.key)
                 }
-                let exposureNumbers = (exposure ? source : self).numbers.filter {
-                    Self.exposureNumbers.contains($0.key)
+                let overrideNumbers = (takeExposureOverrides ? source : self).numbers.filter {
+                    Self.legacyExposureNumbers.contains($0.key)
                 }
-                result.numbers = lookNumbers.merging(exposureNumbers) { _, new in new }
+                result.numbers = lookNumbers.merging(overrideNumbers) { _, new in new }
             case .printLayout: if darkroom { result.printLayout = source.printLayout }
             case .filmEdgeSelection:
                 if darkroom { result.filmEdgeSelection = source.filmEdgeSelection }
             case .filmEdgeLayout: if darkroom { result.filmEdgeLayout = source.filmEdgeLayout }
+            case .distress: if darkroom { result.distress = source.distress }
             case .crop, .geometry: break  // The photograph's own framing.
             case .version, .upstreamRevision: break  // The caller pastes within one film model.
             }
@@ -93,13 +109,28 @@ nonisolated extension EditRecipe {
         return result
     }
 
-    /// Whether a part holds anything, so an empty part is not offered for pasting.
-    func has(_ part: Part) -> Bool {
+    /// Whether Look itself has any active film/LUT, tonal, tint, saturation or monochrome edit.
+    var hasEditedLook: Bool {
+        look.enabled || tone.contrast != 1 || tone.shadows != 0 || tone.highlights != 0
+            || tone.monochrome || source.tint != 0 || source.saturation != 1
+    }
+
+    /// Whether a part holds anything, so an empty part is not offered for pasting or saving.
+    func has(_ part: Part, neutralTemperature: Double? = nil) -> Bool {
         switch part {
-        case .look: true
-        case .exposure: taking([.exposure], from: EditRecipe(), rawTarget: false) != self
-        case .darkroom: printLayout != nil || filmEdgeLayout != nil || filmEdgeSelection != nil
+        case .look: return true
+        case .exposure:
+            if tone.exposureEV != 0 || source.exposureEV != 0 || source.warmth != 0 { return true }
+            guard let temperature else { return false }
+            if let neutralTemperature { return abs(temperature - neutralTemperature) > 0.5 }
+            return true
+        case .darkroom:
+            return printLayout != nil || filmEdgeLayout != nil || filmEdgeSelection != nil
+                || activeCleanPrintDistress != nil
         }
+    }
+    func has(_ part: Part) -> Bool {
+        has(part, neutralTemperature: nil)
     }
 }
 
@@ -116,6 +147,9 @@ nonisolated struct LookClip: Equatable, Sendable {
         self.recipe = copy
         self.sourceID = sourceID
     }
-    var parts: [EditRecipe.Part] { EditRecipe.Part.allCases.filter { recipe.has($0) } }
+    func parts(neutralTemperature: Double? = nil) -> [EditRecipe.Part] {
+        EditRecipe.Part.allCases.filter { recipe.has($0, neutralTemperature: neutralTemperature) }
+    }
+    var parts: [EditRecipe.Part] { parts(neutralTemperature: nil) }
     func removingLUTs(_ ids: Set<String>) -> Self { Self(recipe.removingLUTs(ids), sourceID: sourceID) }
 }

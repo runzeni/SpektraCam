@@ -14,11 +14,39 @@ nonisolated enum ToneRenderer {
         }
     }
     static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
-    private static let display = CGColorSpace(name: CGColorSpace.sRGB)!
-    private static let context = CIContext(options: [
-        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false,
-    ])
-    private static let gpu = try? GradeKernel()
+    fileprivate static let display = CGColorSpace(name: CGColorSpace.sRGB)!
+    private static let contexts = LazyContextPair()
+    private static var context: CIContext { contexts.current }
+    static func clearCaches() {
+        contexts.clearCaches()
+        existingGPU()?.clearContextCaches()
+    }
+    static func purgeGradeResources() {
+        existingGPU()?.purge()
+    }
+    static var initializedContextCountForTesting: Int {
+        contexts.initializedCount + (existingGPU()?.initializedContextCount ?? 0)
+    }
+    static var gradeCachedResourceCountForTesting: Int {
+        existingGPU()?.cachedResourceCount ?? 0
+    }
+    private static let gpuLock = NSLock()
+    private nonisolated(unsafe) static var _gpu: GradeKernel?
+    private nonisolated(unsafe) static var gpuAttempted = false
+    private static func existingGPU() -> GradeKernel? {
+        gpuLock.lock()
+        defer { gpuLock.unlock() }
+        return _gpu
+    }
+    private static var gpu: GradeKernel? {
+        gpuLock.lock()
+        defer { gpuLock.unlock() }
+        if !gpuAttempted {
+            gpuAttempted = true
+            _gpu = try? GradeKernel()
+        }
+        return _gpu
+    }
 
     /// Versioned code-value curve; older grades retain their original formula.
     static func curve(_ value: Double, tone: EditRecipe.Tone) -> Double {
@@ -96,6 +124,8 @@ nonisolated enum ToneRenderer {
             else { throw Failure.render }
             return CIImage(cgImage: strip)
         }
+        let storeFormat = PixelStore.Format.working
+        let pixelBytes = storeFormat.bytesPerPixel
         func fill(_ base: UnsafeMutableRawPointer) throws {
             defer { gpu.releaseStrips() }
             for y in stride(from: 0, to: height, by: 128) {
@@ -107,16 +137,17 @@ nonisolated enum ToneRenderer {
                         luts: luts,
                         residual: residual.map { (try part($0.0, y, rows), try part($0.1, y, rows)) },
                         monochromeResidual: monochromeResidual, normalizationEV: normalizationEV,
-                        into: base.advanced(by: y * width * 16))
+                        format: storeFormat,
+                        into: base.advanced(by: y * width * pixelBytes))
                 }
             }
         }
         if PixelStore.isLarge(width: width, height: height) {
-            let store = try PixelStore(width: width, height: height, format: .float)
+            let store = try PixelStore(width: width, height: height, format: storeFormat)
             try fill(store.base)
             return try store.image(colorSpace: linear)
         }
-        var pixels = Data(count: width * height * 16)
+        var pixels = Data(count: width * height * pixelBytes)
         try pixels.withUnsafeMutableBytes { try fill($0.baseAddress!) }
         return try PhotoColorBridge.workingImage(
             pixels, width: width, height: height, encoded: false)
@@ -130,6 +161,17 @@ nonisolated enum ToneRenderer {
             && image.colorSpace?.name == CGColorSpace.sRGB
         {
             return image
+        }
+        if max(image.width, image.height) <= 2048,
+            !(tone.isIdentity && luts.isEmpty && residual == nil)
+        {
+            try RawAdjustments.validate(tone)
+            guard luts.count <= 2, luts.allSatisfy({ $0.mix.isFinite && (0...1).contains($0.mix) })
+            else { throw Failure.parameters }
+            guard let gpu else { throw Failure.render }
+            return try gpu.renderDisplay(
+                image, tone: tone, luts: luts, residual: residual,
+                monochromeResidual: monochromeResidual)
         }
         return try resolve(
             working(
@@ -154,13 +196,55 @@ nonisolated enum ToneRenderer {
     }
 }
 
+private nonisolated final class LazyContextPair: @unchecked Sendable {
+    private let lock = NSLock()
+    private var context16: CIContext?
+    private var context32: CIContext?
+
+    var current: CIContext {
+        let halfFloat = RenderPrecision.resolved.usesHalfFloat
+        lock.lock()
+        defer { lock.unlock() }
+        if halfFloat {
+            if let context16 { return context16 }
+            let created = CIContext(options: [
+                .workingColorSpace: ToneRenderer.linear, .workingFormat: CIFormat.RGBAf,
+                .cacheIntermediates: false,
+            ])
+            context16 = created
+            return created
+        } else {
+            if let context32 { return context32 }
+            let created = CIContext(options: [
+                .workingColorSpace: ToneRenderer.linear, .workingFormat: CIFormat.RGBAf,
+                .cacheIntermediates: false,
+            ])
+            context32 = created
+            return created
+        }
+    }
+
+    var initializedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return (context16 != nil ? 1 : 0) + (context32 != nil ? 1 : 0)
+    }
+
+    func clearCaches() {
+        lock.lock()
+        let c16 = context16
+        let c32 = context32
+        lock.unlock()
+        c16?.clearCaches()
+        c32?.clearCaches()
+    }
+}
+
 /// One cached native compute pass; no pixel-array round trip during a grading drag.
 nonisolated private final class GradeKernel: @unchecked Sendable {
     private let device: MTLDevice, queue: MTLCommandQueue, pipeline: MTLComputePipelineState
-    private let context = CIContext(options: [
-        .workingColorSpace: ToneRenderer.linear, .workingFormat: CIFormat.RGBAf,
-        .cacheIntermediates: false,
-    ])
+    private let contexts = LazyContextPair()
+    private var context: CIContext { contexts.current }
     private let lock = NSLock()
     private var input: MTLTexture?, output: MTLTexture?, cachedImage: CGImage?
     private var residualTextures: [MTLTexture] = []
@@ -226,7 +310,42 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
         guard
             let frame = context.createCGImage(
                 result, from: CGRect(x: 0, y: 0, width: image.width, height: image.height),
-                format: .RGBAf, colorSpace: ToneRenderer.linear, deferred: false)
+                format: RenderPrecision.resolved.ciFormat, colorSpace: ToneRenderer.linear,
+                deferred: false)
+        else {
+            cachedImage = nil
+            throw ToneRenderer.Failure.render
+        }
+        return frame
+    }
+    func renderDisplay(
+        _ image: CGImage, tone: EditRecipe.Tone, luts: [CubeLUT.Application],
+        residual: (CGImage, CGImage)?,
+        monochromeResidual: Bool, normalizationEV: Double = 0
+    ) throws -> CGImage {
+        lock.lock()
+        defer {
+            if max(image.width, image.height) > 2048 { releaseFrame() }
+            lock.unlock()
+        }
+        if let residual,
+            [residual.0, residual.1].contains(where: {
+                $0.width != image.width || $0.height != image.height
+            })
+        {
+            throw ToneRenderer.Failure.parameters
+        }
+        let result = try graded(
+            width: image.width, height: image.height, key: image, source: CIImage(cgImage: image),
+            residual: residual.map {
+                [($0.0, CIImage(cgImage: $0.0)), ($0.1, CIImage(cgImage: $0.1))]
+            }, tone: tone, luts: luts, monochromeResidual: monochromeResidual,
+            normalizationEV: normalizationEV)
+        guard
+            let frame = context.createCGImage(
+                result, from: CGRect(x: 0, y: 0, width: image.width, height: image.height),
+                format: .RGBA8, colorSpace: ToneRenderer.display,
+                deferred: false)
         else {
             cachedImage = nil
             throw ToneRenderer.Failure.render
@@ -237,7 +356,7 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
     func render(
         strip: CIImage, width: Int, height: Int, tone: EditRecipe.Tone,
         luts: [CubeLUT.Application], residual: (CIImage, CIImage)?, monochromeResidual: Bool,
-        normalizationEV: Double, into target: UnsafeMutableRawPointer
+        normalizationEV: Double, format: PixelStore.Format, into target: UnsafeMutableRawPointer
     ) throws {
         // Strips of one image share their textures; the caller releases them after the last one.
         lock.lock()
@@ -247,14 +366,35 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
             residual: residual.map { [(nil, $0.0), (nil, $0.1)] }, tone: tone, luts: luts,
             monochromeResidual: monochromeResidual, normalizationEV: normalizationEV)
         context.render(
-            result, toBitmap: target, rowBytes: width * 16,
-            bounds: CGRect(x: 0, y: 0, width: width, height: height), format: .RGBAf,
+            result, toBitmap: target, rowBytes: width * format.bytesPerPixel,
+            bounds: CGRect(x: 0, y: 0, width: width, height: height), format: format.ciFormat,
             colorSpace: ToneRenderer.linear)
     }
     func releaseStrips() {
         lock.lock()
         releaseFrame()
         lock.unlock()
+    }
+    func purge() {
+        lock.lock()
+        releaseFrame()
+        lutTextures.removeAll()
+        lock.unlock()
+        contexts.clearCaches()
+    }
+    func clearContextCaches() {
+        contexts.clearCaches()
+    }
+    var initializedContextCount: Int { contexts.initializedCount }
+    var cachedResourceCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return (input != nil ? 1 : 0)
+            + (output != nil ? 1 : 0)
+            + (cachedImage != nil ? 1 : 0)
+            + residualTextures.count
+            + residualImages.count
+            + lutTextures.count
     }
     private func releaseFrame() {
         input = nil
@@ -269,9 +409,11 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
         residual: [(key: CGImage?, image: CIImage)]?, tone: EditRecipe.Tone,
         luts: [CubeLUT.Application], monochromeResidual: Bool, normalizationEV: Double
     ) throws -> CIImage {
-        if input?.width != width || input?.height != height {
+        let textureFormat: MTLPixelFormat =
+            RenderPrecision.resolved.usesHalfFloat ? .rgba16Float : .rgba32Float
+        if input?.width != width || input?.height != height || input?.pixelFormat != textureFormat {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-                pixelFormat: .rgba32Float, width: width, height: height,
+                pixelFormat: textureFormat, width: width, height: height,
                 mipmapped: false)
             descriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
             descriptor.storageMode = .private
@@ -292,9 +434,9 @@ nonisolated private final class GradeKernel: @unchecked Sendable {
         }
         var residualInputs = [input, input]
         if let residual {
-            if residualTextures.isEmpty {
+            if residualTextures.isEmpty || residualTextures.first?.pixelFormat != textureFormat {
                 let d = MTLTextureDescriptor.texture2DDescriptor(
-                    pixelFormat: .rgba32Float, width: width, height: height,
+                    pixelFormat: textureFormat, width: width, height: height,
                     mipmapped: false)
                 // Core Image can use a compute encoder to fill these textures.
                 d.usage = [.shaderRead, .shaderWrite, .renderTarget]

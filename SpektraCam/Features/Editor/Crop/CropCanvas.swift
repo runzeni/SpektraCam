@@ -6,6 +6,7 @@ struct CropCanvas: View {
     let image: UIImage
     @Binding var selection: CropSelection
     @Binding var geometry: ImageGeometry
+    var filmGateNormalizedRect: CGRect? = nil
     @GestureState private var framingOrigin: CGSize?
     @GestureState private var dragOrigin: CGRect?
 
@@ -39,6 +40,21 @@ struct CropCanvas: View {
                 cropGrid(in: crop)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
+
+                if let gateRect = filmGateNormalizedRect {
+                    let indicator = CGRect(
+                        x: frame.minX + gateRect.minX * frame.width,
+                        y: frame.minY + gateRect.minY * frame.height,
+                        width: gateRect.width * frame.width,
+                        height: gateRect.height * frame.height)
+                    Rectangle()
+                        .stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .frame(width: indicator.width, height: indicator.height)
+                        .position(x: indicator.midX, y: indicator.midY)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
 
                 Rectangle().fill(.clear)
                     .frame(width: crop.width, height: crop.height)

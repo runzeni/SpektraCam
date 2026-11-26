@@ -6,7 +6,17 @@ struct AlbumPager: UIViewControllerRepresentable {
     let photos: [LibraryPhoto]
     let images: LibraryImages
     @Binding var selection: UUID
+    var bottomInset: CGFloat = 132
+    var usePortraitReference = true
     var onTap: () -> Void = {}
+
+    fileprivate struct ViewportStyle: Equatable {
+        var bottomInset: CGFloat
+        var usePortraitReference: Bool
+    }
+    private var viewportStyle: ViewportStyle {
+        ViewportStyle(bottomInset: bottomInset, usePortraitReference: usePortraitReference)
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIViewController(context: Context) -> UIPageViewController {
@@ -20,6 +30,7 @@ struct AlbumPager: UIViewControllerRepresentable {
     }
     func updateUIViewController(_ controller: UIPageViewController, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.syncPages(photos: photos, style: viewportStyle)
         context.coordinator.showSelection(in: controller)
     }
     static func dismantleUIViewController(
@@ -32,10 +43,18 @@ struct AlbumPager: UIViewControllerRepresentable {
     final class Page: UIHostingController<AlbumPhotoPage> {
         let photoID: UUID
         var renderKey: String
-        init(photo: LibraryPhoto, images: LibraryImages, onTap: @escaping () -> Void) {
+        fileprivate var style: ViewportStyle
+        fileprivate init(
+            photo: LibraryPhoto, images: LibraryImages, style: ViewportStyle,
+            onTap: @escaping () -> Void
+        ) {
             photoID = photo.id
             renderKey = photo.renderKey
-            super.init(rootView: AlbumPhotoPage(photo: photo, images: images, onTap: onTap))
+            self.style = style
+            super.init(
+                rootView: AlbumPhotoPage(
+                    photo: photo, images: images, bottomInset: style.bottomInset,
+                    usePortraitReference: style.usePortraitReference, onTap: onTap))
             view.backgroundColor = .clear
         }
         @MainActor required dynamic init?(coder: NSCoder) {
@@ -52,15 +71,29 @@ struct AlbumPager: UIViewControllerRepresentable {
         init(_ parent: AlbumPager) { self.parent = parent }
         /// Pages outlive updates, so they call through to the current parent.
         private var tap: () -> Void { { [weak self] in self?.parent.onTap() } }
+        fileprivate func syncPages(photos: [LibraryPhoto], style: ViewportStyle) {
+            for (id, page) in pages where page.style != style {
+                guard let photo = photos.first(where: { $0.id == id }) else { continue }
+                page.style = style
+                page.renderKey = photo.renderKey
+                page.rootView = AlbumPhotoPage(
+                    photo: photo, images: parent.images, bottomInset: style.bottomInset,
+                    usePortraitReference: style.usePortraitReference, onTap: tap)
+            }
+        }
         private func page(_ photo: LibraryPhoto) -> Page {
+            let style = parent.viewportStyle
             if let page = pages[photo.id] {
-                if page.renderKey != photo.renderKey {
+                if page.renderKey != photo.renderKey || page.style != style {
                     page.renderKey = photo.renderKey
-                    page.rootView = AlbumPhotoPage(photo: photo, images: parent.images, onTap: tap)
+                    page.style = style
+                    page.rootView = AlbumPhotoPage(
+                        photo: photo, images: parent.images, bottomInset: style.bottomInset,
+                        usePortraitReference: style.usePortraitReference, onTap: tap)
                 }
                 return page
             }
-            let page = Page(photo: photo, images: parent.images, onTap: tap)
+            let page = Page(photo: photo, images: parent.images, style: style, onTap: tap)
             pages[photo.id] = page
             return page
         }

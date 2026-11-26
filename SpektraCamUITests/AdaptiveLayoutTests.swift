@@ -73,7 +73,10 @@ final class AdaptiveLayoutTests: XCTestCase {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = orientation
         let app = XCUIApplication(bundleIdentifier: "io.github.runzeni.spektracam")
-        app.launchArguments = ["--ui-test-library", "--reset-test-library", "--ui-test-camera-demo"]
+        app.launchArguments = [
+            "--ui-test-library", "--reset-test-library", "--ui-test-camera-demo",
+            "--ui-test-camera-scene",
+        ]
         app.launch()
         XCTAssertTrue(app.buttons["camera.open"].waitForExistence(timeout: 15))
         app.buttons["camera.open"].tap()
@@ -81,9 +84,29 @@ final class AdaptiveLayoutTests: XCTestCase {
         let hold = app.buttons["camera.hold"]
         XCTAssertTrue(app.buttons["camera.lens.24"].waitForExistence(timeout: 10))
         XCTAssertTrue(shutter.isEnabled)
-        // The hold sits on the shutter's right, under the right thumb.
-        XCTAssertGreaterThanOrEqual(hold.frame.midX, shutter.frame.midX)
+        let window = app.windows.firstMatch.frame
+        let wide = window.width > window.height
+        let finder = app.descendants(matching: .any)["camera.viewfinder"]
+        XCTAssertTrue(finder.waitForExistence(timeout: 5))
+        let finderFrame = finder.frame
+        let expectedAspect = wide ? (4.0 / 3.0) : (3.0 / 4.0)
+        XCTAssertEqual(finderFrame.width / finderFrame.height, expectedAspect, accuracy: 0.03)
         capture(app, prefix + "camera-ready")
+        XCTContext.runActivity(
+            named: "Camera geometry window=\(NSCoder.string(for: window)) finder=\(NSCoder.string(for: finderFrame))"
+        ) { _ in }
+
+        if wide {
+            let expectedRight = orientation != .landscapeRight
+            assertWideCameraAnchors(app, shutterOnRight: expectedRight, finderFrame: finderFrame)
+        } else {
+            // Portrait: hold sits on the shutter's right, under the right thumb.
+            XCTAssertGreaterThanOrEqual(hold.frame.midX, shutter.frame.midX)
+            let exposure = app.sliders["camera.exposure"].frame
+            XCTAssertEqual(exposure.midX, shutter.frame.midX, accuracy: 2)
+            XCTAssertLessThanOrEqual(exposure.width, 260)
+        }
+
         // Flash has two states and starts off.
         let flash = app.buttons["camera.flash"]
         XCTAssertEqual(flash.value as? String, "Off")
@@ -109,18 +132,107 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertTrue(screen.waitForExistence(timeout: 5))
         screen.tap()
         XCTAssertTrue(screen.waitForNonExistence(timeout: 5))
-        // Taller than wide, the EV slider sits on the screen's centre line.
-        let window = app.windows.firstMatch.frame
-        if window.height > window.width {
-            XCTAssertEqual(app.sliders["camera.exposure"].frame.midX, window.midX, accuracy: 2)
+        // EV slider stays compact and reachable; reset returns it to +0.00 EV.
+        let exposureControl = app.sliders["camera.exposure"]
+        if wide {
+            let start = exposureControl.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let end = exposureControl.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18))
+            start.press(forDuration: 0.05, thenDragTo: end)
+        } else {
+            exposureControl.adjust(toNormalizedSliderPosition: 0.75)
         }
+        XCTAssertNotEqual(app.buttons["camera.exposureReset"].value as? String, "+0.00 EV")
+        app.buttons["camera.exposureReset"].tap()
+        XCTAssertEqual(app.buttons["camera.exposureReset"].value as? String, "+0.00 EV")
         // A live camera must still let go: Close returns to a working library.
         app.buttons["camera.close"].tap()
         XCTAssertTrue(app.buttons["library.import"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["camera.open"].isHittable)
     }
+
+    @MainActor private func assertWideCameraAnchors(
+        _ app: XCUIApplication, shutterOnRight: Bool, finderFrame: CGRect
+    ) {
+        XCTAssertEqual(app.buttons.matching(identifier: "camera.close").count, 1)
+        let close = app.buttons["camera.close"].frame
+        let format = app.buttons["camera.format"].frame
+        let exposureInfo = app.descendants(matching: .any)["camera.exposureInfo"].frame
+        let exposure = app.sliders["camera.exposure"].frame
+        let exposureReset = app.buttons["camera.exposureReset"].frame
+        let flash = app.buttons["camera.flash"].frame
+        let flip = app.buttons["camera.flip"].frame
+        let macro = app.buttons["camera.macro"].frame
+        let lens13 = app.buttons["camera.lens.13"].frame
+        let lens24 = app.buttons["camera.lens.24"].frame
+        let lens120 = app.buttons["camera.lens.120"].frame
+        let library = app.buttons["camera.library"].frame
+        let shutter = app.buttons["camera.shutter"].frame
+        let hold = app.buttons["camera.hold"].frame
+
+        XCTAssertEqual(shutter.midY, finderFrame.midY, accuracy: 4)
+        XCTAssertLessThanOrEqual(exposure.height, 260)
+        XCTAssertEqual(close.midX, format.midX, accuracy: 8)
+        XCTAssertEqual(close.midX, exposureInfo.midX, accuracy: 8)
+
+        if shutterOnRight {
+            XCTAssertLessThanOrEqual(close.maxX, finderFrame.minX + 2)
+            XCTAssertGreaterThanOrEqual(exposureReset.minX, finderFrame.maxX - 2)
+            XCTAssertLessThan(exposure.maxX, lens24.minX)
+            XCTAssertLessThan(lens24.maxX, shutter.minX)
+            XCTAssertLessThan(exposureInfo.midY, format.midY)
+            XCTAssertLessThan(format.midY, close.midY)
+            XCTAssertLessThanOrEqual(exposureReset.maxY, exposure.minY + 4)
+            XCTAssertLessThan(flip.midY, lens120.midY)
+            XCTAssertLessThan(lens120.midY, lens24.midY)
+            XCTAssertLessThan(lens24.midY, lens13.midY)
+            XCTAssertLessThan(lens13.midY, macro.midY)
+            XCTAssertLessThan(macro.midY, flash.midY)
+            XCTAssertLessThan(hold.midY, shutter.midY)
+            XCTAssertLessThan(shutter.midY, library.midY)
+        } else {
+            XCTAssertLessThan(shutter.maxX, lens24.minX)
+            XCTAssertLessThan(lens24.maxX, exposure.minX)
+            XCTAssertLessThanOrEqual(exposureReset.maxX, finderFrame.minX + 2)
+            XCTAssertGreaterThanOrEqual(close.minX, finderFrame.maxX - 2)
+            XCTAssertLessThan(close.midY, format.midY)
+            XCTAssertLessThan(format.midY, exposureInfo.midY)
+            XCTAssertLessThanOrEqual(exposure.maxY, exposureReset.minY + 4)
+            XCTAssertLessThan(flash.midY, macro.midY)
+            XCTAssertLessThan(macro.midY, lens13.midY)
+            XCTAssertLessThan(lens13.midY, lens24.midY)
+            XCTAssertLessThan(lens24.midY, lens120.midY)
+            XCTAssertLessThan(lens120.midY, flip.midY)
+            XCTAssertLessThan(library.midY, shutter.midY)
+            XCTAssertLessThan(shutter.midY, hold.midY)
+        }
+    }
+
     @MainActor func testCameraHoldFlashAndShutterInPortrait() { cameraDemo(.portrait, prefix: "tall-") }
     @MainActor func testCameraHoldFlashAndShutterInLandscape() { cameraDemo(.landscapeLeft, prefix: "wide-") }
+    @MainActor func testCameraHoldFlashAndShutterInOppositeLandscape() throws {
+        XCUIDevice.shared.orientation = .landscapeRight
+        let app = XCUIApplication(bundleIdentifier: "io.github.runzeni.spektracam")
+        app.launchArguments = [
+            "--ui-test-library", "--reset-test-library", "--ui-test-camera-demo",
+            "--ui-test-camera-scene",
+        ]
+        app.launch()
+        XCTAssertTrue(app.buttons["camera.open"].waitForExistence(timeout: 15))
+        app.buttons["camera.open"].tap()
+        XCTAssertTrue(app.buttons["camera.lens.24"].waitForExistence(timeout: 10))
+        let window = app.windows.firstMatch.frame
+        try XCTSkipIf(window.width <= window.height, "Device stays portrait-locked in Camera")
+        let finder = app.descendants(matching: .any)["camera.viewfinder"]
+        XCTAssertTrue(finder.waitForExistence(timeout: 5))
+        let close = app.buttons["camera.close"].frame
+        let shutter = app.buttons["camera.shutter"].frame
+        try XCTSkipIf(shutter.midX > finder.frame.midX, "Device stayed in right-shutter wide configuration")
+        capture(app, "wide-left-shutter-camera-ready")
+        assertWideCameraAnchors(app, shutterOnRight: false, finderFrame: finder.frame)
+        XCTAssertGreaterThanOrEqual(close.minX, finder.frame.maxX - 2)
+        app.buttons["camera.close"].tap()
+        XCTAssertTrue(app.buttons["library.import"].waitForExistence(timeout: 10))
+    }
 
     @MainActor func testSideBySideWorkspaceInLandscape() throws {
         let app = try openEditor(.landscapeLeft)

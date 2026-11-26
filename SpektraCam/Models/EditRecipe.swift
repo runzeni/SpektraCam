@@ -67,6 +67,11 @@ nonisolated struct EditRecipe: Codable, Equatable, Sendable {
         var first = LUTSlot()
         var second = LUTSlot(mix: 0)
         var identifiers: Set<String> { Set([first.id, second.id].compactMap { $0 }) }
+        var activeSlots: [LUTSlot] {
+            guard enabled, mode == .lut else { return [] }
+            return [first, second].filter { $0.id != nil && $0.mix > 0 }
+        }
+        var activeIdentifiers: Set<String> { Set(activeSlots.compactMap(\.id)) }
         init() {}
         enum CodingKeys: String, CodingKey { case enabled, mode, first, second }
         init(from decoder: Decoder) throws {
@@ -92,6 +97,7 @@ nonisolated struct EditRecipe: Codable, Equatable, Sendable {
     var printLayout: PrintLayout?
     var filmEdgeSelection: FilmEdgeSelection?
     var filmEdgeLayout: FilmEdgeLayout?
+    var distress: FilmEdgeDistress?
     var temperature: Double?
     var numbers: [String: Double] = [:]
     var flags: [String: Bool] = [:]
@@ -102,7 +108,7 @@ nonisolated struct EditRecipe: Codable, Equatable, Sendable {
         case source, tone, look, monochromeGrain, mix, version, upstreamRevision, filmID, printID,
             scanFilm,
             crop,
-            geometry, printLayout, filmEdgeSelection, filmEdgeLayout, temperature,
+            geometry, printLayout, filmEdgeSelection, filmEdgeLayout, distress, temperature,
             numbers,
             flags, choices
     }
@@ -130,6 +136,7 @@ nonisolated struct EditRecipe: Codable, Equatable, Sendable {
         printLayout = try values.decodeIfPresent(PrintLayout.self, forKey: .printLayout)
         filmEdgeSelection = try values.decodeIfPresent(FilmEdgeSelection.self, forKey: .filmEdgeSelection)
         filmEdgeLayout = try values.decodeIfPresent(FilmEdgeLayout.self, forKey: .filmEdgeLayout)
+        distress = try values.decodeIfPresent(FilmEdgeDistress.self, forKey: .distress)
         temperature = try values.decodeIfPresent(Double.self, forKey: .temperature)
         numbers = try values.decodeIfPresent([String: Double].self, forKey: .numbers) ?? [:]
         flags = try values.decodeIfPresent([String: Bool].self, forKey: .flags) ?? [:]
@@ -153,6 +160,9 @@ nonisolated struct EditRecipe: Codable, Equatable, Sendable {
         numbers = numbers.filter { defaultNumber($0.key) != $0.value }
         flags = flags.filter { ParameterDefinition.byPath[$0.key]?.defaultFlag != $0.value }
         choices = choices.filter { ParameterDefinition.byPath[$0.key]?.defaultChoice != $0.value }
+        if filmEdgeLayout != nil || (distress?.hasCleanPrintEffects != true && distress?.scratchesInImage != true) {
+            distress = nil
+        }
     }
     /// A new stock uses its natural route; a print choice is retained for later printing.
     mutating func selectFilm(_ stock: FilmStock) {
@@ -176,7 +186,14 @@ nonisolated struct EditRecipe: Codable, Equatable, Sendable {
         copy.printLayout = nil
         copy.filmEdgeSelection = nil
         copy.filmEdgeLayout = nil
+        copy.distress = nil
         return copy
+    }
+    var activeCleanPrintDistress: FilmEdgeDistress? {
+        filmEdgeLayout == nil ? distress.flatMap { $0.hasCleanPrintEffects ? $0 : nil } : nil
+    }
+    var needsDarkroomRender: Bool {
+        filmEdgeLayout != nil || activeCleanPrintDistress != nil
     }
     var inputMode: LookMode { look.enabled ? look.mode : .lut }
     func removingLUTs(_ ids: Set<String>) -> Self {

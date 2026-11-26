@@ -1,37 +1,126 @@
 import SwiftUI
 
-/// One standard circular action size for toolbars, photo actions and Compare.
-private struct PhotoActionLabelStyle: LabelStyle {
-    var side: CGFloat = 30
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.icon.frame(width: side, height: side)
+/// One standard circular action size (`44 × 44` visible circle and touch target, matching native
+/// navigation bar items) shared across toolbars, floating photo actions, Compare, Loupe, and Crop.
+private struct CircularActionSurface<Content: View>: View {
+    var selected = false
+    var prominent = false
+    var destructive = false
+    var isPressed = false
+    @ViewBuilder let content: () -> Content
+    @Environment(\.isEnabled) private var isEnabled
+
+    private var activeFill: Bool { isEnabled && (prominent || selected) }
+
+    private var foreground: AnyShapeStyle {
+        if !isEnabled { return AnyShapeStyle(Color.secondary.opacity(0.42)) }
+        if activeFill { return AnyShapeStyle(.onAccent) }
+        if destructive { return AnyShapeStyle(Color.red) }
+        return AnyShapeStyle(Color.primary)
     }
-}
-private struct PhotoActionStyle: ViewModifier {
-    func body(content: Content) -> some View {
-        content.labelStyle(PhotoActionLabelStyle())
-            .font(.system(size: 17, weight: .medium))
-            .controlSize(.regular).buttonStyle(.glass).buttonBorderShape(.circle)
+
+    var body: some View {
+        content()
+            .labelStyle(.iconOnly)
+            .imageScale(.large)
+            .font(.system(size: 17, weight: activeFill ? .semibold : .medium))
+            .foregroundStyle(foreground)
             .frame(width: 44, height: 44)
+            .modifier(CircularActionGlassModifier(activeFill: activeFill))
+            .opacity(isPressed ? 0.82 : 1)
+            .contentShape(.circle)
     }
 }
+
+private struct CircularActionGlassModifier: ViewModifier {
+    let activeFill: Bool
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            if activeFill {
+                content
+                    .background(Color.accentColor, in: .circle)
+                    .glassEffect(.regular.tint(Color.accentColor).interactive(), in: .circle)
+            } else {
+                content
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+        } else {
+            content
+                .background(
+                    activeFill ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.regularMaterial),
+                    in: .circle
+                )
+                .overlay {
+                    if !activeFill {
+                        Circle().strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.5)
+                    }
+                }
+        }
+    }
+}
+
+private struct PhotoActionButtonStyle: ButtonStyle {
+    var selected = false
+    var prominent = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        CircularActionSurface(
+            selected: selected,
+            prominent: prominent,
+            destructive: configuration.role == .destructive,
+            isPressed: configuration.isPressed
+        ) {
+            configuration.label
+        }
+    }
+}
+
+/// Matching `40 × 40` / `44 × 44` circular surface for `Menu` labels (History, Revert, Crop overflow).
+struct PhotoActionMenuLabel: View {
+    let title: String
+    let systemImage: String
+    var selected = false
+    var prominent = false
+    var isPressed = false
+
+    var body: some View {
+        CircularActionSurface(selected: selected, prominent: prominent, isPressed: isPressed) {
+            Label(title, systemImage: systemImage)
+        }
+    }
+}
+
 extension View {
-    func photoActionStyle() -> some View { modifier(PhotoActionStyle()) }
+    func photoActionStyle(selected: Bool = false, prominent: Bool = false) -> some View {
+        buttonStyle(PhotoActionButtonStyle(selected: selected, prominent: prominent))
+    }
 }
 
 /// Reuse the root camera presentation from the library, photo and editor.
+private struct CameraActionKey: EnvironmentKey { static let defaultValue: (() -> Void)? = nil }
+extension EnvironmentValues {
+    var openCamera: (() -> Void)? {
+        get { self[CameraActionKey.self] }
+        set { self[CameraActionKey.self] = newValue }
+    }
+}
+
 struct CameraButton: View {
     var prominent = false
     @Environment(\.openCamera) private var openCamera
     var body: some View {
         Group {
             if prominent {
-                action.labelStyle(PhotoActionLabelStyle(side: 24))
-                    .buttonStyle(.glassProminent).controlSize(.large).tint(Color.accentColor)
+                action
+                    .labelStyle(.iconOnly)
+                    .imageScale(.large)
+                    .font(.system(size: 18, weight: .semibold))
+                    .adaptiveGlassButton(prominent: true).controlSize(.large).tint(Color.accentColor)
                     .foregroundStyle(.onAccent)
                     .frame(width: 52, height: 52)
             } else {
-                action.photoActionStyle()
+                action
+                    .photoActionStyle(prominent: true)
             }
         }
         .disabled(openCamera == nil)
@@ -52,12 +141,18 @@ struct PhotoThumbnail: View {
     let photo: LibraryPhoto
     let images: LibraryImages
     var showsBadges = true
-    @State private var image: UIImage?
+    var bypassesPause = false
+    var placeholder: UIImage? = nil
+    @State private var loaded: (id: UUID, image: UIImage)?
     @State private var failed = false
+    private var displayedImage: UIImage? {
+        if let loaded, loaded.id == photo.id { return loaded.image }
+        return placeholder
+    }
     var body: some View {
         Color(uiColor: .secondarySystemBackground)
             .overlay {
-                if let image {
+                if let image = displayedImage {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else if failed {
                     Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
@@ -76,13 +171,20 @@ struct PhotoThumbnail: View {
             }
             .task(id: "\(photo.id)-\(photo.renderKey)") {
                 failed = false
+                if let cached = await images.cachedThumbnail(photo) {
+                    guard !Task.isCancelled else { return }
+                    loaded = (photo.id, UIImage(cgImage: cached))
+                    return
+                }
                 do {
-                    let frame = try await images.image(photo, thumbnail: true)
+                    let frame = bypassesPause
+                        ? try await images.cameraThumbnail(photo)
+                        : try await images.image(photo, thumbnail: true)
                     try Task.checkCancellation()
-                    image = UIImage(cgImage: frame)
+                    loaded = (photo.id, UIImage(cgImage: frame))
                 } catch { if !Task.isCancelled { failed = true } }
             }
-            .onDisappear { image = nil }
+            .onDisappear { loaded = nil }
             .accessibilityHidden(true)
     }
 }

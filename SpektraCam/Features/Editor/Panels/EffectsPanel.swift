@@ -15,7 +15,7 @@ struct EffectsPanel: View {
     var section: Section = .grain
     @State private var confirmStockGrain = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             switch section {
             case .grain:
                 EffectSection(
@@ -32,9 +32,8 @@ struct EffectsPanel: View {
                     String(localized: "effects.use_stock_grain", defaultValue: "Use Stock Grain"),
                     systemImage: "arrow.counterclockwise"
                 ) { confirmStockGrain = true }
-                .buttonStyle(.glass).controlSize(.small).accessibilityIdentifier(
-                    "grain.stockDefaults"
-                )
+                .capsuleActionButton()
+                .accessibilityIdentifier("grain.stockDefaults")
                 .confirmationDialog(
                     String(
                         localized: "effects.use_stock_grain_confirm",

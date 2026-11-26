@@ -13,6 +13,9 @@ struct CropControls: View {
     let reset: () -> Void
     let done: () -> Void
     let canReset: Bool
+    var showsBackground = true
+    var onSelectFilmFrame: ((FilmEdgeLayout.FrameChoice) -> Void)? = nil
+    var onSetFilmOrientation: ((CropOrientation) -> Void)? = nil
     var onStraightenEditingChanged: (Bool) -> Void = { _ in }
 
     private let common: [CropAspect] = [
@@ -22,7 +25,11 @@ struct CropControls: View {
     var body: some View {
         VStack(spacing: 0) {
             Group {
-                if typeSize.isAccessibilitySize {
+                if !showsBackground {
+                    ScrollView { controls }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                } else if typeSize.isAccessibilitySize {
                     ScrollView { controls }
                         .frame(height: 280)
                         .clipped()
@@ -32,19 +39,22 @@ struct CropControls: View {
             }
             HStack {
                 Button(String(localized: "editor.reset", defaultValue: "Reset"), action: reset)
-                    .buttonStyle(.glass).disabled(!canReset)
+                    .adaptiveGlassButton().disabled(!canReset)
                     .accessibilityLabel(String(localized: "editor.reset_crop", defaultValue: "Reset Crop"))
                     .accessibilityIdentifier("crop.reset")
                 Spacer()
                 Button(String(localized: "common.done", defaultValue: "Done"),
                     systemImage: "checkmark", action: done)
-                    .buttonStyle(.glassProminent).foregroundStyle(.onAccent)
+                    .adaptiveGlassButton(prominent: true).foregroundStyle(.onAccent)
                     .accessibilityIdentifier("crop.done")
             }
             .controlSize(.regular).frame(minHeight: 44)
-            .padding(.horizontal, 16).padding(.bottom, 8)
-        }.background(.background)
-            .onChange(of: geometry.straightenDegrees) { _, angle in
+            .padding(.horizontal, 16).padding(.bottom, showsBackground ? 8 : 12)
+        }
+        .background {
+            if showsBackground { Rectangle().fill(.background) }
+        }
+        .onChange(of: geometry.straightenDegrees) { _, angle in
                 if angle == 0 {
                     geometry.framingX = 0
                     geometry.framingY = 0
@@ -55,10 +65,7 @@ struct CropControls: View {
     private var controls: some View {
         VStack(spacing: 12) {
             if let filmGate {
-                LabeledContent(String(localized: "darkroom.edge.fixed_gate", defaultValue: "Fixed film gate"),
-                    value: filmGate.gateTitle(portrait: crop.orientation == .portrait))
-                    .font(.footnote).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("crop.filmGate")
+                filmFrameControls(filmGate)
             } else {
                 aspectControls
             }
@@ -74,13 +81,50 @@ struct CropControls: View {
                     if filmGate?.isSquare != true { HStack { orientationButtons } }
                 }
             }
-            .buttonStyle(.glass)
-            .controlSize(.large)
 
             straightenControls
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+    }
+
+    private func filmFrameControls(_ filmGate: FilmEdgeLayout) -> some View {
+        let selection = Binding(
+            get: { filmGate.frameChoice },
+            set: { choice in onSelectFilmFrame?(choice) }
+        )
+        return HStack(spacing: 8) {
+            Text(String(localized: "crop.film_frame", defaultValue: "Film frame"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Menu {
+                Picker("135", selection: selection) {
+                    ForEach(FilmEdgeLayout.FrameChoice.section135) { choice in
+                        Text(choice.menuTitle).tag(choice)
+                    }
+                }
+                .pickerStyle(.inline)
+                Picker("120", selection: selection) {
+                    ForEach(FilmEdgeLayout.FrameChoice.section120) { choice in
+                        Text(choice.menuTitle).tag(choice)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                CapsuleActionSurface {
+                    HStack(spacing: 5) {
+                        Text(filmGate.frameChoice.closedTitle)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .accessibilityLabel(String(localized: "crop.film_frame", defaultValue: "Film frame"))
+            .accessibilityValue(filmGate.frameChoice.closedTitle)
+            .accessibilityIdentifier("crop.filmGate")
+        }
     }
 
     private var aspectControls: some View {
@@ -91,16 +135,13 @@ struct CropControls: View {
                             Button(aspect.title) {
                                 crop.setAspect(aspect, imageAspect: imageAspect)
                             }
-                            .buttonStyle(.bordered)
-                            .buttonBorderShape(.capsule)
-                            .tint(crop.aspect == aspect ? Color.accentColor : .secondary)
+                            .capsuleActionButton(selected: crop.aspect == aspect)
                             .accessibilityAddTraits(crop.aspect == aspect ? .isSelected : [])
                             .accessibilityIdentifier("crop.ratio.\(aspect.id)")
                         }
                     }
                 }.scrollIndicators(.hidden)
-                Menu(String(localized: "crop.more", defaultValue: "More"), systemImage: "ellipsis")
-                {
+                Menu {
                     ForEach(
                         CropAspect.allCases.filter {
                             !common.contains($0)
@@ -109,8 +150,12 @@ struct CropControls: View {
                     ) { aspect in
                         Button(aspect.title) { crop.setAspect(aspect, imageAspect: imageAspect) }
                     }
+                } label: {
+                    PhotoActionMenuLabel(
+                        title: String(localized: "crop.more", defaultValue: "More"),
+                        systemImage: "ellipsis"
+                    )
                 }
-                .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle)
                 .accessibilityLabel(
                     String(localized: "crop.more_aspect_ratios", defaultValue: "More Aspect Ratios")
                 )
@@ -129,7 +174,7 @@ struct CropControls: View {
                         Text(String(localized: "crop.straighten", defaultValue: "Straighten"))
                         straightenValue
                     }
-                }.font(.subheadline)
+                }.font(.footnote)
                 DefaultSlider(
                     value: $geometry.straightenDegrees, range: -45...45, step: 0.1,
                     title: String(localized: "crop.straighten", defaultValue: "Straighten"),
@@ -168,8 +213,9 @@ struct CropControls: View {
     private func transform(_ title: String, symbol: String, action: @escaping () -> Void)
         -> some View
     {
-        Button(action: action) { Image(systemName: symbol).frame(width: 24, height: 24) }
-            .accessibilityLabel(title).buttonStyle(.glass).buttonBorderShape(.circle)
+        Button(title, systemImage: symbol, action: action)
+            .photoActionStyle()
+            .accessibilityLabel(title)
     }
 
     private var orientationButtons: some View {
@@ -178,18 +224,26 @@ struct CropControls: View {
                 String(localized: "crop.portrait", defaultValue: "Portrait"),
                 systemImage: "rectangle.portrait"
             ) {
-                crop.setOrientation(.portrait, imageAspect: imageAspect)
+                if filmGate != nil, let onSetFilmOrientation {
+                    onSetFilmOrientation(.portrait)
+                } else {
+                    crop.setOrientation(.portrait, imageAspect: imageAspect)
+                }
             }
-            .tint(crop.orientation == .portrait ? Color.accentColor : .secondary)
+            .capsuleActionButton(selected: crop.orientation == .portrait)
             .accessibilityAddTraits(crop.orientation == .portrait ? .isSelected : [])
             .accessibilityIdentifier("crop.portrait")
             Button(
                 String(localized: "crop.landscape", defaultValue: "Landscape"),
                 systemImage: "rectangle"
             ) {
-                crop.setOrientation(.landscape, imageAspect: imageAspect)
+                if filmGate != nil, let onSetFilmOrientation {
+                    onSetFilmOrientation(.landscape)
+                } else {
+                    crop.setOrientation(.landscape, imageAspect: imageAspect)
+                }
             }
-            .tint(crop.orientation == .landscape ? Color.accentColor : .secondary)
+            .capsuleActionButton(selected: crop.orientation == .landscape)
             .accessibilityAddTraits(crop.orientation == .landscape ? .isSelected : [])
             .accessibilityIdentifier("crop.landscape")
         }.labelStyle(.titleAndIcon)

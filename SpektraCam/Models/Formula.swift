@@ -10,7 +10,7 @@ nonisolated struct Formula: Identifiable, Equatable, Sendable {
     /// The newest version of each part this build reads. Raise one only when stored values
     /// change meaning; a field that is merely added decodes with its default and needs no bump.
     /// A Darkroom upgrade raises only Darkroom, and older builds still apply the Look.
-    static let readable: [EditRecipe.Part: Int] = [.look: 1, .exposure: 1, .darkroom: 1]
+    static let readable: [EditRecipe.Part: Int] = [.look: 2, .exposure: 2, .darkroom: 1]
 
     /// Enough to ask for the right file: a LUT's id is the SHA-256 of its bytes.
     struct LUT: Codable, Equatable, Identifiable, Sendable {
@@ -40,6 +40,8 @@ nonisolated struct Formula: Identifiable, Equatable, Sendable {
     var created: Date
     /// Parts this build can apply, in process order.
     var parts: [EditRecipe.Part]
+    /// Per-part version read from or written to the formula file, preserving v1.0 semantics.
+    let partVersions: [EditRecipe.Part: Int]
     /// Parts in the file that need a newer SpektraCam. They stay in the file as written.
     var unreadable: [String]
     var recipe: EditRecipe
@@ -47,17 +49,40 @@ nonisolated struct Formula: Identifiable, Equatable, Sendable {
 
     /// A new formula from an edit. Only the chosen parts are kept, so a part the author left
     /// out is not carried along in the file.
-    init(name: String, note: String = "", parts: Set<EditRecipe.Part>, from source: EditRecipe, luts: [LUT]) throws {
+    init(
+        name: String, note: String = "", parts: Set<EditRecipe.Part>, from source: EditRecipe,
+        luts: [LUT], neutralTemperature: Double? = nil
+    ) throws {
         id = UUID()
         self.name = try Self.validated(name)
         self.note = note.trimmingCharacters(in: .whitespacesAndNewlines)
         created = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))  // As stored.
-        let clip = LookClip(source)
-        self.parts = clip.parts.filter(parts.contains)
+        var normalized = source
+        if let neutralTemperature, let kelvin = normalized.temperature,
+            abs(kelvin - neutralTemperature) <= 0.5
+        {
+            normalized.temperature = nil
+        }
+        let clip = LookClip(normalized)
+        self.parts = clip.parts(neutralTemperature: neutralTemperature).filter(parts.contains)
+        partVersions = Dictionary(uniqueKeysWithValues: self.parts.map { ($0, Self.readable[$0] ?? 1) })
         unreadable = []
-        let kept = EditRecipe().taking(Set(self.parts), from: clip.recipe, rawTarget: true)
+        var kept = EditRecipe().taking(Set(self.parts), from: clip.recipe, rawTarget: true)
+        if self.parts.contains(.look) {
+            if !kept.look.enabled || kept.look.mode != .lut {
+                kept.look.first = EditRecipe.LUTSlot()
+                kept.look.second = EditRecipe.LUTSlot(mix: 0)
+            } else {
+                if kept.look.first.id == nil || kept.look.first.mix <= 0 {
+                    kept.look.first = EditRecipe.LUTSlot(id: nil, mix: kept.look.first.mix)
+                }
+                if kept.look.second.id == nil || kept.look.second.mix <= 0 {
+                    kept.look.second = EditRecipe.LUTSlot(id: nil, mix: 0)
+                }
+            }
+        }
         recipe = kept
-        self.luts = self.parts.contains(.look) ? luts.filter { kept.look.identifiers.contains($0.id) } : []
+        self.luts = self.parts.contains(.look) ? luts.filter { kept.look.activeIdentifiers.contains($0.id) } : []
     }
     static func validated(_ name: String) throws -> String {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -67,13 +92,20 @@ nonisolated struct Formula: Identifiable, Equatable, Sendable {
     /// LUTs the formula calls for that are not installed.
     func missingLUTs(installed: Set<String>) -> [LUT] {
         guard parts.contains(.look) else { return [] }
-        let needed = recipe.look.identifiers.subtracting(installed)
+        let needed = recipe.look.activeIdentifiers.subtracting(installed)
         return needed.sorted().map { id in luts.first { $0.id == id } ?? LUT(id: id, name: "", size: 0) }
+    }
+    /// Apply this formula's readable parts to `base`, respecting stored per-part versions.
+    func applied(
+        to base: EditRecipe, parts subset: Set<EditRecipe.Part>? = nil, rawTarget: Bool
+    ) -> EditRecipe {
+        let chosen = Set(parts).intersection(subset ?? Set(parts))
+        return base.taking(chosen, from: recipe, rawTarget: rawTarget, partVersions: partVersions)
     }
 
     // MARK: File
 
-    private static let darkroomKeys = ["printLayout", "filmEdgeSelection", "filmEdgeLayout"]
+    private static let darkroomKeys = ["printLayout", "filmEdgeSelection", "filmEdgeLayout", "distress"]
     private struct File: Encodable {
         let format: Int, id: UUID, name: String, note: String, created: Date
         let parts: [String: Int]
@@ -85,7 +117,7 @@ nonisolated struct Formula: Identifiable, Equatable, Sendable {
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
         encoder.dateEncodingStrategy = .iso8601
         var versions: [String: Int] = [:]
-        for part in parts { versions[part.rawValue] = Self.readable[part] }
+        for part in parts { versions[part.rawValue] = partVersions[part] ?? Self.readable[part] }
         return try encoder.encode(
             File(
                 format: Self.format, id: id, name: name, note: note, created: created,
@@ -110,12 +142,14 @@ nonisolated struct Formula: Identifiable, Equatable, Sendable {
             (file["created"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
             ?? Date(timeIntervalSince1970: 0)
         var readable: [EditRecipe.Part] = []
+        var decodedVersions: [EditRecipe.Part: Int] = [:]
         var newer: [String] = []
         for (key, value) in versions {
             if let part = EditRecipe.Part(rawValue: key), let version = (value as? NSNumber)?.intValue,
                 version >= 1, version <= Self.readable[part] ?? 0
             {
                 readable.append(part)
+                decodedVersions[part] = version
             } else {
                 newer.append(key)
             }
@@ -133,6 +167,7 @@ nonisolated struct Formula: Identifiable, Equatable, Sendable {
             decoded = decode(stored)
             if decoded != nil {
                 readable.removeAll { $0 == .darkroom }
+                decodedVersions.removeValue(forKey: .darkroom)
                 newer.append(EditRecipe.Part.darkroom.rawValue)
             }
         }
@@ -142,8 +177,10 @@ nonisolated struct Formula: Identifiable, Equatable, Sendable {
             recipe = EditRecipe()
             newer += readable.map(\.rawValue)
             readable = []
+            decodedVersions = [:]
         }
         parts = EditRecipe.Part.allCases.filter(readable.contains)
+        partVersions = decodedVersions
         unreadable = newer.sorted()
         luts =
             (file["luts"] as? [[String: Any]] ?? []).compactMap { entry in
@@ -270,7 +307,7 @@ nonisolated extension EditRecipe {
         if let id = look.first.id, !Self.validLUT(id) { copy.look.first.id = nil }
         if let id = look.second.id, !Self.validLUT(id) { copy.look.second.id = nil }
         copy.tone.exposureEV = finite(tone.exposureEV, 0, -10...10)
-        copy.tone.contrast = finite(tone.contrast, 1, 0.65...1.35)
+        copy.tone.contrast = finite(tone.contrast, 1, 0.30...1.70)
         copy.tone.pivot = finite(tone.pivot, 0.35, 0...1)
         copy.tone.shadows = finite(tone.shadows, 0, -5...5)
         copy.tone.highlights = finite(tone.highlights, 0, -5...5)

@@ -5,6 +5,7 @@ struct PhotoFilmstrip: View {
     let photos: [LibraryPhoto]
     let images: LibraryImages
     @Binding var selection: UUID
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
@@ -14,13 +15,13 @@ struct PhotoFilmstrip: View {
                             selection = photo.id
                         } label: {
                             PhotoThumbnail(photo: photo, images: images, showsBadges: false)
-                                .frame(width: 44, height: 56)
+                                .frame(width: 42, height: 54)
                                 .clipShape(.rect(cornerRadius: 6))
                                 .overlay {
                                     RoundedRectangle(cornerRadius: 6)
                                         .strokeBorder(
                                             photo.id == selection ? Color.accentColor : .clear,
-                                            lineWidth: 3)
+                                            lineWidth: 2.5)
                                 }
                         }
                         .buttonStyle(.plain).id(photo.id)
@@ -36,16 +37,22 @@ struct PhotoFilmstrip: View {
                         .accessibilityIdentifier("photo.filmstrip.\(photo.id)")
                     }
                 }
-                .padding(8)
             }
             .scrollIndicators(.hidden)
-            .frame(height: 72)
-            .frame(maxWidth: CGFloat(photos.count * 50 + 10))
-            .glassEffect(in: .rect(cornerRadius: 16))
+            .frame(height: 54)
+            .clipShape(.rect(cornerRadius: 6))
+            .padding(7)
+            .frame(height: 68)
+            .frame(maxWidth: CGFloat(max(1, photos.count) * 48 + 8))
+            .adaptiveGlassRect(cornerRadius: 13)
             .accessibilityIdentifier("photo.filmstrip")
             .onAppear { proxy.scrollTo(selection, anchor: .center) }
             .onChange(of: selection) { _, id in
-                withAnimation { proxy.scrollTo(id, anchor: .center) }
+                if reduceMotion {
+                    proxy.scrollTo(id, anchor: .center)
+                } else {
+                    withAnimation(.snappy(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
+                }
             }
         }
     }

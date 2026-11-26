@@ -14,7 +14,9 @@ struct ZoomablePhoto: UIViewRepresentable {
     let image: UIImage
     var topAligned = false
     var topInset: CGFloat = 0
+    var bottomInset: CGFloat = 0
     var zoomedTopInset: CGFloat = 0
+    var zoomedBottomInset: CGFloat = 0
     var fitCenterY: CGFloat? = nil
     var label = String(localized: "photo.edited_photo", defaultValue: "Edited photo")
     var onTap: ((CGPoint) -> Void)?
@@ -28,7 +30,9 @@ struct ZoomablePhoto: UIViewRepresentable {
         view.photoView.accessibilityLabel = label
         view.topAligned = topAligned
         view.topInset = topInset
+        view.bottomInset = bottomInset
         view.zoomedTopInset = zoomedTopInset
+        view.zoomedBottomInset = zoomedBottomInset
         view.fitCenterY = fitCenterY
         view.photoView.accessibilityTraits = .image
         view.photoView.accessibilityCustomActions = [
@@ -36,14 +40,17 @@ struct ZoomablePhoto: UIViewRepresentable {
                 name: String(localized: "photo.zoom_in", defaultValue: "Zoom in")
             ) { [weak view] _ in
                 guard let view else { return false }
-                view.setZoomScale(min(view.zoomScale * 2, view.maximumZoomScale), animated: true)
+                view.setZoomScale(
+                    min(view.zoomScale * 2, view.maximumZoomScale),
+                    animated: !UIAccessibility.isReduceMotionEnabled)
                 return true
             },
             UIAccessibilityCustomAction(
                 name: String(localized: "photo.fit", defaultValue: "Fit photo")
             ) { [weak view] _ in
                 guard let view else { return false }
-                view.setZoomScale(view.minimumZoomScale, animated: true)
+                view.setZoomScale(
+                    view.minimumZoomScale, animated: !UIAccessibility.isReduceMotionEnabled)
                 return true
             },
         ]
@@ -70,7 +77,9 @@ struct ZoomablePhoto: UIViewRepresentable {
         context.coordinator.onTap = onTap
         view.topAligned = topAligned
         view.topInset = topInset
+        view.bottomInset = bottomInset
         view.zoomedTopInset = zoomedTopInset
+        view.zoomedBottomInset = zoomedBottomInset
         view.fitCenterY = fitCenterY
         view.photoView.accessibilityLabel = label
         view.detailProvider = detail
@@ -101,8 +110,9 @@ struct ZoomablePhoto: UIViewRepresentable {
         }
         @objc func doubleTap(_ recognizer: UITapGestureRecognizer) {
             guard let view = recognizer.view as? PhotoScrollView else { return }
+            let animated = !UIAccessibility.isReduceMotionEnabled
             if view.zoomScale > view.minimumZoomScale * 1.05 {
-                view.setZoomScale(view.minimumZoomScale, animated: true)
+                view.setZoomScale(view.minimumZoomScale, animated: animated)
             } else {
                 let scale = min(view.minimumZoomScale * 2.5, view.maximumZoomScale)
                 let point = recognizer.location(in: view.photoView)
@@ -110,7 +120,7 @@ struct ZoomablePhoto: UIViewRepresentable {
                     x: point.x - view.bounds.width / scale / 2,
                     y: point.y - view.bounds.height / scale / 2,
                     width: view.bounds.width / scale, height: view.bounds.height / scale)
-                view.zoom(to: rect, animated: true)
+                view.zoom(to: rect, animated: animated)
             }
         }
     }
@@ -120,7 +130,9 @@ final class PhotoScrollView: UIScrollView {
     let photoView = UIImageView()
     var topAligned = false
     var topInset: CGFloat = 0
+    var bottomInset: CGFloat = 0
     var zoomedTopInset: CGFloat = 0
+    var zoomedBottomInset: CGFloat = 0
     var fitCenterY: CGFloat? = nil
     private var imageSize = CGSize.zero
     private var lastBounds = CGSize.zero
@@ -129,7 +141,9 @@ final class PhotoScrollView: UIScrollView {
 
     // Zoomed detail: the base image stays in place and a sharper render of the visible
     // region is laid over it once the view settles.
-    typealias DetailProvider = @MainActor @Sendable (_ visible: CGRect, _ longEdge: Int) async -> PhotoRenderer.Detail?
+    struct DetailProvider: Sendable {
+        let fetch: @MainActor @Sendable (_ visible: CGRect, _ longEdge: Int) async -> PhotoRenderer.Detail?
+    }
     let detailView = UIImageView()
     var detailProvider: DetailProvider? {
         didSet { if detailProvider == nil { clearDetail() } }
@@ -178,7 +192,7 @@ final class PhotoScrollView: UIScrollView {
             guard !Task.isCancelled else { return }
             let wide = unit.insetBy(dx: -0.2 * unit.width, dy: -0.2 * unit.height)
                 .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
-            guard let detail = await provider(wide, needed), !Task.isCancelled, let self,
+            guard let detail = await provider.fetch(wide, needed), !Task.isCancelled, let self,
                 generation == self.detailGeneration, self.imageSize.width > 0
             else { return }
             let size = self.imageSize
@@ -235,7 +249,8 @@ final class PhotoScrollView: UIScrollView {
             let saved = pendingViewport ?? (lastBounds == .zero ? nil : viewport())
             let relative = saved?.zoom ?? 1
             let fit = min(
-                bounds.width / imageSize.width, max(1, bounds.height - topInset) / imageSize.height)
+                bounds.width / imageSize.width,
+                max(1, bounds.height - topInset - bottomInset) / imageSize.height)
             lastBounds = bounds.size
             minimumZoomScale = fit
             maximumZoomScale = max(fit * 8, 1)
@@ -274,14 +289,16 @@ final class PhotoScrollView: UIScrollView {
         let horizontal = max(0, (bounds.width - contentSize.width) / 2)
         let zoomed = zoomScale > minimumZoomScale * 1.05
         let reserve = zoomed ? zoomedTopInset : topInset
-        let space = max(0, bounds.height - reserve - contentSize.height)
+        let bottomReserve = zoomed ? zoomedBottomInset : bottomInset
+        let space = max(0, bounds.height - reserve - bottomReserve - contentSize.height)
         let center = !zoomed ? fitCenterY : nil
         let vertical = topAligned ? 0 : center.map {
             min(max($0 - contentSize.height / 2 - reserve, 0), space)
         } ?? space / 2
-        let bottom = center != nil && !topAligned ? space - vertical : vertical
+        let remaining = center != nil && !topAligned ? space - vertical : vertical
         let insets = UIEdgeInsets(
-            top: reserve + vertical, left: horizontal, bottom: bottom, right: horizontal)
+            top: reserve + vertical, left: horizontal, bottom: bottomReserve + remaining,
+            right: horizontal)
         if contentInset != insets { contentInset = insets }
         photoView.accessibilityValue = String(
             format: String(
@@ -293,7 +310,9 @@ final class PhotoScrollView: UIScrollView {
 /// The summary's collapsed edge is the same for every photo, even while details expand.
 struct PhotoViewport: View {
     let image: UIImage
-    var topInset: CGFloat = PhotoInfoPanel.collapsedHeight + 12
+    var topInset: CGFloat = PhotoInfoPanel.collapsedHeight + 4
+    var bottomInset: CGFloat = 0
+    var zoomedBottomInset: CGFloat = 0
     var edited = true
     var topAligned = true
     var usePortraitReference = false
@@ -302,10 +321,14 @@ struct PhotoViewport: View {
     var body: some View {
         GeometryReader { proxy in
             ZoomablePhoto(
-                image: image, topAligned: topAligned, topInset: topInset,
-                zoomedTopInset: topInset > 0 ? 4 : 0,
+                image: image, topAligned: topAligned, topInset: topInset, bottomInset: bottomInset,
+                zoomedTopInset: topInset > 0 ? topInset : 0,
+                zoomedBottomInset: zoomedBottomInset,
                 fitCenterY: usePortraitReference
-                    ? topInset + min(proxy.size.width * 4 / 3, max(1, proxy.size.height - topInset)) / 2
+                    ? topInset
+                        + min(
+                            proxy.size.width * 4 / 3,
+                            max(1, proxy.size.height - topInset - bottomInset)) / 2
                     : nil,
                 label: edited
                     ? String(localized: "photo.edited_photo", defaultValue: "Edited photo")

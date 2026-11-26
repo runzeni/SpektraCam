@@ -5,8 +5,13 @@ import UIKit
 /// rendered pixels (double-tap for 200 %), from a full-resolution frame when one is ready.
 /// Drag it anywhere over the light table; it starts in the upper right.
 struct DarkroomLoupe: View {
+    static let viewportCoordinateSpace = "darkroom.viewport"
     /// The best available pixels for the photograph and where it sits on screen.
-    let image: UIImage
+    let image: UIImage?
+    var imageSubRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    var canvasFill: Color? = nil
+    var canvasFillRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    let center: CGPoint
     let imageFrame: CGRect
     let paperFrame: CGRect
     let bounds: CGSize
@@ -23,40 +28,70 @@ struct DarkroomLoupe: View {
     var blades: CGImage? = nil
     /// Reports the part of the photograph under the lens (unit coordinates of `imageFrame`).
     var onInspect: ((CGRect) -> Void)? = nil
-    @Binding var center: CGPoint?
-    @State private var widest: CGFloat = 0
+    /// Normalized position in `paperFrame` unit coordinates (`nil` rests in the upper right).
+    @Binding var anchor: CGPoint?
     @State private var doubled = false
-    @State private var dragOrigin: CGPoint?
+    @GestureState private var dragOrigin: CGPoint? = nil
     @Environment(\.displayScale) private var displayScale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static let diameter: CGFloat = 156
+    static let defaultAnchor = CGPoint(x: 0.86, y: 0.20)
     private let rim: CGFloat = 9
 
-    private var resolvedCenter: CGPoint {
-        let r = Self.diameter / 2
-        let fallback = CGPoint(x: bounds.width - r - 10, y: r + 10)
-        let c = center ?? fallback
-        return CGPoint(x: min(max(c.x, 0), bounds.width), y: min(max(c.y, 0), bounds.height))
+    static func resolvedCenter(anchor: CGPoint?, paperFrame: CGRect, bounds: CGSize) -> CGPoint {
+        let r = diameter / 2
+        if let anchor, paperFrame.width > 0, paperFrame.height > 0 {
+            let raw = CGPoint(
+                x: paperFrame.minX + anchor.x * paperFrame.width,
+                y: paperFrame.minY + anchor.y * paperFrame.height
+            )
+            return CGPoint(
+                x: min(max(raw.x, 0), max(0, bounds.width)),
+                y: min(max(raw.y, 0), max(0, bounds.height))
+            )
+        }
+        let raw: CGPoint
+        if paperFrame.width > 0, paperFrame.height > 0 {
+            raw = CGPoint(
+                x: paperFrame.minX + defaultAnchor.x * paperFrame.width,
+                y: paperFrame.minY + defaultAnchor.y * paperFrame.height
+            )
+        } else {
+            raw = CGPoint(x: bounds.width - r - 10, y: r + 10)
+        }
+        let minX = min(r + 10, bounds.width / 2)
+        let maxX = max(minX, bounds.width - r - 10)
+        let minY = min(r + 10, bounds.height / 2)
+        let maxY = max(minY, bounds.height - r - 10)
+        return CGPoint(
+            x: min(max(raw.x, minX), maxX),
+            y: min(max(raw.y, minY), maxY)
+        )
     }
+
     private var inspected: CGRect {
-        let c = resolvedCenter, half = Self.diameter / 2 / zoom
+        let c = center, half = Self.diameter / 2 / zoom
         let w = max(imageFrame.width, 1), h = max(imageFrame.height, 1)
         return CGRect(x: (c.x - half - imageFrame.minX) / w, y: (c.y - half - imageFrame.minY) / h,
                       width: 2 * half / w, height: 2 * half / h)
     }
     private var pixelWidth: CGFloat {
-        CGFloat(image.cgImage?.width ?? Int(image.size.width * image.scale))
+        guard let image else { return 0 }
+        return CGFloat(image.cgImage?.width ?? Int(image.size.width * image.scale))
     }
     /// Loupe points per screen point, so one rendered pixel covers one device pixel at 100 %.
     private var zoom: CGFloat {
-        let native = max(fullWidth ?? 0, widest, pixelWidth) / max(imageFrame.width, 1) / displayScale
+        let nativePixels = fullWidth ?? (pixelWidth / max(imageSubRect.width, 0.1))
+        let native = nativePixels / max(imageFrame.width, 1) / max(displayScale, 1)
         return max(native, 1.5) * (doubled ? 2 : 1)
     }
 
     var body: some View {
-        let c = resolvedCenter, z = zoom, d = Self.diameter
-        let offset = { (p: CGPoint) in CGPoint(x: d / 2 + (p.x - c.x) * z, y: d / 2 + (p.y - c.y) * z) }
-        let paperOrigin = offset(paperFrame.origin)
+        let c = center, z = zoom, d = Self.diameter
+        let paperOrigin = CGPoint(
+            x: d / 2 + (paperFrame.minX - c.x) * z,
+            y: d / 2 + (paperFrame.minY - c.y) * z
+        )
         ZStack {
             ZStack(alignment: .topLeading) {
                 surround
@@ -64,6 +99,8 @@ struct DarkroomLoupe: View {
                 PrintSheet(image: image, size: CGSize(width: paperFrame.width * z, height: paperFrame.height * z),
                            imageRect: CGRect(x: (imageFrame.minX - paperFrame.minX) * z, y: (imageFrame.minY - paperFrame.minY) * z,
                                              width: imageFrame.width * z, height: imageFrame.height * z),
+                           imageSubRect: imageSubRect, canvasFill: canvasFill,
+                           canvasFillRect: canvasFillRect,
                            paper: paper, blades: blades, patch: patch)
                     .offset(x: paperOrigin.x, y: paperOrigin.y)
             }
@@ -100,17 +137,28 @@ struct DarkroomLoupe: View {
         .compositingGroup()
         .shadow(color: .black.opacity(0.35), radius: 10, x: 0, y: 6)
         .contentShape(Circle())
-        .position(c)
-        .onChange(of: pixelWidth, initial: true) { _, width in widest = max(widest, width) }
         .onChange(of: inspected, initial: true) { _, rect in onInspect?(rect) }
-        .onChange(of: imageFrame.width / max(imageFrame.height, 1)) { widest = pixelWidth }
-        .gesture(DragGesture(minimumDistance: 1).onChanged { value in
-            let start = dragOrigin ?? c
-            if dragOrigin == nil { dragOrigin = start }
-            center = CGPoint(x: start.x + value.translation.width, y: start.y + value.translation.height)
-        }.onEnded { _ in dragOrigin = nil })
+        .gesture(
+            DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.viewportCoordinateSpace))
+                .updating($dragOrigin) { _, state, _ in
+                    if state == nil { state = c }
+                }
+                .onChanged { value in
+                    let start = dragOrigin ?? c
+                    let clamped = CGPoint(
+                        x: min(max(start.x + value.translation.width, 0), max(0, bounds.width)),
+                        y: min(max(start.y + value.translation.height, 0), max(0, bounds.height))
+                    )
+                    anchor = CGPoint(
+                        x: (clamped.x - paperFrame.minX) / max(paperFrame.width, 1),
+                        y: (clamped.y - paperFrame.minY) / max(paperFrame.height, 1)
+                    )
+                }
+        )
         .onTapGesture(count: 2) {
-            withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { doubled.toggle() }
+            withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+                doubled.toggle()
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(String(localized: "darkroom.loupe", defaultValue: "Loupe"))
@@ -130,6 +178,10 @@ struct PrintSheet: View {
     let size: CGSize
     /// The picture (or film-edge canvas) on the sheet, in points; it may extend past the sheet.
     let imageRect: CGRect
+    /// Sub-region of `imageRect` occupied by `image` while a surrounding film-edge rebate renders.
+    var imageSubRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    var canvasFill: Color? = nil
+    var canvasFillRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     var paper = Color.white
     var blades: CGImage? = nil
     /// Native-resolution pixels over part of the picture (unit coordinates of `imageRect`).
@@ -139,8 +191,26 @@ struct PrintSheet: View {
             paper
             if let image {
                 ZStack(alignment: .topLeading) {
+                    if let canvasFill {
+                        canvasFill
+                            .frame(
+                                width: canvasFillRect.width * imageRect.width,
+                                height: canvasFillRect.height * imageRect.height
+                            )
+                            .offset(
+                                x: canvasFillRect.minX * imageRect.width,
+                                y: canvasFillRect.minY * imageRect.height
+                            )
+                    }
                     Image(uiImage: image).resizable().interpolation(.high)
-                        .frame(width: imageRect.width, height: imageRect.height)
+                        .frame(
+                            width: imageSubRect.width * imageRect.width,
+                            height: imageSubRect.height * imageRect.height
+                        )
+                        .offset(
+                            x: imageSubRect.minX * imageRect.width,
+                            y: imageSubRect.minY * imageRect.height
+                        )
                     if let patch {
                         Image(decorative: patch.image, scale: 1).resizable().interpolation(.high)
                             .frame(width: patch.rect.width * imageRect.width, height: patch.rect.height * imageRect.height)

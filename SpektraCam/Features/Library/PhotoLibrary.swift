@@ -1,11 +1,24 @@
 import CoreGraphics
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 /// The database owns the index and recipe. Original files never change after import.
 @MainActor @Observable final class PhotoLibrary {
+    static let recentlyDeletedRetention: TimeInterval = 30 * 86_400
+    enum DeletedDuplicatePolicy: Sendable { case requireConfirmation, ignoreBackgroundRetry }
+    struct DeletedDuplicateError: LocalizedError, Sendable {
+        let photoIDs: Set<UUID>
+        var errorDescription: String? {
+            String(
+                localized: "recently_deleted.duplicate_error",
+                defaultValue: "This photo is already in Recently Deleted.")
+        }
+    }
+
     private(set) var photos: [LibraryPhoto] = []
+    private(set) var deletedPhotos: [DeletedPhoto] = []
     var saveFailure: String?
     let files: LibraryFiles
     let images: LibraryImages
@@ -13,15 +26,29 @@ import SwiftData
     let formulae: FormulaLibrary
     @ObservationIgnored private let container: ModelContainer
     @ObservationIgnored private let context: ModelContext
+    @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var records: [UUID: LibrarySchemaV1.Record] = [:]
+    @ObservationIgnored private var deletedRecords: [UUID: LibrarySchemaV3.DeletedRecord] = [:]
+    @ObservationIgnored private var purgingIDs: Set<UUID> = []
+    @ObservationIgnored var failNextSaveForTesting = false
+    @ObservationIgnored private var indexByID: [UUID: Int] = [:]
+    @ObservationIgnored private var filterCache: [LibraryFilter: FilterSnapshot] = [:]
+    @ObservationIgnored private var filterCacheDay: Date?
     private(set) var importedAssetIdentifiers: [String] = []
+    private(set) var applePhotosIDs: Set<UUID> = []
     @ObservationIgnored private var sources: [String: LibrarySchemaV2.PhotosSource] = [:]
     @ObservationIgnored private var pending: [UUID: EditRecipe] = [:]
     @ObservationIgnored private var saves: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var recoveryChain: Task<Void, Never>?
     /// The look last copied. Kept for this run of the app.
     private(set) var copiedLook: LookClip?
     /// What the last paste replaced, until one of those photos is edited some other way.
     private(set) var pasteUndo: PasteUndo?
+    struct FilterSnapshot {
+        let visible: [LibraryPhoto]
+        let sections: [(day: Date, photos: [LibraryPhoto])]
+        let editedIDs: Set<UUID>
+    }
     struct PasteUndo {
         fileprivate let previous: [UUID: Data?]
         fileprivate let luts: Set<String>
@@ -34,7 +61,11 @@ import SwiftData
         var skipped = 0
     }
 
-    init(root: URL? = nil, cache: URL? = nil, modelDirectory: URL? = nil) throws {
+    init(
+        root: URL? = nil, cache: URL? = nil, modelDirectory: URL? = nil,
+        now: @escaping () -> Date = { Date() }
+    ) throws {
+        self.now = now
         let root =
             try root
             ?? FileManager.default.url(
@@ -48,7 +79,7 @@ import SwiftData
                 appropriateFor: nil, create: true
             ).appendingPathComponent("SpektraCam")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let schema = Schema(versionedSchema: LibrarySchemaV2.self)
+        let schema = Schema(versionedSchema: LibrarySchemaV3.self)
         let configuration = ModelConfiguration(
             "Library", schema: schema,
             url: root.appendingPathComponent("Library.store"), cloudKitDatabase: .none)
@@ -59,16 +90,63 @@ import SwiftData
         for record in try context.fetch(FetchDescriptor<LibrarySchemaV1.Record>()) {
             records[record.id] = record
         }
-        let initial = try records.values.map { try $0.snapshot() }.sorted(by: Self.order)
-        files = try LibraryFiles(root: root, cache: cache, validIDs: Set(initial.map(\.id)))
+        var cleanedOrphanTombstones = false
+        for tombstone in try context.fetch(FetchDescriptor<LibrarySchemaV3.DeletedRecord>()) {
+            if records[tombstone.photoID] != nil {
+                deletedRecords[tombstone.photoID] = tombstone
+            } else {
+                context.delete(tombstone)
+                cleanedOrphanTombstones = true
+            }
+        }
+        if cleanedOrphanTombstones { try? context.save() }
+        files = try LibraryFiles(root: root, cache: cache, validIDs: Set(records.keys))
         images = LibraryImages(files: files, directory: modelDirectory ?? Bundle.main.resourceURL!)
         luts = LUTLibrary(root: root)
         formulae = FormulaLibrary(root: root)
-        photos = initial
         for source in try context.fetch(FetchDescriptor<LibrarySchemaV2.PhotosSource>()) {
             sources[source.assetIdentifier] = source
         }
-        importedAssetIdentifiers = sources.keys.sorted()
+        try reloadDerivedState()
+    }
+    private func isDeleted(_ id: UUID) -> Bool {
+        deletedRecords[id] != nil || purgingIDs.contains(id)
+    }
+    private func saveContext() throws {
+        if failNextSaveForTesting {
+            failNextSaveForTesting = false
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try context.save()
+    }
+    private func reloadDerivedState() throws {
+        let reference = now()
+        var active: [LibraryPhoto] = []
+        active.reserveCapacity(records.count)
+        var deleted: [DeletedPhoto] = []
+        for record in records.values {
+            guard !purgingIDs.contains(record.id) else { continue }
+            let snapshot = try record.snapshot()
+            if let tombstone = deletedRecords[record.id] {
+                if tombstone.expiresAt > reference {
+                    deleted.append(
+                        DeletedPhoto(
+                            photo: snapshot, deletedAt: tombstone.deletedAt, expiresAt: tombstone.expiresAt))
+                }
+            } else {
+                active.append(snapshot)
+            }
+        }
+        photos = active.sorted(by: Self.order)
+        deletedPhotos = deleted.sorted {
+            $0.deletedAt == $1.deletedAt ? Self.order($0.photo, $1.photo) : $0.deletedAt > $1.deletedAt
+        }
+        rebuildIndex()
+        importedAssetIdentifiers = sources.values
+            .filter { !isDeleted($0.photoID) }
+            .map(\.assetIdentifier)
+            .sorted()
+        applePhotosIDs = Set(sources.values.map(\.photoID))
     }
     private static func order(_ a: LibraryPhoto, _ b: LibraryPhoto) -> Bool {
         a.date == b.date
@@ -76,19 +154,108 @@ import SwiftData
                 ? a.id.uuidString < b.id.uuidString : a.importedAt < b.importedAt)
             : a.date < b.date
     }
-    func photo(_ id: UUID) -> LibraryPhoto? { photos.first { $0.id == id } }
+    /// Most recently added photo by import time, immune to future-dated EXIF timestamps.
+    var latestAddedPhoto: LibraryPhoto? {
+        photos.max { a, b in
+            a.importedAt == b.importedAt
+                ? (a.date == b.date ? a.id.uuidString < b.id.uuidString : a.date < b.date)
+                : a.importedAt < b.importedAt
+        }
+    }
+    private func rebuildIndex() {
+        indexByID.removeAll(keepingCapacity: true)
+        for (index, item) in photos.enumerated() {
+            indexByID[item.id] = index
+        }
+        filterCache.removeAll()
+    }
+    private func updatePhoto(_ updated: LibraryPhoto) {
+        guard !isDeleted(updated.id) else { return }
+        if let index = indexByID[updated.id], photos.indices.contains(index),
+            photos[index].id == updated.id
+        {
+            photos[index] = updated
+            filterCache.removeAll()
+        } else if let index = photos.firstIndex(where: { $0.id == updated.id }) {
+            photos[index] = updated
+            rebuildIndex()
+        }
+    }
+    func photo(_ id: UUID) -> LibraryPhoto? {
+        let current = photos
+        if let index = indexByID[id], current.indices.contains(index), current[index].id == id {
+            return current[index]
+        }
+        return current.first { $0.id == id }
+    }
+    /// Memoized per-filter visible slice, day sections, and edited-photo set so selection
+    /// taps and UI state transitions stay O(1) even with thousands of photos.
+    func grouped(for filter: LibraryFilter) -> FilterSnapshot {
+        let current = photos
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        if filterCacheDay != today {
+            filterCache.removeAll()
+            filterCacheDay = today
+        }
+        if let cached = filterCache[filter] { return cached }
+        let visible = filter == .all ? current : current.filter { filter.includes($0) }
+        var sections: [(day: Date, photos: [LibraryPhoto])] = []
+        var editedIDs = Set<UUID>()
+        for item in visible.reversed() {
+            if item.hasEdits { editedIDs.insert(item.id) }
+            let day = calendar.startOfDay(for: item.date)
+            if sections.last?.day == day {
+                sections[sections.count - 1].photos.append(item)
+            } else {
+                sections.append((day, [item]))
+            }
+        }
+        let snapshot = FilterSnapshot(visible: visible, sections: sections, editedIDs: editedIDs)
+        filterCache[filter] = snapshot
+        return snapshot
+    }
+    func filteredPhotos(_ filter: LibraryFilter) -> [LibraryPhoto] {
+        grouped(for: filter).visible
+    }
+    func handleSceneBackground() async {
+        savePending()
+        await files.discardPreparedPhoto()
+        await images.trimForBackground()
+    }
     @discardableResult func importPhoto(
-        _ url: URL, now: Date = Date(), assetIdentifier: String? = nil
+        _ url: URL, now importTime: Date = Date(), assetIdentifier: String? = nil,
+        deletedPolicy: DeletedDuplicatePolicy = .requireConfirmation
     )
         async throws -> LibraryPhoto
     {
-        if let assetIdentifier, let id = sources[assetIdentifier]?.photoID, let existing = photo(id)
-        {
-            return existing
+        await purgeExpired()
+        if let assetIdentifier, let id = sources[assetIdentifier]?.photoID, !purgingIDs.contains(id) {
+            if let existing = photo(id) { return existing }
+            if let tombstone = deletedRecords[id], tombstone.expiresAt > now(), let record = records[id] {
+                switch deletedPolicy {
+                case .requireConfirmation: throw DeletedDuplicateError(photoIDs: [id])
+                case .ignoreBackgroundRetry: return try record.snapshot()
+                }
+            }
         }
-        let imported = try await files.importPhoto(from: url, now: now)
-        if let existing = records.values.first(where: { $0.contentHash == imported.contentHash }) {
+        let importStarted = ProcessInfo.processInfo.systemUptime
+        let imported = try await files.importPhoto(from: url, now: importTime)
+        Log.camera.debug(
+            "Library import \(url.pathExtension.uppercased()) prepared in \(Int(((ProcessInfo.processInfo.systemUptime - importStarted) * 1000).rounded())) ms")
+        if let existing = records.values.first(where: {
+            !purgingIDs.contains($0.id) && $0.contentHash == imported.contentHash
+        }) {
             try await files.removeFiles(imported)
+            if let tombstone = deletedRecords[existing.id], tombstone.expiresAt > now() {
+                if let assetIdentifier, sources[assetIdentifier] == nil, deletedPolicy == .requireConfirmation {
+                    try rememberSource(assetIdentifier, photoID: existing.id)
+                }
+                switch deletedPolicy {
+                case .requireConfirmation: throw DeletedDuplicateError(photoIDs: [existing.id])
+                case .ignoreBackgroundRetry: return try existing.snapshot()
+                }
+            }
             try rememberSource(assetIdentifier, photoID: existing.id)
             return try existing.snapshot()
         }
@@ -99,6 +266,7 @@ import SwiftData
             records[imported.id] = record
             photos.append(imported)
             photos.sort(by: Self.order)
+            rebuildIndex()
         } catch {
             context.rollback()
             try? await files.removeFiles(imported)
@@ -117,23 +285,84 @@ import SwiftData
         }
         if let source {
             sources[source.assetIdentifier] = source
-            importedAssetIdentifiers = sources.keys.sorted()
+            if !isDeleted(photoID) {
+                importedAssetIdentifiers = sources.values
+                    .filter { !isDeleted($0.photoID) }
+                    .map(\.assetIdentifier)
+                    .sorted()
+            }
+            applePhotosIDs.insert(source.photoID)
         }
     }
 
+    struct CaptureRecoveryReport: Sendable {
+        var imported = 0
+        var importedByURL: [URL: LibraryPhoto] = [:]
+        var newlyQuarantined: [URL] = []
+        var totalQuarantined: [URL] = []
+        var transientError: String?
+    }
+
     /// Remove an inbox file only after its original and database record are durable.
+    /// Permanently unreadable image files are quarantined to `CameraInbox/Unreadable` so they
+    /// never block subsequent camera captures.
     @discardableResult func recoverCaptures() async throws -> Int {
-        var count = 0
-        var failure: Error?
-        for url in try await files.pendingCaptures() {
-            do {
-                _ = try await importPhoto(url)
-                try await files.removeCapture(url)
-                count += 1
-            } catch { if failure == nil { failure = error } }
+        let report = await recoverCaptureBatch(includeQuarantined: false)
+        if let transientError = report.transientError {
+            throw NSError(
+                domain: "PhotoLibrary.Recovery", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: transientError])
         }
-        if let failure { throw failure }
-        return count
+        if !report.newlyQuarantined.isEmpty {
+            throw LibraryFiles.Failure.image
+        }
+        return report.imported
+    }
+
+    @discardableResult func recoverCaptureBatch(includeQuarantined: Bool = false) async
+        -> CaptureRecoveryReport
+    {
+        let previous = recoveryChain
+        var report = CaptureRecoveryReport()
+        let current = Task { @MainActor in
+            await previous?.value
+            report = await self.drainCaptures(includeQuarantined: includeQuarantined)
+        }
+        recoveryChain = current
+        await current.value
+        return report
+    }
+
+    private func drainCaptures(includeQuarantined: Bool) async -> CaptureRecoveryReport {
+        var report = CaptureRecoveryReport()
+        do {
+            var targets = try await files.pendingCaptures()
+            if includeQuarantined {
+                targets += (try? await files.unreadableCaptures()) ?? []
+            }
+            for url in targets {
+                do {
+                    let photo = try await importPhoto(url, deletedPolicy: .ignoreBackgroundRetry)
+                    try await files.removeCapture(url)
+                    report.imported += 1
+                    report.importedByURL[url.standardizedFileURL] = photo
+                } catch LibraryFiles.Failure.image {
+                    if url.deletingLastPathComponent().lastPathComponent != "Unreadable" {
+                        if let quarantined = try? await files.quarantineCapture(url) {
+                            report.newlyQuarantined.append(quarantined)
+                        } else {
+                            report.newlyQuarantined.append(url)
+                        }
+                    }
+                } catch {
+                    if report.transientError == nil { report.transientError = error.localizedDescription }
+                }
+            }
+            report.totalQuarantined = (try? await files.unreadableCaptures()) ?? []
+        } catch {
+            report.transientError = error.localizedDescription
+        }
+        return report
     }
 
     var usedLUTIdentifiers: Set<String> {
@@ -143,20 +372,20 @@ import SwiftData
                 guard let recipe = try? JSONDecoder().decode(EditRecipe.self, from: data) else {
                     return Set(luts.items.map(\.id))
                 }
-                ids.formUnion(recipe.look.identifiers)
+                ids.formUnion(recipe.look.activeIdentifiers)
             }
         }
-        for recipe in pending.values { ids.formUnion(recipe.look.identifiers) }
-        ids.formUnion(copiedLook?.recipe.look.identifiers ?? [])
+        for recipe in pending.values { ids.formUnion(recipe.look.activeIdentifiers) }
+        ids.formUnion(copiedLook?.recipe.look.activeIdentifiers ?? [])
         ids.formUnion(pasteUndo?.luts ?? [])
         return ids
     }
-    /// Repair old iOS RAW index entries without decoding pixels or changing originals/edits.
+    /// Repair old iOS RAW index entries (including pre-v1.1 unrotated dimensions) without decoding pixels or changing originals/edits.
     func repairRAWDimensions() async throws {
-        for photo in photos
-        where photo.isRAW && max(photo.metadata.width, photo.metadata.height) <= 1080 {
+        for photo in photos where photo.isRAW {
             try Task.checkCancellation()
-            guard let size = await files.nativeRAWSize(photo), size.width > 0, size.height > 0,
+            guard await files.rawNeedsDimensionRepair(photo),
+                let size = await files.nativeRAWSize(photo), size.width > 0, size.height > 0,
                 let record = records[photo.id]
             else { continue }
             var metadata = photo.metadata
@@ -165,13 +394,11 @@ import SwiftData
             guard metadata != photo.metadata else { continue }
             record.metadataData = try JSONEncoder().encode(metadata)
             try context.save()
-            if let index = photos.firstIndex(where: { $0.id == photo.id }) {
-                photos[index] = try record.snapshot()
-            }
+            updatePhoto(try record.snapshot())
         }
     }
     func queueRecipe(_ recipe: EditRecipe, for id: UUID, immediate: Bool = false) {
-        guard records[id] != nil else { return }
+        guard records[id] != nil, !isDeleted(id) else { return }
         pending[id] = recipe
         saves[id]?.cancel()
         if immediate {
@@ -193,13 +420,18 @@ import SwiftData
     /// gallery thumbnails on every slider update while the editor is still open.
     func flushForLibrary() throws {
         try flushPending()
+        var changed = false
         for index in photos.indices {
-            guard let record = records[photos[index].id], record.renderKey != photos[index].renderKey else { continue }
+            let id = photos[index].id
+            guard !isDeleted(id), let record = records[id], record.renderKey != photos[index].renderKey
+            else { continue }
             photos[index] = try record.snapshot()
+            changed = true
         }
+        if changed { filterCache.removeAll() }
     }
     private func flush(_ id: UUID) throws {
-        guard let recipe = pending[id], let record = records[id] else { return }
+        guard let recipe = pending[id], let record = records[id], !isDeleted(id) else { return }
         try persistRecipe(recipe, record: record)
         pending[id] = nil
         saveFailure = nil
@@ -246,7 +478,8 @@ import SwiftData
             throw CubeLUT.Failure.missing
         }
         return try await apply(
-            Set(formula.parts).intersection(parts ?? Set(formula.parts)), of: formula.recipe, to: ids)
+            Set(formula.parts).intersection(parts ?? Set(formula.parts)), of: formula.recipe, to: ids,
+            partVersions: formula.partVersions)
     }
     /// The photo as a formula would leave it, for a thumbnail. Nothing is saved.
     func preview(_ photo: LibraryPhoto, applying formula: Formula) -> LibraryPhoto? {
@@ -255,7 +488,7 @@ import SwiftData
             let saved = try? recipe(photo.id) ?? EditorDefaults.originalRecipe(temperature: nil),
             saved.upstreamRevision == formula.recipe.upstreamRevision
         else { return nil }
-        var next = saved.taking(Set(formula.parts), from: formula.recipe, rawTarget: photo.isRAW)
+        var next = formula.applied(to: saved, rawTarget: photo.isRAW)
         if photo.metadata.width > 0, photo.metadata.height > 0 {
             next.constrainFilmEdgeCrop(
                 imageSize: CGSize(width: photo.metadata.width, height: photo.metadata.height))
@@ -265,25 +498,27 @@ import SwiftData
         var result = photo
         result.recipeData = data
         result.renderKey = LibraryPhoto.key(data)
+        result.isEphemeralPreview = true
         return result
     }
-    private func apply(_ parts: Set<EditRecipe.Part>, of source: EditRecipe, to ids: Set<UUID>) async throws
-        -> PasteOutcome
-    {
+    private func apply(
+        _ parts: Set<EditRecipe.Part>, of source: EditRecipe, to ids: Set<UUID>,
+        partVersions: [EditRecipe.Part: Int] = [:]
+    ) async throws -> PasteOutcome {
         guard !parts.isEmpty else { return PasteOutcome() }
         try flushPending()
         var outcome = PasteOutcome()
         var changes: [(record: LibrarySchemaV1.Record, data: Data?, key: String, updated: Data)] = []
         var luts = Set<String>()
         for id in ids {
-            guard let record = records[id], let photo = photo(id) else { continue }
+            guard let record = records[id], !isDeleted(id), let photo = photo(id) else { continue }
             let saved = try record.recipeData.map { try JSONDecoder().decode(EditRecipe.self, from: $0) }
             let base = saved ?? EditorDefaults.originalRecipe(temperature: nil)
             guard base.upstreamRevision == source.upstreamRevision else {
                 outcome.skipped += 1
                 continue
             }
-            var next = base.taking(parts, from: source, rawTarget: photo.isRAW)
+            var next = base.taking(parts, from: source, rawTarget: photo.isRAW, partVersions: partVersions)
             if photo.metadata.width > 0, photo.metadata.height > 0 {
                 next.constrainFilmEdgeCrop(
                     imageSize: CGSize(width: photo.metadata.width, height: photo.metadata.height))
@@ -309,7 +544,7 @@ import SwiftData
         guard let undo = pasteUndo else { return }
         var changes: [(LibrarySchemaV1.Record, Data?, String)] = []
         for (id, data) in undo.previous {
-            guard let record = records[id] else { continue }
+            guard let record = records[id], !isDeleted(id) else { continue }
             changes.append((record, record.recipeData, record.renderKey))
             record.recipeData = data
             record.renderKey = data.map(LibraryPhoto.key) ?? "original"
@@ -328,9 +563,7 @@ import SwiftData
             throw error
         }
         for (record, _, _) in changes {
-            if let index = photos.firstIndex(where: { $0.id == record.id }) {
-                photos[index] = try record.snapshot()
-            }
+            updatePhoto(try record.snapshot())
         }
     }
     /// Commit reference changes before deleting files. Failure keeps original files and all other adjustments.
@@ -356,9 +589,7 @@ import SwiftData
             throw error
         }
         for (record, _, _, _) in changes {
-            if let index = photos.firstIndex(where: { $0.id == record.id }) {
-                photos[index] = try record.snapshot()
-            }
+            updatePhoto(try record.snapshot())
         }
         luts.clearReferences(to: ids)
         copiedLook = copiedLook?.removingLUTs(ids)
@@ -368,18 +599,16 @@ import SwiftData
     }
     func revert(_ ids: Set<UUID>) async throws {
         for id in ids {
-            guard let record = records[id], record.recipeData != nil else { continue }
+            guard let record = records[id], !isDeleted(id), record.recipeData != nil else { continue }
             saves[id]?.cancel()
             try persistRecipe(nil, record: record)
             pending[id] = nil
-            if let index = photos.firstIndex(where: { $0.id == id }) {
-                photos[index] = try record.snapshot()
-            }
+            updatePhoto(try record.snapshot())
         }
         await images.discardPreviews()
     }
     func finishEditing(_ id: UUID, recipe: EditRecipe?) async throws {
-        guard let record = records[id] else { throw LibraryFiles.Failure.missing }
+        guard let record = records[id], !isDeleted(id) else { throw LibraryFiles.Failure.missing }
         saves[id]?.cancel()
         if recipe == nil && record.recipeData == nil {
             pending[id] = nil
@@ -391,9 +620,7 @@ import SwiftData
             // Do not rewrite an unchanged legacy recipe just because its decoded schema
             // is newer. A pending save may already have updated only the database.
             pending[id] = nil
-            if let index = photos.firstIndex(where: { $0.id == id }) {
-                photos[index] = try record.snapshot()
-            }
+            updatePhoto(try record.snapshot())
             return
         }
         if let recipe {
@@ -408,7 +635,7 @@ import SwiftData
         // Viewer previews have their own resolution and color policy. Rebuild from the source,
         // rather than storing an editor interaction proxy under a higher-quality cache key.
         await images.discardPreviews()
-        if let index = photos.firstIndex(where: { $0.id == id }) { photos[index] = saved }
+        updatePhoto(saved)
     }
     func recipe(_ id: UUID) throws -> EditRecipe? {
         guard let record = records[id] else { throw LibraryFiles.Failure.missing }
@@ -418,35 +645,130 @@ import SwiftData
         return try JSONDecoder().decode(EditRecipe.self, from: data)
     }
     func setLocationName(_ name: String, for id: UUID) throws {
-        guard let record = records[id] else { return }
+        guard let record = records[id], !isDeleted(id) else { return }
         record.locationName = name
         try context.save()
-        if let index = photos.firstIndex(where: { $0.id == id }) {
-            photos[index] = try record.snapshot()
-        }
+        updatePhoto(try record.snapshot())
     }
+    /// Soft-delete into Recently Deleted for 30 days, flushing pending edits atomically.
     func delete(_ ids: Set<UUID>) async throws {
+        let targets = ids.filter { records[$0] != nil && !isDeleted($0) }
+        guard !targets.isEmpty else { return }
+        let ts = now()
+        let expiresAt = ts.addingTimeInterval(Self.recentlyDeletedRetention)
+        var backup: [(id: UUID, record: LibrarySchemaV1.Record, data: Data?, key: String)] = []
+        var inserted: [(UUID, LibrarySchemaV3.DeletedRecord)] = []
+        do {
+            for id in targets {
+                guard let record = records[id] else { continue }
+                saves[id]?.cancel()
+                saves[id] = nil
+                backup.append((id, record, record.recipeData, record.renderKey))
+                if let pendingRecipe = pending[id] {
+                    let data = try LibraryPhoto.recipeData(pendingRecipe)
+                    if data != record.recipeData {
+                        record.recipeData = data
+                        record.renderKey = LibraryPhoto.key(data)
+                    }
+                }
+                let tombstone = LibrarySchemaV3.DeletedRecord(photoID: id, deletedAt: ts, expiresAt: expiresAt)
+                context.insert(tombstone)
+                inserted.append((id, tombstone))
+            }
+            try saveContext()
+        } catch {
+            context.rollback()
+            for entry in backup {
+                entry.record.recipeData = entry.data
+                entry.record.renderKey = entry.key
+            }
+            throw error
+        }
+        for (id, tombstone) in inserted {
+            deletedRecords[id] = tombstone
+            pending[id] = nil
+            if pasteUndo?.contains(id) == true { pasteUndo = nil }
+        }
+        try reloadDerivedState()
+    }
+    func recover(_ ids: Set<UUID>) async throws {
+        guard !ids.isEmpty else { return }
+        let current = now()
+        var sawExpired = false
+        var removing: [(UUID, LibrarySchemaV3.DeletedRecord)] = []
         for id in ids {
-            guard let record = records[id], let photo = photo(id) else { continue }
+            guard !purgingIDs.contains(id), let tombstone = deletedRecords[id] else { continue }
+            if tombstone.expiresAt <= current {
+                sawExpired = true
+                continue
+            }
+            removing.append((id, tombstone))
+        }
+        if !removing.isEmpty {
+            for (_, tombstone) in removing { context.delete(tombstone) }
+            do { try saveContext() } catch {
+                context.rollback()
+                throw error
+            }
+            for (id, _) in removing { deletedRecords[id] = nil }
+            try reloadDerivedState()
+        }
+        if sawExpired { await purgeExpired() }
+    }
+    func purge(_ ids: Set<UUID>) async throws {
+        try await commitPurge(ids, throwOnError: true)
+    }
+    func purgeExpired() async {
+        let current = now()
+        let expired = Set(
+            deletedRecords.values.compactMap { tombstone in
+                tombstone.expiresAt <= current ? tombstone.photoID : nil
+            })
+        guard !expired.isEmpty else { return }
+        try? await commitPurge(expired, throwOnError: false)
+    }
+    private func commitPurge(_ ids: Set<UUID>, throwOnError: Bool) async throws {
+        let claimed = ids.filter { records[$0] != nil && !purgingIDs.contains($0) }
+        guard !claimed.isEmpty else { return }
+        for id in claimed { purgingIDs.insert(id) }
+        try? reloadDerivedState()
+        let sourcesByPhoto = Dictionary(grouping: sources.values, by: \.photoID)
+        var purgedAny = false
+        defer {
+            for id in claimed { purgingIDs.remove(id) }
+            try? reloadDerivedState()
+        }
+        for id in claimed {
+            guard let record = records[id] else { continue }
             saves[id]?.cancel()
             saves[id] = nil
             pending[id] = nil
             if pasteUndo?.contains(id) == true { pasteUndo = nil }
-            let staged = try await files.stageRemoval(photo)
-            context.delete(record)
-            let links = sources.values.filter { $0.photoID == id }
-            for link in links { context.delete(link) }
-            do { try context.save() } catch {
-                context.rollback()
-                try? await files.restore(staged, photo: photo)
-                throw error
+            let tombstone = deletedRecords[id]
+            let links = sourcesByPhoto[id] ?? []
+            do {
+                let snapshot = try record.snapshot()
+                let staged = try await files.stageRemoval(snapshot)
+                context.delete(record)
+                if let tombstone { context.delete(tombstone) }
+                for link in links { context.delete(link) }
+                do { try saveContext() } catch {
+                    context.rollback()
+                    try? await files.restore(staged, photo: snapshot)
+                    throw error
+                }
+                for link in links { sources[link.assetIdentifier] = nil }
+                records[id] = nil
+                deletedRecords[id] = nil
+                purgedAny = true
+                await files.finishRemoval(staged, photo: snapshot)
+            } catch {
+                if throwOnError {
+                    if purgedAny { await images.discardPreviews() }
+                    throw error
+                }
             }
-            for link in links { sources[link.assetIdentifier] = nil }
-            importedAssetIdentifiers = sources.keys.sorted()
-            records[id] = nil
-            photos.removeAll { $0.id == id }
-            await files.finishRemoval(staged, photo: photo)
         }
-        await images.discardPreviews()
+        if purgedAny { await images.discardPreviews() }
     }
 }

@@ -1,8 +1,10 @@
 import AVKit
 import SwiftUI
+import UIKit
 
-/// RAW camera. The viewfinder stays clear; every control sits around it, with the shutter and
-/// the LVF hold under the right thumb.
+/// Camera workspace. Standard iPhones lock the display to portrait and rotate glyphs in place;
+/// iPad and iPhone Duo rotate freely and apply a physical quarter-turn of the portrait arrangement
+/// when wide so the finder keeps its height and every control keeps its thumb-reach anchor.
 struct CameraView: View {
     @State private var model: CameraModel
     let onLibrary: () -> Void
@@ -10,14 +12,21 @@ struct CameraView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var layout = WorkspaceLayout.stacked
+    @State private var isLandscape = false
+    @State private var verticalBarEdge: HorizontalEdge? = nil
+    @State private var locksPortrait = AppDelegate.defaultLocksCameraToPortrait
+    @State private var interfaceOrientation: UIInterfaceOrientation = .portrait
+    @State private var portraitFinderWidth: CGFloat = 340
     @State private var glyphs = CameraGlyphRotation()
-    /// False once the system has refused to hold the interface in portrait.
-    @State private var portraitHeld = true
-    /// Degrees that turn a symbol or label upright in the hand; the control itself never moves.
-    /// Only when the interface is really held in portrait: a refused hold, or a space wider
-    /// than tall, means the interface has followed the device and glyphs are already upright.
-    private var glyphDegrees: Double { portraitHeld && layout == .stacked ? glyphs.degrees : 0 }
+    private var systemVerticalBar: Bool { verticalBarEdge != nil }
+    private var wide: Bool { !locksPortrait && isLandscape }
+    private var shutterOnRight: Bool {
+        if let verticalBarEdge {
+            return verticalBarEdge == .trailing
+        }
+        return interfaceOrientation != .landscapeLeft
+    }
+    private var glyphDegrees: Double { locksPortrait ? glyphs.degrees : 0 }
     private var turn: Angle { .degrees(glyphDegrees) }
 
     init(library: PhotoLibrary, onLibrary: @escaping () -> Void) {
@@ -30,96 +39,119 @@ struct CameraView: View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
-                viewfinder
+                if wide {
+                    wideWorkspace
+                } else {
+                    viewfinder
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(
-                        String(localized: "camera.close_camera", defaultValue: "Close Camera"),
-                        systemImage: "xmark"
-                    ) { dismiss() }
-                    .labelStyle(.iconOnly).buttonBorderShape(.circle)
-                    .disabled(model.busy).accessibilityIdentifier("camera.close")
-                }
-                ToolbarSpacer(.fixed, placement: .topBarLeading)
-                ToolbarItem(placement: .topBarLeading) {
-                    formatControl.frame(width: 84, height: 32).accessibilityIdentifier(
-                        "camera.format")
-                }.sharedBackgroundVisibility(.visible)
-                ToolbarItem(placement: .principal) {
-                    CameraHistogram(model: model).frame(width: 100, height: 32)
-                        .opacity(ready ? 1 : 0)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    CameraExposureReadout(model: model).frame(width: 84, height: 32)
-                        .accessibilityIdentifier("camera.exposureInfo")
-                }.sharedBackgroundVisibility(.visible)
-            }
-            .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 14) {
-                    importFailure
-                    // The same optics row in every window shape. Equal side controls and
-                    // independent centering keep lens selection in the same predictable place.
-                    Group {
-                        exposureControl
-                        ZStack {
-                            HStack {
-                                flashButton
-                                Spacer()
-                                flipButton
-                            }
-                            lensPicker
+            .toolbar(wide || systemVerticalBar ? .hidden : .visible, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if !wide && systemVerticalBar {
+                    let railWidth = max(240, portraitFinderWidth)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            roundCloseButton
+                            verticalBarFormatPill
+                            Spacer(minLength: 6)
+                            CameraHistogram(model: model)
+                                .frame(width: 76, height: 28)
+                                .opacity(ready ? 1 : 0)
+                            Spacer(minLength: 6)
+                            verticalBarExposurePill
+                        }
+                        HStack(spacing: 8) {
+                            roundCloseButton
+                            verticalBarFormatPill
+                            Spacer(minLength: 8)
+                            verticalBarExposurePill
                         }
                     }
-                    .disabled(!ready)
-                    if layout == .stacked {
+                    .frame(maxWidth: railWidth)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
+                    .padding(.bottom, 2)
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .toolbar {
+                if !wide && !systemVerticalBar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(
+                            String(localized: "camera.close_camera", defaultValue: "Close Camera"),
+                            systemImage: "xmark"
+                        ) { dismiss() }
+                        .labelStyle(.iconOnly).buttonBorderShape(.circle)
+                        .disabled(model.busy).accessibilityIdentifier("camera.close")
+                    }
+                    AdaptiveToolbarSpacer(.fixed, placement: .topBarLeading)
+                    AdaptiveToolbarItem(placement: .topBarLeading, background: .visible) {
+                        formatControl().frame(width: 84, height: 32)
+                    }
+                    ToolbarItem(placement: .principal) {
+                        CameraHistogram(model: model).frame(width: 100, height: 32)
+                            .opacity(ready ? 1 : 0)
+                    }
+                    AdaptiveToolbarItem(placement: .topBarTrailing, background: .visible) {
+                        CameraExposureReadout(model: model).frame(width: 84, height: 32)
+                            .accessibilityIdentifier("camera.exposureInfo")
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if !wide {
+                    let railWidth: CGFloat = systemVerticalBar ? max(240, portraitFinderWidth) : 380
+                    VStack(spacing: systemVerticalBar ? 8 : 14) {
+                        importFailure
+                        Group {
+                            // Keep exposure adjustment centered with the shutter at portrait length.
+                            exposureControl.frame(maxWidth: 360)
+                            ZStack {
+                                HStack {
+                                    flashButton
+                                    Spacer()
+                                    flipButton
+                                }
+                                if !model.lenses.isEmpty {
+                                    lensPicker(vertical: false, macroFirst: true)
+                                }
+                            }
+                        }
+                        .disabled(!ready)
                         ZStack {
                             HStack {
                                 libraryButton
                                 Spacer()
                                 holdButton
                             }
-                            shutterSlot
+                            shutterButton
                         }
                     }
-                }
-                .padding(.horizontal, 20).padding(.bottom, 12)
-            }
-            .safeAreaInset(edge: .trailing) {
-                // Wider than tall: the shutter column moves under the thumb on the trailing edge.
-                if layout == .sideBySide {
-                    VStack {
-                        libraryButton
-                        Spacer(minLength: 0)
-                        holdButton
-                    }
-                    .frame(width: 78)
-                    .overlay { shutterSlot }
-                    .padding(.vertical).padding(.trailing, 12)
+                    .frame(maxWidth: railWidth)
+                    .padding(.horizontal, systemVerticalBar ? 16 : 20)
+                    .padding(.bottom, systemVerticalBar ? 4 : 12)
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
-        .overlayPreferenceValue(CameraShutterBounds.self) { anchor in
-            if let anchor {
-                GeometryReader { proxy in
-                    let slot = proxy[anchor]
-                    // The slot supplies the edge placement; the full presentation supplies
-                    // the center axis. Neither accessory widths nor system bars can shift it.
-                    shutterButton.position(
-                        x: layout == .stacked ? proxy.size.width / 2 : slot.midX,
-                        y: layout == .sideBySide ? proxy.size.height / 2 : slot.midY)
-                }
-                .ignoresSafeArea(.container)
-            }
-        }
-        .onGeometryChange(for: WorkspaceLayout.self) { WorkspaceLayout($0.size) } action: { layout = $0 }
+        .background(
+            CameraOrientationBridge(
+                locksPortrait: $locksPortrait,
+                interfaceOrientation: $interfaceOrientation
+            ).allowsHitTesting(false))
+        .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { isLandscape = $0 }
+        .onSystemVerticalBarEdge { verticalBarEdge = $0 }
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled(model.busy)
         .task {
-            await model.retryImport()
-            await model.setActive(scenePhase != .background)
-            await model.monitor()
+            let recovery = Task { await model.retryImport(includeQuarantined: false) }
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await model.monitor() }
+                group.addTask { await model.monitorReadings() }
+                group.addTask { await model.setActive(scenePhase != .background) }
+            }
+            recovery.cancel()
         }
         .onChange(of: scenePhase) { _, phase in
             // Permission prompts and transient overlays make the scene inactive. Only background
@@ -127,38 +159,184 @@ struct CameraView: View {
             if phase != .inactive { Task { await model.setActive(phase == .active) } }
         }
         .onAppear {
-            AppDelegate.lockPortrait(true) { portraitHeld = false }
+            AppDelegate.setCameraActive(true)
+            model.refreshLibraryThumbnail()
             glyphs.start()
         }
-        .task(id: layout) {
-            // The window is the evidence. If it is still wider than tall once a rotation would
-            // have finished, the display did not take the hold: let go of it, so the app never
-            // claims portrait-only while it is shown in landscape.
-            guard layout == .sideBySide, portraitHeld else { return }
-            try? await Task.sleep(for: .milliseconds(700))
-            guard !Task.isCancelled, layout == .sideBySide else { return }
-            portraitHeld = false
-            AppDelegate.lockPortrait(false)
-        }
         .onDisappear {
+            let lastOrientation = glyphs.lastDeviceOrientation
+            AppDelegate.setCameraActive(false, preferredDeviceOrientation: lastOrientation)
             glyphs.stop()
-            AppDelegate.lockPortrait(false)
             Task { await model.close() }
         }
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: glyphDegrees)
     }
 
+    // MARK: Wide Layout
+
+    private var wideWorkspace: some View {
+        GeometryReader { proxy in
+            let compact = proxy.size.width < 940
+            let spacing: CGFloat = compact ? 8 : 12
+            let edgePad: CGFloat = systemVerticalBar ? 16 : (compact ? 12 : 16)
+            let vPad: CGFloat = compact ? 8 : 12
+            let sideColumnsWidth: CGFloat = 44 + 46 + 46 + 78
+            let availW = max(160, proxy.size.width - 2 * edgePad - 4 * spacing - sideColumnsWidth)
+            let availH = max(160, proxy.size.height - 2 * vPad)
+            let finderHeight = min(availH, availW * 3.0 / 4.0)
+            let columnHeight = min(availH, max(finderHeight, 300))
+            let controlColumnHeight = min(columnHeight, 480)
+            let trackLength = min(184, max(104, controlColumnHeight - 130))
+            let infoAngle: Double = shutterOnRight ? -90 : 90
+            let infoColumn = wideInfoColumn(angle: infoAngle, height: columnHeight)
+            let evColumn = wideExposureColumn(trackLength: trackLength, height: controlColumnHeight)
+            let lensColumn = wideLensColumn(height: controlColumnHeight)
+            let releaseColumn = wideReleaseColumn(height: controlColumnHeight)
+
+            HStack(spacing: spacing) {
+                if shutterOnRight {
+                    infoColumn
+                    wideViewfinder(verticalPadding: vPad)
+                    evColumn
+                    lensColumn
+                    releaseColumn
+                } else {
+                    releaseColumn
+                    lensColumn
+                    evColumn
+                    wideViewfinder(verticalPadding: vPad)
+                    infoColumn
+                }
+            }
+            .padding(.horizontal, edgePad)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func wideViewfinder(verticalPadding: CGFloat) -> some View {
+        CameraViewfinder(model: model, landscape: true) {
+            if !ready { status }
+        }
+        .padding(.vertical, verticalPadding)
+        .overlay(alignment: .bottom) {
+            importFailure
+                .padding(.horizontal, 12)
+                .padding(.bottom, verticalPadding + 10)
+        }
+        .adaptiveCameraCaptureEvent(isEnabled: scenePhase == .active && model.canCapture) {
+            Task { await model.takePhoto() }
+        }
+    }
+
+    private func wideInfoColumn(angle: Double, height: CGFloat) -> some View {
+        let showsHistogram = height >= 352
+        return VStack(spacing: 0) {
+            if shutterOnRight {
+                wideExposureReadout(angle: angle)
+                Spacer(minLength: 8)
+                if showsHistogram {
+                    wideHistogram(angle: angle)
+                    Spacer(minLength: 8)
+                }
+                formatControl(rotatedBy: angle)
+                Color.clear.frame(height: 10)
+                roundCloseButton
+            } else {
+                roundCloseButton
+                Color.clear.frame(height: 10)
+                formatControl(rotatedBy: angle)
+                Spacer(minLength: 8)
+                if showsHistogram {
+                    wideHistogram(angle: angle)
+                    Spacer(minLength: 8)
+                }
+                wideExposureReadout(angle: angle)
+            }
+        }
+        .frame(width: 44, height: height)
+    }
+
+    private func wideHistogram(angle: Double) -> some View {
+        CameraHistogram(model: model)
+            .frame(width: 96, height: 30)
+            .rotationEffect(.degrees(angle))
+            .frame(width: 30, height: 96)
+            .opacity(ready ? 1 : 0)
+    }
+
+    private func wideExposureReadout(angle: Double) -> some View {
+        CameraExposureReadout(model: model)
+            .minimumScaleFactor(0.85)
+            .padding(.horizontal, 8)
+            .frame(width: 98, height: 36)
+            .rotationEffect(.degrees(angle))
+            .frame(width: 36, height: 98)
+            .adaptiveGlassCapsule()
+            .accessibilityIdentifier("camera.exposureInfo")
+    }
+
+    private func wideExposureColumn(trackLength: CGFloat, height: CGFloat) -> some View {
+        CameraExposureControl(
+            value: Binding(get: { model.exposureBias }, set: model.setExposureBias),
+            range: model.exposureRange,
+            glyphTurn: 0,
+            layout: .vertical(valueAtTop: shutterOnRight),
+            trackLength: trackLength
+        )
+        .disabled(!ready || model.busy)
+        .frame(height: height)
+    }
+
+    private func wideLensColumn(height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Group {
+                if shutterOnRight { flipButton } else { flashButton }
+            }
+            .disabled(!ready)
+            Spacer(minLength: 6)
+            if !model.lenses.isEmpty {
+                lensPicker(vertical: true, macroFirst: !shutterOnRight)
+                    .disabled(!ready)
+            }
+            Spacer(minLength: 6)
+            Group {
+                if shutterOnRight { flashButton } else { flipButton }
+            }
+            .disabled(!ready)
+        }
+        .frame(width: 46, height: height)
+    }
+
+    private func wideReleaseColumn(height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            if shutterOnRight { holdButton } else { libraryButton }
+            Spacer(minLength: 8)
+            shutterButton
+            Spacer(minLength: 8)
+            if shutterOnRight { libraryButton } else { holdButton }
+        }
+        .frame(width: 78, height: height)
+    }
+
     // MARK: Viewfinder
 
     private var viewfinder: some View {
-        CameraViewfinder(model: model, landscape: layout == .sideBySide) {
+        CameraViewfinder(model: model, landscape: false) {
             if !ready { status }
         }
-            .padding(.horizontal, layout == .stacked ? 6 : 12)
+            .padding(.top, 2)
+            .padding(.horizontal, 6)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                let w = max(proxy.size.width - 12, 0)
+                let h = max(proxy.size.height - 2, 0)
+                return min(w, h * 3.0 / 4.0)
+            } action: { width in
+                if width > 120 { portraitFinderWidth = width }
+            }
             // Hardware capture follows the same readiness as the shutter. A held camera has
             // no running session, so volume buttons retain their system behavior until resumed.
-            .onCameraCaptureEvent(isEnabled: scenePhase == .active && model.canCapture) { event in
-                if event.phase == .ended { Task { await model.takePhoto() } }
+            .adaptiveCameraCaptureEvent(isEnabled: scenePhase == .active && model.canCapture) {
+                Task { await model.takePhoto() }
             }
     }
 
@@ -179,8 +357,8 @@ struct CameraView: View {
                 systemImage: "camera",
                 description: Text(
                     String(
-                        localized: "camera.raw_needs_device",
-                        defaultValue: "RAW capture needs a physical device."))
+                        localized: "camera.error.needs_device",
+                        defaultValue: "Camera capture needs a physical device."))
             )
             .accessibilityIdentifier("camera.unavailable")
         case .rawUnsupported:
@@ -206,7 +384,7 @@ struct CameraView: View {
             } actions: {
                 Button(String(localized: "camera.open_settings", defaultValue: "Open Settings")) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                }.buttonStyle(.glass)
+                }.adaptiveGlassButton()
             }
         case .failed(let message):
             ContentUnavailableView {
@@ -218,18 +396,12 @@ struct CameraView: View {
             } actions: {
                 Button(String(localized: "common.retry", defaultValue: "Retry")) {
                     Task { await model.setActive(true) }
-                }.buttonStyle(.glass)
+                }.adaptiveGlassButton()
             }
         }
     }
 
     // MARK: Controls
-
-    private var shutterSlot: some View {
-        Color.clear.frame(width: 78, height: 78)
-            .anchorPreference(key: CameraShutterBounds.self, value: .bounds) { $0 }
-            .allowsHitTesting(false)
-    }
 
     private var exposureControl: some View {
         CameraExposureControl(
@@ -239,7 +411,19 @@ struct CameraView: View {
     }
 
     @ViewBuilder private var importFailure: some View {
-        if let failure = model.saveFailure {
+        if let resolutionNotice = model.resolutionNotice {
+            Text(resolutionNotice)
+                .font(.caption.weight(.medium))
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .adaptiveGlassCapsule()
+                .accessibilityIdentifier("camera.resolutionNotice")
+        }
+        if let failure = model.writeFailure ?? model.transientFailure {
+            Text(failure)
+                .font(.footnote)
+                .padding().adaptiveGlassRect(cornerRadius: 20)
+        }
+        if let failure = model.importFailure {
             VStack(spacing: 8) {
                 Text(failure).font(.footnote)
                 if model.pendingCount > 0 {
@@ -249,55 +433,87 @@ struct CameraView: View {
                             defaultValue: "The capture is kept on this device.")
                     ).font(.footnote)
                     Button(String(localized: "camera.retry_import", defaultValue: "Retry Import")) {
-                        Task { await model.retryImport() }
+                        Task { await model.retryImport(includeQuarantined: true) }
                     }
-                    .buttonStyle(.glass).disabled(model.busy)
+                    .adaptiveGlassButton().disabled(model.busy)
                     .accessibilityIdentifier("camera.retryImport")
                 }
-            }.padding().glassEffect(in: .rect(cornerRadius: 20))
+            }.padding().adaptiveGlassRect(cornerRadius: 20)
         }
     }
 
+    private var roundCloseButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 16, weight: .medium))
+                .modifier(CameraRoundControl())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.busy)
+        .accessibilityLabel(String(localized: "camera.close_camera", defaultValue: "Close Camera"))
+        .accessibilityIdentifier("camera.close")
+    }
+
     /// One capsule for the rear lenses, with macro beside them when the device has it.
-    private var lensPicker: some View {
-        HStack(spacing: 2) {
-            if model.selectedLens?.front != true && model.lenses.contains(where: \.macro) {
-                Button {
-                    Task { await model.toggleMacro() }
-                } label: {
-                    Image(systemName: "camera.macro").font(.system(size: 15, weight: .medium))
-                        .rotationEffect(turn).modifier(LensSegment(selected: model.macro))
-                }
-                .accessibilityLabel(String(localized: "camera.macro", defaultValue: "Macro"))
-                .accessibilityAddTraits(model.macro ? .isSelected : [])
-                .accessibilityIdentifier("camera.macro")
-            }
-            ForEach(model.lenses.filter { !$0.front && model.selectedLens?.front != true }) { lens in
-                let selected = lens.id == model.selectedLens?.id
-                Button {
-                    Task { await model.selectLens(lens) }
-                } label: {
-                    Text(lens.title).font(.system(size: 13, weight: .semibold)).monospacedDigit()
-                        .fixedSize().rotationEffect(turn).modifier(LensSegment(selected: selected))
-                }
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .accessibilityIdentifier("camera.lens.\(lens.millimeters)")
-                .accessibilityLabel(
-                    String(
-                        localized: "camera.millimeter_lens",
-                        defaultValue: "\(lens.millimeters) millimeter lens"))
-            }
-            if model.selectedLens?.front == true {
-                Text(String(localized: "camera.front", defaultValue: "Front"))
-                    .font(.system(size: 13, weight: .semibold)).fixedSize().rotationEffect(turn)
-                    .modifier(LensSegment(selected: true))
-                    .accessibilityLabel(
-                        String(localized: "camera.front_camera", defaultValue: "Front camera"))
+    private func lensPicker(vertical: Bool, macroFirst: Bool) -> some View {
+        let content = lensSegments(vertical: vertical, macroFirst: macroFirst)
+        return Group {
+            if vertical {
+                VStack(spacing: 2) { content }
+            } else {
+                HStack(spacing: 2) { content }
             }
         }
         .buttonStyle(.plain).padding(4)
-        .glassEffect(.regular, in: .capsule)
+        .adaptiveGlassCapsule()
         .disabled(model.busy).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    @ViewBuilder private func lensSegments(vertical: Bool, macroFirst: Bool) -> some View {
+        let compact = !vertical && systemVerticalBar
+        let rear = model.lenses.filter { !$0.front && model.selectedLens?.front != true }
+        let ordered = vertical && !macroFirst ? Array(rear.reversed()) : rear
+        let showsMacro = model.selectedLens?.front != true && model.lenses.contains(where: \.macro)
+        if showsMacro && macroFirst { macroSegment(vertical: vertical, compact: compact) }
+        ForEach(ordered) { lens in lensSegment(lens, vertical: vertical, compact: compact) }
+        if showsMacro && !macroFirst { macroSegment(vertical: vertical, compact: compact) }
+        if model.selectedLens?.front == true {
+            Text(String(localized: "camera.front", defaultValue: "Front"))
+                .font(.system(size: 13, weight: .semibold)).fixedSize().rotationEffect(turn)
+                .modifier(LensSegment(selected: true, vertical: vertical, compact: compact))
+                .accessibilityLabel(
+                    String(localized: "camera.front_camera", defaultValue: "Front camera"))
+        }
+    }
+
+    private func macroSegment(vertical: Bool, compact: Bool = false) -> some View {
+        Button {
+            Task { await model.toggleMacro() }
+        } label: {
+            Image(systemName: "camera.macro").font(.system(size: compact ? 14 : 15, weight: .medium))
+                .rotationEffect(turn).modifier(LensSegment(selected: model.macro, vertical: vertical, compact: compact))
+        }
+        .accessibilityLabel(String(localized: "camera.macro", defaultValue: "Macro"))
+        .accessibilityAddTraits(model.macro ? .isSelected : [])
+        .accessibilityIdentifier("camera.macro")
+    }
+
+    private func lensSegment(_ lens: CameraLens, vertical: Bool, compact: Bool = false) -> some View {
+        let selected = lens.id == model.selectedLens?.id
+        return Button {
+            Task { await model.selectLens(lens) }
+        } label: {
+            Text(lens.title).font(.system(size: compact ? 12 : 13, weight: .semibold)).monospacedDigit()
+                .fixedSize().rotationEffect(turn).modifier(LensSegment(selected: selected, vertical: vertical, compact: compact))
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("camera.lens.\(lens.millimeters)")
+        .accessibilityLabel(
+            String(
+                localized: "camera.millimeter_lens",
+                defaultValue: "\(lens.millimeters) millimeter lens"))
     }
 
     private var flashButton: some View {
@@ -344,7 +560,7 @@ struct CameraView: View {
                 .foregroundStyle(model.held ? Color.black : Color.primary)
                 .fixedSize().rotationEffect(turn).frame(width: 52, height: 52)
                 .background { if model.held { Circle().fill(Color.accentColor) } }
-                .glassEffect(.regular.interactive(), in: .circle)
+                .adaptiveGlassCircle(interactive: true)
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
@@ -358,17 +574,60 @@ struct CameraView: View {
         .accessibilityIdentifier("camera.hold")
     }
 
-    private var libraryButton: some View {
-        Button(action: onLibrary) {
-            Group {
-                if let photo = model.library.photos.last {
-                    PhotoThumbnail(photo: photo, images: model.library.images, showsBadges: false)
+    @ViewBuilder private var libraryThumbnailContent: some View {
+        switch model.activeButtonCapture {
+        case .pending(_, let image, let isProvisional):
+            ZStack(alignment: .bottomTrailing) {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill()
                 } else {
-                    Image(systemName: "photo.on.rectangle")
+                    Color.black.overlay {
+                        ProgressView().controlSize(.small).tint(.white.opacity(0.85))
+                    }
+                }
+                if isProvisional {
+                    Circle().fill(Color.accentColor)
+                        .frame(width: 7, height: 7)
+                        .overlay { Circle().strokeBorder(.black.opacity(0.45), lineWidth: 0.75) }
+                        .padding(5)
                 }
             }
+        case .committed(_, let photo, let image):
+            PhotoThumbnail(
+                photo: photo, images: model.library.images, showsBadges: false,
+                bypassesPause: true, placeholder: image)
+        case .library(let photo):
+            if let photo {
+                PhotoThumbnail(
+                    photo: photo, images: model.library.images, showsBadges: false,
+                    bypassesPause: true)
+            } else {
+                Image(systemName: "photo.on.rectangle")
+                    .font(.system(size: 18, weight: .medium)).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.white.opacity(0.12))
+            }
+        }
+    }
+
+    private var libraryButton: some View {
+        Button(action: onLibrary) {
+            libraryThumbnailContent
             .rotationEffect(turn).frame(width: 52, height: 52).clipShape(.rect(cornerRadius: 12))
             .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.3), lineWidth: 1) }
+            // Failed-save indicator stays visible even when earlier captures already saved.
+            .overlay(alignment: .topLeading) {
+                if model.hasFailedSave {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white, .red)
+                        .offset(x: -5, y: -5)
+                        .accessibilityLabel(
+                            String(
+                                localized: "camera.failed_save",
+                                defaultValue: "Capture could not be saved"))
+                        .accessibilityIdentifier("camera.failedSave")
+                }
+            }
             // How many captures this session has added to the library.
             .overlay(alignment: .topTrailing) {
                 if model.savedCount > 0 {
@@ -396,30 +655,62 @@ struct CameraView: View {
         } label: {
             Color.clear.frame(width: 78, height: 78)
         }
-        .buttonStyle(ShutterStyle(busy: model.busy, animates: !reduceMotion))
+        .buttonStyle(
+            ShutterStyle(
+                busy: model.busy,
+                waitingForProcessing: model.isWaitingForProcessing,
+                dimsWhenDisabled: model.dimsDisabledShutter || model.held,
+                animates: !reduceMotion)
+        )
         // On hold, the shutter wakes the camera.
         .disabled(!(model.canCapture || model.held))
-        .accessibilityLabel(String(localized: "camera.take_raw_photo", defaultValue: "Take RAW Photo"))
+        .accessibilityLabel(
+            model.format.isRAW
+                ? String(localized: "camera.take_raw_photo", defaultValue: "Take RAW Photo")
+                : String(localized: "camera.take_photo", defaultValue: "Take Photo")
+        )
         .accessibilityIdentifier("camera.shutter")
     }
 
+    private var verticalBarFormatPill: some View {
+        formatControl(pill: true)
+    }
+
+    private var verticalBarExposurePill: some View {
+        CameraExposureReadout(model: model)
+            .padding(.horizontal, 10)
+            .frame(minWidth: 82, minHeight: 36)
+            .adaptiveGlassCapsule()
+            .accessibilityIdentifier("camera.exposureInfo")
+    }
+
     private var megapixels: Int {
-        model.format == .proRAW && model.highResolution ? model.maximumMegapixels : 12
+        model.format.supportsResolutionChoice && model.highResolution
+            ? model.maximumMegapixels : model.standardMegapixels
     }
     // Bayer RAW dimensions come from the sensor, not a universal 12 MP promise.
-    private var formatSummary: String { model.format == .proRAW ? "PRO \(megapixels)" : "RAW" }
-    @ViewBuilder private var formatControl: some View {
+    private var formatSummary: String {
+        model.format.badge(
+            megapixels: megapixels, highResolution: model.highResolution,
+            maximumMegapixels: model.maximumMegapixels,
+            standardMegapixels: model.standardMegapixels)
+    }
+    @ViewBuilder private func formatControl(rotatedBy angle: Double? = nil, pill: Bool = false) -> some View {
         if !model.formats.isEmpty {
             Menu {
                 if model.formats.count > 1 {
                     Picker(
-                        String(localized: "camera.raw_format", defaultValue: "RAW Format"),
+                        model.formats.allSatisfy(\.isRAW)
+                            ? String(localized: "camera.raw_format", defaultValue: "RAW Format")
+                            : String(localized: "camera.capture_format", defaultValue: "Format"),
                         selection: $model.format
                     ) {
                         ForEach(model.formats) { Text($0.title).tag($0) }
                     }
                 }
-                if model.maximumMegapixels > 12 && model.format == .proRAW {
+                if model.maximumMegapixels > model.standardMegapixels
+                    && model.format.supportsResolutionChoice
+                {
                     Picker(
                         String(localized: "camera.resolution", defaultValue: "Resolution"),
                         selection: Binding(
@@ -427,30 +718,166 @@ struct CameraView: View {
                             set: { value in Task { await model.setHighResolution(value) } }
                         )
                     ) {
-                        Text(String(localized: "camera.12_mp", defaultValue: "12 MP")).tag(false)
                         Text(
                             String(
-                                localized: "camera.max_mp",
-                                defaultValue: "Max (\(model.maximumMegapixels) MP)")
+                                localized: "camera.up_to_mp",
+                                defaultValue: "Up to \(model.maximumMegapixels) MP")
                         ).tag(true)
+                        Text(
+                            String(
+                                localized: "camera.standard_mp",
+                                defaultValue: "\(model.standardMegapixels) MP")
+                        ).tag(false)
                     }
                 }
             } label: {
-                Text(verbatim: formatSummary).font(.caption.weight(.semibold)).monospacedDigit()
+                if let angle {
+                    Text(verbatim: formatSummary)
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(width: 84, height: 36)
+                        .rotationEffect(.degrees(angle))
+                        .frame(width: 36, height: 84)
+                        .adaptiveGlassCapsule(interactive: true)
+                        .contentShape(.capsule)
+                } else if pill {
+                    Text(verbatim: formatSummary)
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .frame(minWidth: 74, minHeight: 36)
+                        .adaptiveGlassCapsule(interactive: true)
+                        .contentShape(.capsule)
+                } else {
+                    Text(verbatim: formatSummary).font(.caption.weight(.semibold)).monospacedDigit()
+                }
             }
             .disabled(model.busy).accessibilityIdentifier("camera.format")
-            .accessibilityLabel(model.format == .proRAW ? model.format.title + ", \(megapixels) MP" : model.format.title)
-        } else {
-            Text("DNG").font(.caption.weight(.semibold)).accessibilityLabel(
-                String(localized: "camera.dng_raw", defaultValue: "DNG RAW"))
+            .accessibilityLabel(
+                model.format.supportsResolutionChoice
+                    && (model.format == .proRAW || model.highResolution)
+                    ? model.format.title + ", \(megapixels) MP" : model.format.title)
+        } else if angle == nil && !pill {
+            Text(verbatim: "—")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("camera.format")
+                .accessibilityLabel(
+                    String(localized: "camera.capture_format", defaultValue: "Format"))
         }
     }
 }
 
-private struct CameraShutterBounds: PreferenceKey {
-    nonisolated static var defaultValue: Anchor<CGRect>? { nil }
-    nonisolated static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-        value = nextValue() ?? value
+/// Observes window traits, interface orientation, and hinge hardware so standard iPhones enforce
+/// portrait orientation throughout modal presentation while iPad and iPhone Duo remain unlocked
+/// and receive the active quarter-turn direction.
+private struct CameraOrientationBridge: UIViewControllerRepresentable {
+    @Binding var locksPortrait: Bool
+    @Binding var interfaceOrientation: UIInterfaceOrientation
+
+    func makeUIViewController(context: Context) -> Controller {
+        Controller(
+            onUpdate: { if locksPortrait != $0 { locksPortrait = $0 } },
+            onOrientation: { if interfaceOrientation != $0 { interfaceOrientation = $0 } })
+    }
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.onUpdate = { if locksPortrait != $0 { locksPortrait = $0 } }
+        controller.onOrientation = { if interfaceOrientation != $0 { interfaceOrientation = $0 } }
+    }
+
+    final class Controller: UIViewController {
+        var onUpdate: (Bool) -> Void
+        var onOrientation: (UIInterfaceOrientation) -> Void
+        private var lastLocked: Bool?
+        private var lastOrientation: UIInterfaceOrientation?
+
+        init(onUpdate: @escaping (Bool) -> Void, onOrientation: @escaping (UIInterfaceOrientation) -> Void) {
+            self.onUpdate = onUpdate
+            self.onOrientation = onOrientation
+            super.init(nibName: nil, bundle: nil)
+        }
+        @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+        override func loadView() {
+            let view = HostingView()
+            view.isUserInteractionEnabled = false
+            view.onWindowChange = { [weak self] window in
+                if let window, AppDelegate.cameraActive {
+                    AppDelegate.applyOrientationPolicy(in: window)
+                }
+                self?.refresh()
+            }
+            if #available(iOS 27.1, *) {
+                let hinge = UIHingeInteraction { [weak self] _, update in
+                    guard let self else { return }
+                    if update.hinge != nil {
+                        AppDelegate.setHasHinge(true, in: self.view.window)
+                    }
+                    self.refresh()
+                }
+                view.addInteraction(hinge)
+            }
+            self.view = view
+        }
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]) {
+                (self: Self, _) in self.refresh()
+            }
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            AppDelegate.setCameraActive(true, in: view.window)
+            refresh()
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            AppDelegate.applyOrientationPolicy(in: view.window)
+            refresh()
+        }
+
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            refresh()
+        }
+
+        override func viewWillTransition(
+            to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator
+        ) {
+            super.viewWillTransition(to: size, with: coordinator)
+            coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+                self?.refresh()
+            }
+        }
+
+        func refresh() {
+            guard let window = viewIfLoaded?.window else { return }
+            let locked = AppDelegate.locksCameraToPortrait(in: window)
+            let orientation = window.windowScene?.interfaceOrientation ?? .unknown
+            let lockChanged = lastLocked != locked
+            let orientationChanged = orientation != .unknown && lastOrientation != orientation
+            guard lockChanged || orientationChanged else { return }
+            if lockChanged { lastLocked = locked }
+            if orientationChanged { lastOrientation = orientation }
+            Task { @MainActor [weak self] in
+                if lockChanged { self?.onUpdate(locked) }
+                if orientationChanged { self?.onOrientation(orientation) }
+            }
+        }
+    }
+
+    private final class HostingView: UIView {
+        var onWindowChange: ((UIWindow?) -> Void)?
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            onWindowChange?(window)
+        }
     }
 }
 
@@ -509,46 +936,80 @@ private struct CameraHoldScreen: View {
 private struct CameraRoundControl: ViewModifier {
     func body(content: Content) -> some View {
         content.frame(width: 44, height: 44)
-            .glassEffect(.regular.interactive(), in: .circle).contentShape(.circle)
+            .adaptiveGlassCircle(interactive: true).contentShape(.circle)
+    }
+}
+
+private extension View {
+    @ViewBuilder func adaptiveCameraCaptureEvent(
+        isEnabled: Bool, action: @escaping () -> Void
+    ) -> some View {
+        if #available(iOS 18.0, *) {
+            onCameraCaptureEvent(isEnabled: isEnabled) { event in
+                if event.phase == .ended { action() }
+            }
+        } else {
+            self
+        }
     }
 }
 
 private struct LensSegment: ViewModifier {
     let selected: Bool
+    var vertical = false
+    var compact = false
+    @Environment(\.appAccent) private var accent
     func body(content: Content) -> some View {
         content
-            .foregroundStyle(selected ? Color.accentColor : Color.primary)
-            .frame(minWidth: 40, minHeight: 36).padding(.horizontal, 2)
-            .background { if selected { Capsule().fill(.white.opacity(0.16)) } }
+            .foregroundStyle(
+                accent == .mono
+                    ? (selected ? Color.white : Color.white.opacity(0.65))
+                    : (selected ? Color.accentColor : Color.primary)
+            )
+            .frame(minWidth: vertical ? 38 : (compact ? 34 : 40), minHeight: compact ? 36 : 40)
+            .padding(.horizontal, (vertical || compact) ? 0 : 2)
+            .background {
+                if selected {
+                    if accent == .mono {
+                        Capsule()
+                            .fill(.white.opacity(0.24))
+                            .overlay { Capsule().strokeBorder(.white.opacity(0.4), lineWidth: 0.75) }
+                    } else {
+                        Capsule().fill(.white.opacity(0.18))
+                    }
+                }
+            }
             .contentShape(.capsule)
     }
 }
 
-/// A ring with a disc that gives under the finger and dims while a capture is in flight.
+/// A ring with a disc that gives under the finger, dims while a capture is in flight,
+/// and surfaces system ISP backlog without flickering on momentary readiness transitions.
 private struct ShutterStyle: ButtonStyle {
     let busy: Bool
+    var waitingForProcessing = false
+    var dimsWhenDisabled = true
     let animates: Bool
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .overlay {
                 ZStack {
-                    Circle().strokeBorder(.white, lineWidth: 4)
-                    Circle().fill(.white).padding(7)
-                        .scaleEffect(configuration.isPressed ? 0.86 : 1)
-                        .opacity(busy ? 0.45 : 1)
+                    ZStack {
+                        Circle().strokeBorder(.white, lineWidth: 4)
+                        Circle().fill(.white).padding(7)
+                            .scaleEffect(configuration.isPressed ? 0.86 : 1)
+                            .opacity(busy ? 0.45 : 1)
+                    }
+                    .opacity((enabled || !dimsWhenDisabled) ? 1 : 0.35)
+                    if waitingForProcessing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    }
                 }
             }
-            .opacity(enabled ? 1 : 0.35)
             .animation(animates ? .snappy(duration: 0.15) : nil, value: configuration.isPressed)
             .contentShape(.circle)
-    }
-}
-
-private struct CameraActionKey: EnvironmentKey { static let defaultValue: (() -> Void)? = nil }
-extension EnvironmentValues {
-    var openCamera: (() -> Void)? {
-        get { self[CameraActionKey.self] }
-        set { self[CameraActionKey.self] = newValue }
     }
 }

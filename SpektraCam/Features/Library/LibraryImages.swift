@@ -13,57 +13,114 @@ actor LibraryImages {
     private var tail: (id: UUID, task: Task<CGImage, Error>)?
     nonisolated let resources: FilmRenderResources
     private let exportOwner = UUID()
+    private let lowMemoryDevice: Bool
+    private let decodeLimiter: DecodeLimiter
 
     init(files: LibraryFiles, directory: URL) {
         self.files = files
         self.directory = directory
         resources = FilmRenderResources(directory: directory)
-        thumbnails.totalCostLimit = 48 * 1024 * 1024  // About 120 thumbnails at 384 px.
-        previews.countLimit = 3  // The photo on screen and a neighbour on each side.
+        let physicalMemory = ProcessInfo.processInfo.physicalMemory
+        lowMemoryDevice = physicalMemory < 5_800_000_000
+        decodeLimiter = DecodeLimiter(limit: physicalMemory < 5_000_000_000 ? 4 : 8)
+        if physicalMemory < 3_800_000_000 {
+            // 2–3 GB devices (e.g. older base iPads): bound caches tightly to avoid jetsam.
+            thumbnails.totalCostLimit = 16 * 1024 * 1024
+            previews.countLimit = 2
+            previews.totalCostLimit = 32 * 1024 * 1024
+        } else if lowMemoryDevice {
+            // 4 GB devices (e.g. iPhone 11–13 / iPad mini 5 / Air 4).
+            thumbnails.totalCostLimit = 28 * 1024 * 1024
+            previews.countLimit = 2
+            previews.totalCostLimit = 48 * 1024 * 1024
+        } else {
+            thumbnails.totalCostLimit = 48 * 1024 * 1024  // About 120 thumbnails at 384 px.
+            previews.countLimit = 3  // The photo on screen and a neighbour on each side.
+            previews.totalCostLimit = 96 * 1024 * 1024
+        }
     }
     func image(_ photo: LibraryPhoto, thumbnail: Bool) async throws -> CGImage {
         let maximum =
             thumbnail ? ImportedPhoto.thumbnailMaximumPixelSize : PreviewQuality.libraryMaximum
-        let requestKey = "\(photo.id)-\(photo.renderKey)-\(thumbnail)-\(maximum)"
+        let scope = photo.isEphemeralPreview ? "formula-" : ""
+        let requestKey = "\(scope)\(photo.id)-\(photo.renderKey)-\(thumbnail)-\(maximum)"
         return try await requests.value(for: requestKey) {
             try await self.load(photo, thumbnail: thumbnail, maximum: maximum)
         }
     }
+    /// Camera's library button must paint on a cache hit or cold miss even when an editor
+    /// underneath has paused the shared library request pool.
+    func cameraThumbnail(_ photo: LibraryPhoto) async throws -> CGImage {
+        if let hit = cachedThumbnail(photo) { return hit }
+        return try await load(
+            photo, thumbnail: true, maximum: ImportedPhoto.thumbnailMaximumPixelSize)
+    }
     /// A viewer can show an existing grid image while its precise preview develops.
     /// This path never starts a RAW decode or rebuilds a missing thumbnail.
-    func cachedThumbnail(_ photo: LibraryPhoto) async -> CGImage? {
-        let key = "\(photo.id)-\(photo.renderKey)-true-\(ImportedPhoto.thumbnailMaximumPixelSize)" as NSString
+    func cachedThumbnail(_ photo: LibraryPhoto) -> CGImage? {
+        let scope = photo.isEphemeralPreview ? "formula-" : ""
+        let key =
+            "\(scope)\(photo.id)-\(photo.renderKey)-true-\(ImportedPhoto.thumbnailMaximumPixelSize)"
+            as NSString
         if let image = thumbnails.object(forKey: key) { return image }
-        return await files.cachedImage(photo, thumbnail: true)
+        if let image = files.cachedImage(photo, thumbnail: true) {
+            thumbnails.setObject(image, forKey: key, cost: image.width * image.height * 4)
+            return image
+        }
+        return nil
     }
     private func load(_ photo: LibraryPhoto, thumbnail: Bool, maximum: Int) async throws -> CGImage
     {
-        let key = "\(photo.id)-\(photo.renderKey)-\(thumbnail)-\(maximum)" as NSString
+        let scope = photo.isEphemeralPreview ? "formula-" : ""
+        let key = "\(scope)\(photo.id)-\(photo.renderKey)-\(thumbnail)-\(maximum)" as NSString
         let memory = thumbnail ? thumbnails : previews
         if let image = memory.object(forKey: key) { return image }
-        if let image = await files.cachedImage(photo, thumbnail: thumbnail, maximum: maximum) {
-            memory.setObject(image, forKey: key, cost: image.width * image.height * 4)
-            return image
+        try await decodeLimiter.acquire()
+        let diskImage: CGImage?
+        do {
+            let files = self.files
+            let diskDecode = Task.detached(priority: .userInitiated) {
+                files.cachedImage(photo, thumbnail: thumbnail, maximum: maximum)
+            }
+            diskImage = await withTaskCancellationHandler {
+                await diskDecode.value
+            } onCancel: {
+                diskDecode.cancel()
+            }
+        }
+        if let diskImage {
+            await decodeLimiter.release()
+            try Task.checkCancellation()
+            if let image = memory.object(forKey: key) { return image }
+            memory.setObject(diskImage, forKey: key, cost: diskImage.width * diskImage.height * 4)
+            return diskImage
         }
         let image: CGImage
-        if !photo.hasEdits {
-            image = try await files.originalImage(photo, thumbnail: thumbnail, maximum: maximum)
-        } else {
-            let previous = tail?.task
-            let id = UUID()
-            let job = Task {
-                if let previous { _ = await previous.result }
-                try Task.checkCancellation()
-                return try await self.rebuild(photo, thumbnail: thumbnail, maximum: maximum)
+        do {
+            try Task.checkCancellation()
+            if !photo.hasEdits {
+                image = try await files.originalImage(photo, thumbnail: thumbnail, maximum: maximum)
+                await decodeLimiter.release()
+            } else {
+                await decodeLimiter.release()
+                let previous = tail?.task
+                let id = UUID()
+                let job = Task {
+                    if let previous { _ = await previous.result }
+                    try Task.checkCancellation()
+                    return try await self.rebuild(photo, thumbnail: thumbnail, maximum: maximum)
+                }
+                tail = (id, job)
+                defer { if tail?.id == id { tail = nil } }
+                image = try await withTaskCancellationHandler {
+                    try await job.value
+                } onCancel: {
+                    job.cancel()
+                }
             }
-            tail = (id, job)
-            defer { if tail?.id == id { tail = nil } }
-            let preview = try await withTaskCancellationHandler {
-                try await job.value
-            } onCancel: {
-                job.cancel()
-            }
-            image = preview
+        } catch {
+            if !photo.hasEdits { await decodeLimiter.release() }
+            throw error
         }
         try Task.checkCancellation()
         memory.setObject(image, forKey: key, cost: image.width * image.height * 4)
@@ -72,12 +129,12 @@ actor LibraryImages {
     private func rebuild(_ photo: LibraryPhoto, thumbnail: Bool, maximum requestedMaximum: Int)
         async throws -> CGImage
     {
-        if let cached = await files.cachedImage(
+        if let cached = files.cachedImage(
             photo, thumbnail: thumbnail, maximum: requestedMaximum)
         {
             return cached
         }
-        if thumbnail, let preview = await files.cachedImage(photo, thumbnail: false) {
+        if thumbnail, let preview = files.cachedImage(photo, thumbnail: false) {
             return try await files.storeThumbnail(preview, photo: photo)
         }
         guard let data = photo.recipeData else {
@@ -97,13 +154,13 @@ actor LibraryImages {
                 previewLimit,
                 max(thumbnailLimit, Int(ceil(CGFloat(thumbnailLimit) / max(span, 1e-6)))))
             : previewLimit
-        let original = try await files.decodedPhoto(photo, maximum: maximum)
+        let source = try await files.sourceForRendering(photo)
         let renderer = PhotoRenderer(
-            source: original.preview, directory: directory,
-            data: original.data, temperature: original.rawTemperature,
+            source: PhotoRenderer.placeholderSource, directory: directory,
+            data: source.data, temperature: source.description.temperature,
             lutDirectory: files.root.appendingPathComponent("LUTs"), previewMaximum: maximum,
-            resources: resources, sourceType: original.sourceType,
-            description: original.sourceDescription)
+            resources: resources, sourceType: source.description.type,
+            description: source.description, cachesIntermediates: false)
         let cropped = try await renderer.renderPresentation(recipe, maximum: maximum)
         try Task.checkCancellation()
         if thumbnail { return try await files.storeThumbnail(cropped, photo: photo) }
@@ -124,6 +181,22 @@ actor LibraryImages {
         thumbnails.removeAllObjects()
         previews.removeAllObjects()
     }
+    nonisolated static func clearRenderingContextCaches() {
+        PhotoColorBridge.clearCaches()
+        PhotoSource.clearCaches()
+        SourceImageRenderer.clearCaches()
+        ToneRenderer.clearCaches()
+        ToneRenderer.purgeGradeResources()
+        FilmEdgeRenderer.clearCaches()
+    }
+    func trimForBackground() async {
+        previews.removeAllObjects()
+        if lowMemoryDevice { thumbnails.removeAllObjects() }
+        Self.clearRenderingContextCaches()
+        if !Task.isCancelled {
+            await resources.releaseWorkingCachesIfLoaded()
+        }
+    }
     func beginEditing(owner: UUID) async { await requests.pause(owner: owner) }
     func endEditing(owner: UUID) async { await requests.resume(owner: owner) }
     func workSnapshot() async -> ImageRequestPool<CGImage>.Snapshot { await requests.snapshot }
@@ -132,9 +205,59 @@ actor LibraryImages {
         await files.discardPreparedPhoto()
         tail = nil
         discardMemory()
-        if !Task.isCancelled, let (_, gpu) = try? await resources.load() {
-            await gpu.releaseWorkingCaches()
+        if !Task.isCancelled {
+            await resources.releaseWorkingCachesIfLoaded()
         }
     }
     func endExport() async { await requests.resume(owner: exportOwner) }
+}
+
+private actor DecodeLimiter {
+    private let limit: Int
+    private var active = 0
+    private var waiters: [(id: UUID, continuation: CheckedContinuation<Void, Error>)] = []
+    private var cancelledIDs: Set<UUID> = []
+
+    init(limit: Int) { self.limit = max(1, limit) }
+
+    func acquire() async throws {
+        try Task.checkCancellation()
+        if active < limit {
+            active += 1
+            return
+        }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                enqueue(id, continuation)
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
+    }
+
+    private func enqueue(_ id: UUID, _ continuation: CheckedContinuation<Void, Error>) {
+        if cancelledIDs.remove(id) != nil {
+            continuation.resume(throwing: CancellationError())
+        } else {
+            waiters.append((id, continuation))
+        }
+    }
+
+    private func cancel(_ id: UUID) {
+        if let index = waiters.firstIndex(where: { $0.id == id }) {
+            waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        } else {
+            cancelledIDs.insert(id)
+        }
+    }
+
+    func release() {
+        while !waiters.isEmpty {
+            let next = waiters.removeFirst()
+            next.continuation.resume()
+            return
+        }
+        active = max(0, active - 1)
+    }
 }

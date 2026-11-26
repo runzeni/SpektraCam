@@ -1,7 +1,11 @@
 import Foundation
 import Metal
 import MetalPerformanceShaders
-import MetalPerformanceShadersGraph
+#if targetEnvironment(simulator)
+    import Accelerate
+#else
+    import MetalPerformanceShadersGraph
+#endif
 
 /// Test worker using the same GPU PSF/FFT encoders as the combined image graph.
 actor MetalDiffusion {
@@ -12,9 +16,7 @@ actor MetalDiffusion {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw Failure.unavailable
         }
-        let options = MTLCompileOptions()
-        options.mathMode = .safe
-        options.mathFloatingPointFunctions = .precise
+        let options = MTLCompileOptions.safeMath
         let library = try device.makeLibrary(source: source, options: options)
         self.device = device
         self.queue = queue
@@ -63,29 +65,47 @@ nonisolated final class DiffusionMetalKernels {
     }
     struct PSF { let spectrum: MTLBuffer, normalization: MTLBuffer }
     final class Plan {
-        let width: Int, height: Int, shape: [NSNumber], spectrumShape: [NSNumber]
-        let graph = MPSGraph()
-        let rawKernel: MPSGraphTensor, kernelFFT: MPSGraphTensor, image: MPSGraphTensor,
-            kernel: MPSGraphTensor, output: MPSGraphTensor
-        init(width: Int, height: Int) {
-            self.width = width
-            self.height = height
-            shape = [3, NSNumber(value: height), NSNumber(value: width)]
-            spectrumShape = [3, NSNumber(value: height), NSNumber(value: width / 2 + 1)]
-            graph.options = .none
-            let forward = MPSGraphFFTDescriptor()
-            let inverse = MPSGraphFFTDescriptor()
-            inverse.inverse = true
-            inverse.scalingMode = .size
-            rawKernel = graph.placeholder(shape: shape, dataType: .float32, name: "PSF")
-            kernelFFT = graph.realToHermiteanFFT(rawKernel, axes: [1, 2], descriptor: forward, name: nil)
-            image = graph.placeholder(shape: shape, dataType: .float32, name: "Image")
-            kernel = graph.placeholder(
-                shape: spectrumShape, dataType: .complexFloat32, name: "Cached PSF spectrum")
-            let transform = graph.realToHermiteanFFT(image, axes: [1, 2], descriptor: forward, name: nil)
-            let product = graph.multiplication(transform, kernel, name: nil)
-            output = graph.HermiteanToRealFFT(product, axes: [1, 2], descriptor: inverse, name: nil)
-        }
+        let width: Int, height: Int
+        #if targetEnvironment(simulator)
+            let logWidth: vDSP_Length, logHeight: vDSP_Length
+            let fftSetup: FFTSetup
+            init(width: Int, height: Int) {
+                self.width = width
+                self.height = height
+                precondition(
+                    width > 0 && (width & (width - 1)) == 0 && height > 0 && (height & (height - 1)) == 0)
+                logWidth = vDSP_Length(width.trailingZeroBitCount)
+                logHeight = vDSP_Length(height.trailingZeroBitCount)
+                fftSetup = vDSP_create_fftsetup(max(logWidth, logHeight), FFTRadix(kFFTRadix2))!
+            }
+            deinit {
+                vDSP_destroy_fftsetup(fftSetup)
+            }
+        #else
+            let shape: [NSNumber], spectrumShape: [NSNumber]
+            let graph = MPSGraph()
+            let rawKernel: MPSGraphTensor, kernelFFT: MPSGraphTensor, image: MPSGraphTensor,
+                kernel: MPSGraphTensor, output: MPSGraphTensor
+            init(width: Int, height: Int) {
+                self.width = width
+                self.height = height
+                shape = [3, NSNumber(value: height), NSNumber(value: width)]
+                spectrumShape = [3, NSNumber(value: height), NSNumber(value: width / 2 + 1)]
+                graph.options = .none
+                let forward = MPSGraphFFTDescriptor()
+                let inverse = MPSGraphFFTDescriptor()
+                inverse.inverse = true
+                inverse.scalingMode = .size
+                rawKernel = graph.placeholder(shape: shape, dataType: .float32, name: "PSF")
+                kernelFFT = graph.realToHermiteanFFT(rawKernel, axes: [1, 2], descriptor: forward, name: nil)
+                image = graph.placeholder(shape: shape, dataType: .float32, name: "Image")
+                kernel = graph.placeholder(
+                    shape: spectrumShape, dataType: .complexFloat32, name: "Cached PSF spectrum")
+                let transform = graph.realToHermiteanFFT(image, axes: [1, 2], descriptor: forward, name: nil)
+                let product = graph.multiplication(transform, kernel, name: nil)
+                output = graph.HermiteanToRealFFT(product, axes: [1, 2], descriptor: inverse, name: nil)
+            }
+        #endif
     }
     private let device: MTLDevice
     private let pad: MTLComputePipelineState, psf: MTLComputePipelineState, sum: MTLComputePipelineState,
@@ -234,7 +254,11 @@ nonisolated final class DiffusionMetalKernels {
             2 * radius + 1 <= min(fw, fh)
         else { throw DiffusionCore.Failure.invalidParameter }
         let raw = try allocate(3 * fw * fh * 4)
-        let spectrum = try allocate(3 * fh * (fw / 2 + 1) * 8)
+        #if targetEnvironment(simulator)
+            let spectrum = try allocate(2 * 3 * fw * fh * 4)
+        #else
+            let spectrum = try allocate(3 * fh * (fw / 2 + 1) * 8)
+        #endif
         let normalization = try allocate(16)
         let groups = ((2 * radius + 1) * (2 * radius + 1) + 127) / 128
         let partial = try allocate(groups * 16)
@@ -257,16 +281,35 @@ nonisolated final class DiffusionMetalKernels {
         var groupCount = UInt32(groups)
         reduce.setBytes(&groupCount, length: 4, index: 2)
         dispatch(reduce, sum, 1)
-        current.graph.encode(
-            to: command,
-            feeds: [
-                current.rawKernel: MPSGraphTensorData(raw, shape: current.shape, dataType: .float32)
-            ],
-            targetOperations: nil,
-            resultsDictionary: [
-                current.kernelFFT: MPSGraphTensorData(
-                    spectrum, shape: current.spectrumShape, dataType: .complexFloat32)
-            ], executionDescriptor: nil)
+        #if targetEnvironment(simulator)
+            let predecessor = command.rootCommandBuffer
+            command.commitAndContinue()
+            predecessor.waitUntilCompleted()
+            if let error = predecessor.error { throw error }
+            let planeCount = fw * fh
+            let realBase = spectrum.contents().assumingMemoryBound(to: Float.self)
+            let imagBase = realBase + 3 * planeCount
+            memcpy(realBase, raw.contents(), 3 * planeCount * 4)
+            memset(imagBase, 0, 3 * planeCount * 4)
+            for c in 0..<3 {
+                var split = DSPSplitComplex(
+                    realp: realBase + c * planeCount, imagp: imagBase + c * planeCount)
+                vDSP_fft2d_zip(
+                    current.fftSetup, &split, 1, 0, current.logWidth, current.logHeight,
+                    FFTDirection(kFFTDirection_Forward))
+            }
+        #else
+            current.graph.encode(
+                to: command,
+                feeds: [
+                    current.rawKernel: MPSGraphTensorData(raw, shape: current.shape, dataType: .float32)
+                ],
+                targetOperations: nil,
+                resultsDictionary: [
+                    current.kernelFFT: MPSGraphTensorData(
+                        spectrum, shape: current.spectrumShape, dataType: .complexFloat32)
+                ], executionDescriptor: nil)
+        #endif
         return PSF(spectrum: spectrum, normalization: normalization)
     }
 
@@ -304,18 +347,55 @@ nonisolated final class DiffusionMetalKernels {
             MTLSize(width: fw, height: fh, depth: 1),
             threadsPerThreadgroup: MTLSize(width: 16, height: 8, depth: 1))
         prepare.endEncoding()
-        work.plan.graph.encode(
-            to: command,
-            feeds: [
-                work.plan.image: MPSGraphTensorData(
-                    work.padded, shape: work.plan.shape, dataType: .float32),
-                work.plan.kernel: MPSGraphTensorData(
-                    kernel.spectrum, shape: work.plan.spectrumShape, dataType: .complexFloat32),
-            ], targetOperations: nil,
-            resultsDictionary: [
-                work.plan.output: MPSGraphTensorData(
-                    work.filtered, shape: work.plan.shape, dataType: .float32)
-            ], executionDescriptor: nil)
+        #if targetEnvironment(simulator)
+            let predecessor = command.rootCommandBuffer
+            command.commitAndContinue()
+            predecessor.waitUntilCompleted()
+            if let error = predecessor.error { throw error }
+            let planeCount = fw * fh
+            let src = work.padded.contents().assumingMemoryBound(to: Float.self)
+            let dst = work.filtered.contents().assumingMemoryBound(to: Float.self)
+            memcpy(dst, src, 3 * planeCount * 4)
+            let kRealBase = kernel.spectrum.contents().assumingMemoryBound(to: Float.self)
+            let kImagBase = kRealBase + 3 * planeCount
+            var imagScratch = [Float](repeating: 0, count: planeCount)
+            imagScratch.withUnsafeMutableBufferPointer { imagBuf in
+                let im = imagBuf.baseAddress!
+                var invN = 1.0 / Float(planeCount)
+                for c in 0..<3 {
+                    memset(im, 0, planeCount * 4)
+                    let r = dst + c * planeCount
+                    var split = DSPSplitComplex(realp: r, imagp: im)
+                    vDSP_fft2d_zip(
+                        work.plan.fftSetup, &split, 1, 0, work.plan.logWidth, work.plan.logHeight,
+                        FFTDirection(kFFTDirection_Forward))
+                    let kr = kRealBase + c * planeCount
+                    let ki = kImagBase + c * planeCount
+                    for i in 0..<planeCount {
+                        let a = r[i], b = im[i], cr = kr[i], ci = ki[i]
+                        r[i] = a * cr - b * ci
+                        im[i] = a * ci + b * cr
+                    }
+                    vDSP_fft2d_zip(
+                        work.plan.fftSetup, &split, 1, 0, work.plan.logWidth, work.plan.logHeight,
+                        FFTDirection(kFFTDirection_Inverse))
+                    vDSP_vsmul(r, 1, &invN, r, 1, vDSP_Length(planeCount))
+                }
+            }
+        #else
+            work.plan.graph.encode(
+                to: command,
+                feeds: [
+                    work.plan.image: MPSGraphTensorData(
+                        work.padded, shape: work.plan.shape, dataType: .float32),
+                    work.plan.kernel: MPSGraphTensorData(
+                        kernel.spectrum, shape: work.plan.spectrumShape, dataType: .complexFloat32),
+                ], targetOperations: nil,
+                resultsDictionary: [
+                    work.plan.output: MPSGraphTensorData(
+                        work.filtered, shape: work.plan.shape, dataType: .float32)
+                ], executionDescriptor: nil)
+        #endif
     }
     /// Unnormalized convolution result as interleaved pixels. `finite` supplies ignored operands.
     func extract(

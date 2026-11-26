@@ -12,9 +12,11 @@ enum AppLinks {
 }
 
 struct AppInformationView: View {
+    var library: PhotoLibrary? = nil
     var importFiles: (() -> Void)? = nil
     @AppStorage(PreviewQuality.libraryKey) private var libraryMaximum = PreviewQuality.defaultMaximum
     @AppStorage(PreviewQuality.editorKey) private var editorMaximum = PreviewQuality.defaultMaximum
+    @AppStorage(RenderPrecision.storageKey) private var renderPrecision = RenderPrecision.automatic.rawValue
     @AppStorage(EditorDefaults.halationKey) private var defaultHalation = true
     @AppStorage(EditorDefaults.grainKey) private var defaultGrain = true
     @AppStorage(EditorDefaults.monochromeGrainKey) private var defaultMonochromeGrain = false
@@ -45,29 +47,36 @@ struct AppInformationView: View {
                     LabeledContent(
                         String(localized: "about.version", defaultValue: "Version"), value: version)
                 }
-                Section(String(localized: "about.authors", defaultValue: "Authors")) {
-                    Link(
-                        String(
-                            localized: "about.spektrafilm_link",
-                            defaultValue: "Andrea Volpato · Spektrafilm"),
-                        destination: AppLinks.spektrafilm)
-                    Link(
-                        String(localized: "about.author_website", defaultValue: "Runze · Website"),
-                        destination: AppLinks.author)
-                    Link(
-                        String(localized: "about.project_link", defaultValue: "SpektraCam · Project"),
-                        destination: AppLinks.project)
-                }
-                if let importFiles {
-                    Section(String(localized: "common.import", defaultValue: "Import")) {
-                        Button(
-                            String(localized: "library.from_files", defaultValue: "From Files"),
-                            systemImage: "folder"
-                        ) {
-                            dismiss()
-                            importFiles()
+                if importFiles != nil || library != nil {
+                    Section(String(localized: "library.library", defaultValue: "Library")) {
+                        if let importFiles {
+                            Button(
+                                String(localized: "library.from_files", defaultValue: "From Files"),
+                                systemImage: "folder"
+                            ) {
+                                dismiss()
+                                importFiles()
+                            }
+                            .accessibilityIdentifier("about.importFiles")
                         }
-                        .accessibilityIdentifier("about.importFiles")
+                        if let library {
+                            NavigationLink {
+                                RecentlyDeletedView(library: library)
+                            } label: {
+                                LabeledContent {
+                                    if !library.deletedPhotos.isEmpty {
+                                        Text(verbatim: "\(library.deletedPhotos.count)")
+                                            .monospacedDigit()
+                                            .foregroundStyle(.secondary)
+                                    }
+                                } label: {
+                                    Label(
+                                        String(localized: "recently_deleted.title", defaultValue: "Recently Deleted"),
+                                        systemImage: "trash")
+                                }
+                            }
+                            .accessibilityIdentifier("about.recentlyDeleted")
+                        }
                     }
                 }
                 Section(String(localized: "about.settings", defaultValue: "Settings")) {
@@ -92,8 +101,6 @@ struct AppInformationView: View {
                     .onChange(of: rememberFlash) { _, enabled in
                         if !enabled { UserDefaults.standard.removeObject(forKey: "camera.flashOn") }
                     }
-                    footnote(String(localized: "about.remember_flash_note",
-                        defaultValue: "When off, flash turns off when you leave the camera."))
                     previewPicker(
                         String(localized: "about.library_preview", defaultValue: "Library preview"),
                         selection: $libraryMaximum, identifier: "about.libraryPreview")
@@ -103,8 +110,37 @@ struct AppInformationView: View {
                     footnote(
                         String(
                             localized: "about.preview_quality_note",
+                            defaultValue: "Preview only; exports use the original."
+                        ))
+                    Picker(
+                        String(
+                            localized: "about.render_precision",
+                            defaultValue: "Rendering pipeline"),
+                        selection: $renderPrecision
+                    ) {
+                        Text(
+                            String(
+                                localized: "about.render_precision.auto",
+                                defaultValue: "Automatic")
+                        ).tag(RenderPrecision.automatic.rawValue)
+                        Text(
+                            String(
+                                localized: "about.render_precision.32bit",
+                                defaultValue: "32-bit float")
+                        ).tag(RenderPrecision.float32.rawValue)
+                        Text(
+                            String(
+                                localized: "about.render_precision.16bit",
+                                defaultValue: "16-bit float")
+                        ).tag(RenderPrecision.float16.rawValue)
+                    }
+                    .id(accent)
+                    .accessibilityIdentifier("about.renderPrecision")
+                    footnote(
+                        String(
+                            localized: "about.render_precision_note",
                             defaultValue:
-                                "Export uses the original. Preview quality does not reduce the stored photo."
+                                "Automatic uses 16-bit float during live adjustments for responsive previews, and 32-bit float for settled RAW/deep-color previews and exports on capable devices."
                         ))
                 }
                 Section(String(localized: "about.new_edit_defaults", defaultValue: "New edit defaults")) {
@@ -115,12 +151,25 @@ struct AppInformationView: View {
                     Toggle(String(localized: "effects.b_w_grain", defaultValue: "B&W Grain"), isOn: $defaultMonochromeGrain)
                         .accessibilityIdentifier("about.defaultMonochromeGrain")
                 }
+                Section(String(localized: "about.authors", defaultValue: "Authors")) {
+                    Link(
+                        String(
+                            localized: "about.spektrafilm_link",
+                            defaultValue: "Andrea Volpato · Spektrafilm"),
+                        destination: AppLinks.spektrafilm)
+                    Link(
+                        String(localized: "about.author_website", defaultValue: "Runze · Website"),
+                        destination: AppLinks.author)
+                    Link(
+                        String(localized: "about.project_link", defaultValue: "SpektraCam · Project"),
+                        destination: AppLinks.project)
+                }
                 Section(String(localized: "about.legal", defaultValue: "Legal")) {
                     footnote(
                         String(
                             localized: "about.privacy_summary",
                             defaultValue:
-                                "No accounts, ads or tracking. Photos, edits and LUTs stay on this device."))
+                                "Photos, edits, formulae and LUTs stay on this device."))
                     Link(
                         String(localized: "about.privacy_policy", defaultValue: "Privacy Policy"),
                         destination: AppLinks.privacy
@@ -139,17 +188,16 @@ struct AppInformationView: View {
                         String(
                             localized: "about.simulation_disclaimer",
                             defaultValue:
-                                "SpektraCam uses abbreviated aliases for film and print simulation profiles derived from Andrea Volpato’s spektrafilm project. These simulations draw on published technical data and modelling assumptions; they do not reproduce or guarantee the appearance or performance of physical films, papers or processing workflows. SpektraCam is not affiliated with, sponsored by or endorsed by the manufacturers of the referenced materials."
+                                "Film and print profiles are approximate simulations from spektrafilm based on published data, independent of any manufacturer."
                         ))
                 }
             }
+            .listSectionSpacing(.compact)
             .navigationTitle(String(localized: "about.about", defaultValue: "About"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(
-                        String(localized: "common.done", defaultValue: "Done"), systemImage: "xmark"
-                    ) { dismiss() }.labelStyle(.iconOnly)
+                    SheetDismissButton { dismiss() }
                 }
             }
         }
@@ -157,7 +205,7 @@ struct AppInformationView: View {
 
     private func previewPicker(_ title: String, selection: Binding<Int>, identifier: String) -> some View {
         Picker(title, selection: selection) {
-            ForEach(PreviewQuality.choices, id: \.self) { Text(verbatim: "\($0) px").tag($0) }
+            ForEach(PreviewQuality.choices, id: \.self) { Text(verbatim: "\($0.formatted()) px").tag($0) }
         }
         .id(accent)  // A menu picker keeps the tint it was built with.
         .accessibilityIdentifier(identifier)

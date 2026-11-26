@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import UniformTypeIdentifiers
 
 nonisolated struct BatchExportItem: Identifiable, Sendable {
     let id: UUID
@@ -15,6 +16,7 @@ actor BatchPhotoExporter {
     private let directory: URL
     private let luts: URL
     private let resources: FilmRenderResources
+    private var admittedPlans: [UUID: (size: PhotoExporter.Size, recipe: EditRecipe, plan: RenderMemoryBudget.Plan)] = [:]
     init(directory: URL, luts: URL, resources: FilmRenderResources) {
         self.directory = directory
         self.luts = luts
@@ -34,16 +36,24 @@ actor BatchPhotoExporter {
         let scale = maximum / max(w, h)
         do {
             if let recipe {
-                try RenderMemoryBudget.check(
-                    width: max(1, Int(ceil(w * scale))),
-                    height: max(1, Int(ceil(h * scale))), recipe: recipe)
+                let prefersDeep = PhotoSource.prefersDeepPipeline(at: item.source)
+                let plan = try RenderPrecision.$activeSourcePrefersDeep.withValue(prefersDeep) {
+                    try RenderMemoryBudget.check(
+                        width: max(1, Int(ceil(w * scale))),
+                        height: max(1, Int(ceil(h * scale))), recipe: recipe)
+                }
+                admittedPlans[item.id] = (size, recipe, plan)
             } else {
+                admittedPlans.removeValue(forKey: item.id)
                 try PhotoSource.checkDevelopmentMemory(
                     width: max(1, Int(ceil(w * scale))),
                     height: max(1, Int(ceil(h * scale))))
             }
             return nil
-        } catch { return error.localizedDescription }
+        } catch {
+            admittedPlans.removeValue(forKey: item.id)
+            return error.localizedDescription
+        }
     }
     func export(
         _ item: BatchExportItem, size: PhotoExporter.Size,
@@ -61,17 +71,20 @@ actor BatchPhotoExporter {
         }
         let data = try Data(contentsOf: item.source, options: .mappedIfSafe)
         guard
-            let photo = ImportedPhoto.decode(
-                data, maximum: 384,
-                typeHint: PhotoSource.typeHint(for: item.source))
+            let description = PhotoSource.describe(
+                data, typeHint: PhotoSource.typeHint(for: item.source))
         else { throw PhotoExporter.Failure.decode }
         let renderer = PhotoRenderer(
-            source: photo.preview, directory: directory, data: data,
-            temperature: photo.rawTemperature, lutDirectory: luts, previewMaximum: 384,
-            resources: resources, sourceType: photo.sourceType, description: photo.sourceDescription, sourceFilename: item.name)
+            source: PhotoRenderer.placeholderSource, directory: directory, data: data,
+            temperature: description.temperature, lutDirectory: luts, previewMaximum: 384,
+            resources: resources, sourceType: description.type, description: description,
+            sourceFilename: item.name, cachesIntermediates: false)
+        let cachedPlan = admittedPlans[item.id].flatMap { entry in
+            entry.size == size && entry.recipe == recipe ? entry.plan : nil
+        }
         do {
             let result = try await renderer.export(
-                recipe, size: size, format: format, quality: quality)
+                recipe, size: size, format: format, quality: quality, admittedPlan: cachedPlan)
             await renderer.discardExport()
             return result.0
         } catch {

@@ -51,7 +51,7 @@
       <a class="button" id="open" data-t="open">Open in SpektraCam</a>
       <button id="save" type="button" data-t="save">Download Formula File</button>
     </div>
-    <p class="small" data-t="private">This formula is carried in the link itself. It was not uploaded, and this page sends nothing anywhere.</p>
+    <p class="small" data-t="private">Decoded locally from this link.</p>
   </section>
   <section id="problem" hidden>
     <h1 data-t="problemTitle">No formula here</h1>
@@ -64,20 +64,22 @@
 const zh = (navigator.language || "").toLowerCase().startsWith("zh");
 const text = zh ? {
   kicker: "SpektraCam 配方", open: "在 SpektraCam 中打开", save: "下载配方文件",
-  private: "此配方就包含在链接本身之中，没有上传到任何地方，本页面也不会发送任何数据。",
+  private: "直接从此链接在本地解码。",
   problemTitle: "这里没有配方", about: "是一款免费、开源的 iPhone 与 iPad 胶片模拟 App。",
   none: "此链接不包含配方。", broken: "此链接不完整或已损坏。", newer: "此配方需要更新版本的 SpektraCam。",
   old: "此浏览器无法读取配方。请在 SpektraCam 中打开链接。",
   look: "个性化", exposure: "曝光", darkroom: "暗房", film: "胶片", print: "印相", scan: "直接扫描",
-  lut: "3D LUT", contrast: "反差曲线", grain: "颗粒", halation: "光晕", on: "开", off: "关", bw: "黑白",
+  lut: "3D LUT", contrast: "反差曲线", grain: "颗粒", halation: "光晕", on: "开", off: "关", bw: "黑白", original: "原图",
   ev: "曝光", warmth: "冷暖", tint: "色调", paper: "相纸", edge: "胶片边缘", included: "已包含", asImage: "随影像",
+  still35: "35 mm 静态", cine35: "35 mm 电影",
 } : {
   none: "This link does not carry a formula.", broken: "This link is incomplete or damaged.",
   newer: "This formula needs a newer version of SpektraCam.",
   old: "This browser cannot read the formula. Open the link in SpektraCam instead.",
   look: "Look", exposure: "Exposure", darkroom: "Darkroom", film: "Film", print: "Print", scan: "Direct scan",
-  lut: "3D LUT", contrast: "S-curve", grain: "Grain", halation: "Halation", on: "On", off: "Off", bw: "Black & White",
+  lut: "3D LUT", contrast: "S-curve", grain: "Grain", halation: "Halation", on: "On", off: "Off", bw: "Black & White", original: "Original",
   ev: "Exposure", warmth: "Warmth", tint: "Tint", paper: "Paper", edge: "Film edge", included: "Included", asImage: "As image",
+  still35: "35 mm still", cine35: "35 mm cine",
 };
 if (zh) document.documentElement.lang = "zh-Hans";
 for (const node of document.querySelectorAll("[data-t]")) if (text[node.dataset.t]) node.textContent = text[node.dataset.t];
@@ -133,18 +135,29 @@ async function show() {
   }
   const tone = recipe.tone || {}, source = recipe.source || {}, look = recipe.look || {}, flags = recipe.flags || {};
   if ("look" in parts) {
-    const lut = look.mode === "lut";
-    const names = [look.first, look.second].filter(slot => slot && slot.id && slot.mix !== 0)
-      .map(slot => ((file.luts || []).find(entry => entry.id === slot.id) || {}).name || "LUT");
-    rows(text.look, [
-      !lut && [text.film, stocks[recipe.filmID] || "—"],
-      !lut && [text.print, recipe.scanFilm ? text.scan : stocks[recipe.printID] || "—"],
-      lut && [text.lut, names.join(" · ") || "—"],
-      typeof tone.contrast === "number" && tone.contrast !== 1 && [text.contrast, String(Number(tone.contrast.toFixed(2)))],
-      tone.monochrome === true && [text.bw, text.on],
-      [text.grain, flags["film_render.grain.active"] === false ? text.off : text.on],
-      !lut && [text.halation, flags["film_render.halation.active"] === false ? text.off : text.on],
-    ]);
+    const contrastValue = typeof tone.contrast === "number" && tone.contrast !== 1
+      ? ((tone.algorithm ?? 5) >= 5 ? signed((tone.contrast - 1) / 0.07, 1) : String(Number(tone.contrast.toFixed(2))))
+      : null;
+    if (look.enabled === false) {
+      rows(text.look, [
+        [text.look, text.original],
+        contrastValue && [text.contrast, contrastValue],
+        tone.monochrome === true && [text.bw, text.on],
+      ]);
+    } else {
+      const lut = look.mode === "lut";
+      const names = lut ? [look.first, look.second].filter(slot => slot && slot.id && (slot.mix ?? 1) > 0)
+        .map(slot => ((file.luts || []).find(entry => entry.id === slot.id) || {}).name || "LUT") : [];
+      rows(text.look, [
+        !lut && [text.film, stocks[recipe.filmID] || "—"],
+        !lut && [text.print, recipe.scanFilm ? text.scan : stocks[recipe.printID] || "—"],
+        lut && [text.lut, names.join(" · ") || "—"],
+        contrastValue && [text.contrast, contrastValue],
+        tone.monochrome === true && [text.bw, text.on],
+        [text.grain, flags["film_render.grain.active"] === false ? text.off : text.on],
+        [text.halation, flags["film_render.halation.active"] === false ? text.off : text.on],
+      ]);
+    }
   }
   if ("exposure" in parts) {
     rows(text.exposure, [
@@ -155,8 +168,12 @@ async function show() {
   }
   if ("darkroom" in parts) {
     const layout = recipe.printLayout, edge = recipe.filmEdgeLayout;
+    const edgeLabel = edge && (edge.format === "roll120" ? "120"
+      : edge.sourcePerforations === "stillKS" ? text.still35
+      : (edge.sourcePerforations === "cineBH" || edge.cinePerforations) ? text.cine35
+      : "35 mm");
     rows(text.darkroom, [
-      edge && [text.edge, edge.format === "roll120" ? "120" : "35 mm"],
+      edge && [text.edge, edgeLabel],
       layout && [text.paper, papers[layout.paper] || "—"],
     ]);
   }

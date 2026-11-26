@@ -32,17 +32,63 @@ nonisolated enum SourceImageRenderer {
         }
     }
     private static let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
-    private static let context = CIContext(options: [
-        .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false,
-    ])
+    private static let contextLock = NSLock()
+    private nonisolated(unsafe) static var _context32: CIContext?
+    private nonisolated(unsafe) static var _context16: CIContext?
+    private static var context: CIContext {
+        let halfFloat = RenderPrecision.resolved.usesHalfFloat
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        if halfFloat {
+            if let existing = _context16 { return existing }
+            let created = CIContext(options: [
+                .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf,
+                .cacheIntermediates: false,
+            ])
+            _context16 = created
+            return created
+        } else {
+            if let existing = _context32 { return existing }
+            let created = CIContext(options: [
+                .workingColorSpace: linear, .workingFormat: CIFormat.RGBAf,
+                .cacheIntermediates: false,
+            ])
+            _context32 = created
+            return created
+        }
+    }
+    static var initializedContextCountForTesting: Int {
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        return (_context16 != nil ? 1 : 0) + (_context32 != nil ? 1 : 0)
+    }
+    static func clearCaches() {
+        contextLock.lock()
+        let c16 = _context16
+        let c32 = _context32
+        contextLock.unlock()
+        c16?.clearCaches()
+        c32?.clearCaches()
+    }
 
     /// Owned by one preview resolution inside PhotoRenderer's actor. Mutable RAW filters
     /// never cross workers; export uses the uncached one-shot path instead.
     final class Decoder {
-        lazy var context = CIContext(options: [
+        private let cachesIntermediates: Bool
+        init(cachesIntermediates: Bool = true) {
+            self.cachesIntermediates = cachesIntermediates
+        }
+        private lazy var context32 = CIContext(options: [
             .workingColorSpace: SourceImageRenderer.linear, .workingFormat: CIFormat.RGBAf,
-            .cacheIntermediates: true,
+            .cacheIntermediates: cachesIntermediates,
         ])
+        private lazy var context16 = CIContext(options: [
+            .workingColorSpace: SourceImageRenderer.linear, .workingFormat: CIFormat.RGBAh,
+            .cacheIntermediates: cachesIntermediates,
+        ])
+        var context: CIContext {
+            RenderPrecision.resolved.usesHalfFloat ? context16 : context32
+        }
         private var filters: [Intent: (CIRAWFilter, Float, Float)] = [:]
         private var maximum: Int?
         func raw(
@@ -78,7 +124,8 @@ nonisolated enum SourceImageRenderer {
         data: Data?, fallback: CGImage, recipe: EditRecipe, maximum: Int,
         renderedSource: CIImage? = nil, sourceType: String? = nil, intent: Intent? = nil,
         description: PhotoSource.Description? = nil, decoder: Decoder? = nil,
-        framing: EditRecipe? = nil, targetSize: CGSize? = nil, allowsStore: Bool = false,
+        framing: EditRecipe? = nil, customCropNormalized: CGRect? = nil,
+        targetSize: CGSize? = nil, allowsStore: Bool = false,
         region: Region? = nil
     ) throws -> Input {
         try Task.checkCancellation()
@@ -88,14 +135,15 @@ nonisolated enum SourceImageRenderer {
                 renderedSource: renderedSource, sourceType: sourceType,
                 intent: intent
                     ?? (recipe.inputMode == .spektrafilm ? .sceneLinear : .developedPhoto),
-                description: description, decoder: decoder, framing: framing, targetSize: targetSize,
+                description: description, decoder: decoder, framing: framing,
+                customCropNormalized: customCropNormalized, targetSize: targetSize,
                 allowsStore: allowsStore, region: region)
         }
     }
     private static func preparePixels(
         data: Data?, fallback: CGImage, recipe: EditRecipe, maximum: Int, renderedSource: CIImage?,
         sourceType: String?, intent: Intent, description known: PhotoSource.Description?, decoder: Decoder?,
-        framing: EditRecipe?, targetSize: CGSize?, allowsStore: Bool, region: Region?
+        framing: EditRecipe?, customCropNormalized: CGRect?, targetSize: CGSize?, allowsStore: Bool, region: Region?
     ) throws
         -> Input
     {
@@ -129,7 +177,10 @@ nonisolated enum SourceImageRenderer {
                     options: [
                         .applyOrientationProperty: true,
                         .expandToHDR: intent == .sceneLinear,
-                        .toneMapHDRtoSDR: false,
+                        .toneMapHDRtoSDR: intent == .developedPhoto && {
+                            if #available(iOS 18.0, macOS 15.0, *) { return false }
+                            return true
+                        }(),
                     ])
             {
                 // The display thumbnail is 8-bit. Processing decodes original pixels before downsampling.
@@ -138,9 +189,16 @@ nonisolated enum SourceImageRenderer {
                     maximum: maximum)
             } else {
                 image = CIImage(cgImage: fallback)
-                if intent == .developedPhoto {
+                if intent == .developedPhoto, #available(iOS 18.0, macOS 15.0, *) {
                     let recorded = fallback.contentHeadroom
-                    let headroom = recorded > 0 ? recorded : fallback.calculatedContentHeadroom
+                    let headroom: Float
+                    if recorded > 0 {
+                        headroom = recorded
+                    } else if #available(iOS 26.0, macOS 26.0, *) {
+                        headroom = fallback.calculatedContentHeadroom
+                    } else {
+                        headroom = 1
+                    }
                     if headroom > 1 {
                         image = image.applyingFilter(
                             "CIToneMapHeadroom",
@@ -173,15 +231,38 @@ nonisolated enum SourceImageRenderer {
         }
         if let framing {
             image = GeometryRenderer.transformed(image, geometry: framing.geometry)
-            let crop = framing.crop.pixelRect(in: image.extent.size)
-            // CropSelection uses top-left coordinates; Core Image uses bottom-left coordinates.
-            image = image.cropped(to: CGRect(x: crop.minX, y: image.extent.height - crop.maxY,
-                                             width: crop.width, height: crop.height))
             image = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY))
-        }
-        if let targetSize {
-            image = image.transformed(by: CGAffineTransform(scaleX: targetSize.width / image.extent.width,
-                                                            y: targetSize.height / image.extent.height))
+            let cropRect: CGRect
+            if let r = customCropNormalized?.intersection(CropSelection.fullImage), !r.isEmpty, !r.isNull {
+                // Fractional normalized crop in top-left upright space -> bottom-left CoreImage space.
+                cropRect = CGRect(
+                    x: r.minX * image.extent.width,
+                    y: (1 - r.maxY) * image.extent.height,
+                    width: r.width * image.extent.width,
+                    height: r.height * image.extent.height)
+            } else {
+                let crop = framing.crop.pixelRect(in: image.extent.size)
+                cropRect = CGRect(
+                    x: crop.minX, y: image.extent.height - crop.maxY,
+                    width: crop.width, height: crop.height)
+            }
+            if let targetSize {
+                let sx = targetSize.width / max(cropRect.width, 1e-6)
+                let sy = targetSize.height / max(cropRect.height, 1e-6)
+                image = image.clampedToExtent()
+                    .transformed(by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY))
+                    .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+                    .cropped(to: CGRect(origin: .zero, size: targetSize))
+            } else {
+                image = image.clampedToExtent().cropped(to: cropRect)
+                image = image.transformed(by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY))
+            }
+        } else if let targetSize {
+            let sx = targetSize.width / max(image.extent.width, 1e-6)
+            let sy = targetSize.height / max(image.extent.height, 1e-6)
+            image = image.clampedToExtent()
+                .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+                .cropped(to: CGRect(origin: .zero, size: targetSize))
         }
         image = image.composited(over: CIImage(color: CIColor.black).cropped(to: image.extent))
         image = image.transformed(
@@ -242,7 +323,8 @@ nonisolated enum SourceImageRenderer {
         let source = image(input)
         guard
             let frame = context.createCGImage(
-                source, from: source.extent, format: .RGBAf, colorSpace: linear, deferred: false)
+                source, from: source.extent, format: RenderPrecision.resolved.ciFormat,
+                colorSpace: linear, deferred: false)
         else { throw Failure.decode }
         return frame
     }
@@ -268,7 +350,7 @@ nonisolated enum SourceImageRenderer {
         }
         guard
             let image = context.createCGImage(
-                output, from: original.extent, format: .RGBAf,
+                output, from: original.extent, format: RenderPrecision.resolved.ciFormat,
                 colorSpace: linear, deferred: false)
         else { throw Failure.decode }
         return image

@@ -87,24 +87,39 @@ extension View {
 struct AccentPicker: View {
     @AppStorage(AppAccent.key) private var accent = AppAccent.magenta
     var body: some View {
-        LabeledContent(String(localized: "about.accent", defaultValue: "Accent color")) {
-            HStack(spacing: 0) {
-                ForEach(AppAccent.allCases) { option in
-                    Button {
-                        accent = option
-                    } label: {
-                        swatch(option).frame(width: 24, height: 24)
-                            .padding(4)
-                            .overlay {
-                                if accent == option { Circle().strokeBorder(Color.primary, lineWidth: 2) }
-                            }
-                            .frame(width: 44, height: 44).contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(option.title)
-                    .accessibilityAddTraits(accent == option ? .isSelected : [])
-                    .accessibilityIdentifier("about.accent." + option.rawValue)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                titleLabel
+                Spacer(minLength: 4)
+                swatches
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                titleLabel
+                swatches
+            }
+        }
+    }
+    private var titleLabel: some View {
+        Text(String(localized: "about.accent", defaultValue: "Accent color"))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+    private var swatches: some View {
+        HStack(spacing: 0) {
+            ForEach(AppAccent.allCases) { option in
+                Button {
+                    accent = option
+                } label: {
+                    swatch(option).frame(width: 24, height: 24)
+                        .padding(4)
+                        .overlay {
+                            if accent == option { Circle().strokeBorder(Color.primary, lineWidth: 2) }
+                        }
+                        .frame(width: 44, height: 44).contentShape(.rect)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(option.title)
+                .accessibilityAddTraits(accent == option ? .isSelected : [])
+                .accessibilityIdentifier("about.accent." + option.rawValue)
             }
         }
     }

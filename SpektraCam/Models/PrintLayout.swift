@@ -44,10 +44,11 @@ nonisolated struct PrintLayout: Codable, Equatable, Sendable {
     static let marginRange = -0.2...0.2
     /// Common border widths, as a share of the sheet's long side.
     enum Border: String, CaseIterable {
-        case none, narrow, medium, wide
+        case none, thin, narrow, medium, wide
         var margin: Double {
             switch self {
             case .none: 0
+            case .thin: 0.01
             case .narrow: 0.03
             case .medium: 0.05
             case .wide: 0.13
@@ -56,6 +57,7 @@ nonisolated struct PrintLayout: Codable, Equatable, Sendable {
         var title: String {
             switch self {
             case .none: String(localized: "darkroom.border.none", defaultValue: "No border")
+            case .thin: String(localized: "darkroom.border.thin", defaultValue: "Thin")
             case .narrow: String(localized: "darkroom.border.narrow", defaultValue: "Narrow")
             case .medium: String(localized: "darkroom.border.medium", defaultValue: "Medium")
             case .wide: String(localized: "darkroom.border.wide", defaultValue: "Wide")
@@ -66,14 +68,19 @@ nonisolated struct PrintLayout: Codable, Equatable, Sendable {
             guard let match = Self.allCases.first(where: { abs($0.margin - margin) < 0.0005 }) else { return nil }
             self = match
         }
+        /// Distinguish intentional full bleed (`fill == true`) from a manual numeric zero fit.
+        static func activePreset(margin: Double, fill: Bool) -> Self? {
+            if fill { return Self.none }
+            return [.thin, .narrow, .medium, .wide].first { abs($0.margin - margin) < 0.0005 }
+        }
     }
     /// A film-edge enlarger print starts on a 5 × 7 sheet; a photo shown as itself stays as image.
     static var enlargerDefault: Self { var layout = Self(); layout.paper = .fiveBySeven; return layout }
     /// The automatic border: none for a photo shown as itself, a modest one on a sized sheet
     /// and around a film-edge enlarger print, whose blades should show.
     static let automaticMargin = 0.04
-    /// Saved before the border went negative: the picture covers the sheet. Fill now sets
-    /// `margin` to `PrintGeometry.fillMargin` instead.
+    /// Saved before the border went negative: the picture covers the sheet. Full bleed sets
+    /// `fill = true` and leaves `margin` nil so rotating paper re-derives short-side coverage.
     var fill = false
     /// Printed on a hand-set easel: blades set by eye leave uneven margins and, on a film-edge
     /// enlarger print, a projection a fraction of a degree off square. Off (the default) is a
@@ -89,9 +96,9 @@ nonisolated struct PrintLayout: Codable, Equatable, Sendable {
         return paper == .asImage ? 0 : Self.automaticMargin
     }
     /// The photo is shown as itself (a clean print needs no compositing).
-    var isIdentity: Bool { paper == .asImage && orientation == .automatic && !fill && (margin ?? 0) == 0 }
+    var isIdentity: Bool { paper == .asImage && orientation == .automatic && (fill || (margin ?? 0) == 0) }
     /// Nothing to save: identity placement with the default easel.
-    var isDefault: Bool { isIdentity && margin == nil && !handSet && easelSeed == 1 && blade == .natural }
+    var isDefault: Bool { !fill && isIdentity && margin == nil && !handSet && easelSeed == 1 && blade == .natural }
     /// Only what a film-edge render needs; paper and border drags never re-render the film.
     var easelOnly: Self {
         var easel = Self()

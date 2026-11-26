@@ -129,5 +129,88 @@ import ImageIO
             }
         }
         print("PASS: loupe patch matches the whole film-edge canvas")
+
+        // Composed-route Darkroom loupe: Original and optical-free 3D LUT patches (both pure rebate
+        // and gate/burn-crossing regions) render natively via renderEdgeDetail and match full export.
+        let tmpLUTDir = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "SpektraCam-DetailLUT-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmpLUTDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpLUTDir) }
+        var cubeText = "LUT_3D_SIZE 9\n"
+        for b in 0..<9 { for g in 0..<9 { for r in 0..<9 {
+            cubeText += String(
+                format: "%.4f %.4f %.4f\n",
+                0.04 + 0.92 * Double(r) / 8,
+                0.03 + 0.90 * Double(g) / 8,
+                0.05 + 0.90 * Double(b) / 8)
+        }}}
+        let cubeData = Data(cubeText.utf8)
+        let lutID = CubeLUT.hash(cubeData)
+        try cubeData.write(to: tmpLUTDir.appendingPathComponent(lutID + ".cube"))
+
+        for (label, configure) in [
+            ("Original + invertedScan burn", { (r: inout EditRecipe) in
+                r.look.enabled = false
+                var sel = FilmEdgeSelection(); sel.mode = .manual; sel.manualType = .invertedScan
+                r.filmEdgeSelection = sel
+                var layout = FilmEdgeLayout.newDefault()
+                layout.scanZoom = 0.78
+                layout.distress.apply(.leaky)
+                layout.distress.leak = 0.9
+                layout.distress.burnCoverage = 0.30
+                layout.distress.leakPosition = 0.80
+                r.filmEdgeLayout = layout
+            }),
+            ("Original + negativePrint", { (r: inout EditRecipe) in
+                r.look.enabled = false
+                var sel = FilmEdgeSelection(); sel.mode = .manual; sel.manualType = .negativePrint
+                r.filmEdgeSelection = sel
+                var layout = FilmEdgeLayout.newDefault()
+                layout.printZoom = 0.92
+                layout.distress.apply(.lab)
+                layout.distress.dust = 0.4
+                r.filmEdgeLayout = layout
+            }),
+            ("Optical-free LUT + invertedScan burn", { (r: inout EditRecipe) in
+                r.look.enabled = true; r.look.mode = .lut; r.look.first.id = lutID
+                var sel = FilmEdgeSelection(); sel.mode = .manual; sel.manualType = .invertedScan
+                r.filmEdgeSelection = sel
+                var layout = FilmEdgeLayout.newDefault()
+                layout.scanZoom = 0.78
+                layout.distress.apply(.leaky)
+                layout.distress.burnCoverage = 0.30
+                layout.distress.leakPosition = 0.80
+                r.filmEdgeLayout = layout
+            }),
+        ] as [(String, (inout EditRecipe) -> Void)] {
+            let worker = PhotoRenderer(
+                source: image, directory: directory, data: encoded as Data,
+                lutDirectory: tmpLUTDir, previewMaximum: 720)
+            var recipe = EditRecipe()
+            recipe.flags["camera.auto_exposure"] = false
+            recipe.flags["film_render.grain.active"] = false
+            recipe.flags["print_render.glare.active"] = false
+            recipe.flags["film_render.halation.active"] = false
+            recipe.flags["camera.diffusion_filter.active"] = false
+            recipe.flags["enlarger.diffusion_filter.active"] = false
+            configure(&recipe)
+            recipe.crop = recipe.filmEdgeLayout!.constrainedCrop(recipe.crop, imageSize: CGSize(width: width, height: height))
+            let full = try await worker.renderFilmEdge(recipe, maximum: nil)
+            for visible in [CGRect(x: 0, y: 0, width: 0.24, height: 0.18), CGRect(x: 0.04, y: 0.35, width: 0.25, height: 0.30)] {
+                guard let detail = try await worker.renderEdgeDetail(recipe, visible: visible)
+                else { preconditionFailure("\(label): expected composed loupe patch, got nil") }
+                let rect = CGRect(
+                    x: (detail.rect.minX * Double(full.width)).rounded(),
+                    y: (detail.rect.minY * Double(full.height)).rounded(),
+                    width: Double(detail.image.width), height: Double(detail.image.height))
+                let a = bytes(detail.image), b = bytes(full.cropping(to: rect)!)
+                precondition(a.count == b.count, "\(label): size")
+                var maximum = 0
+                for i in a.indices where i % 4 != 3 { maximum = max(maximum, abs(Int(a[i]) - Int(b[i]))) }
+                print(String(format: "composed loupe %@ %@: max %d/255", label, "\(Int(rect.minX)),\(Int(rect.minY))", maximum))
+                precondition(maximum <= 4, "\(label): composed loupe patch differs from export by \(maximum)/255")
+            }
+        }
+        print("PASS: composed-route Darkroom loupe matches full film-edge render")
     }
 }

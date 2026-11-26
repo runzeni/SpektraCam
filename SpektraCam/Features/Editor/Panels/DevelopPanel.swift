@@ -3,9 +3,9 @@ import SwiftUI
 /// Two native browsing columns keep stock names visible and selections one tap away.
 struct DevelopPanel: View {
     // Stock list spacing, in points. Change these values to test the layout.
-    private let stockRowHeight: CGFloat = 36
+    private let stockRowHeight: CGFloat = 34
     private let stockRowSpacing: CGFloat = 0
-    private let stockSelectionHeight: CGFloat = 30
+    private let stockSelectionHeight: CGFloat = 28
 
     let session: EditorSession
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -24,7 +24,7 @@ struct DevelopPanel: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             if typeSize.isAccessibilitySize {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
@@ -107,7 +107,7 @@ struct DevelopPanel: View {
         _ title: String, id: String, categories: [FilmStock.Category],
         selection: Binding<FilmStock.Category>
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption.weight(.semibold))
             Picker(
                 String(localized: "develop.stock_category", defaultValue: "\(title) category"),
@@ -120,7 +120,7 @@ struct DevelopPanel: View {
             .pickerStyle(.segmented)
             .accessibilityIdentifier("develop." + id + ".category")
             Text(selection.wrappedValue.title)
-                .font(.caption).foregroundStyle(.secondary).fixedSize(
+                .font(.caption2).foregroundStyle(.secondary).fixedSize(
                     horizontal: false, vertical: true)
         }
     }
@@ -129,7 +129,7 @@ struct DevelopPanel: View {
         _ title: String, categories: [FilmStock.Category], selection: Binding<FilmStock.Category>,
         stocks: [FilmStock], selected: String, film: Bool
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             categoryControl(
                 title, id: film ? "film" : "print", categories: categories, selection: selection
             )
@@ -158,14 +158,13 @@ struct DevelopPanel: View {
             }
         } label: {
             VStack(spacing: 0) {
-                Group {
-                    if selected {
-                        stockLabel(stock, selected: true).glassEffect(
-                            .regular.tint(.accentColor).interactive(), in: .rect(cornerRadius: 10))
-                    } else {
-                        stockLabel(stock, selected: false)
+                stockLabel(stock, selected: selected)
+                    .background {
+                        if selected {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.accentColor)
+                        }
                     }
-                }
             }.frame(minHeight: typeSize.isAccessibilitySize ? 44 : stockRowHeight).contentShape(
                 .rect)
         }.buttonStyle(.plain)
@@ -187,17 +186,15 @@ struct DevelopPanel: View {
         -> some View
     {
         let matches = stocks.filter { $0.category == category }
-        return GlassEffectContainer(spacing: 2) {
-            LazyVStack(spacing: stockRowSpacing) {
-                ForEach(Array(matches.enumerated()), id: \.element.id) { index, stock in
-                    if index > 0 && manufacturer(matches[index - 1]) != manufacturer(stock) {
-                        Divider().padding(.vertical, 5)
-                    }
-                    stockButton(stock, selected: stock.id == selected, film: film)
-                        .accessibilityLabel(stock.name)
-                        .accessibilityAddTraits(stock.id == selected ? .isSelected : [])
-                        .accessibilityIdentifier("develop.stock." + stock.id).id(stock.id)
+        return LazyVStack(spacing: stockRowSpacing) {
+            ForEach(Array(matches.enumerated()), id: \.element.id) { index, stock in
+                if index > 0 && manufacturer(matches[index - 1]) != manufacturer(stock) {
+                    Divider().padding(.vertical, 5)
                 }
+                stockButton(stock, selected: stock.id == selected, film: film)
+                    .accessibilityLabel(stock.name)
+                    .accessibilityAddTraits(stock.id == selected ? .isSelected : [])
+                    .accessibilityIdentifier("develop.stock." + stock.id).id(stock.id)
             }
         }
     }

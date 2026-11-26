@@ -1,40 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "camera.raw_unavailable" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RAW Capture Unavailable"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法拍摄 RAW"
-          }
-        }
-      }
-    },
-    "camera.raw_unsupported_note" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This device’s cameras do not provide a supported RAW format. You can still import and edit photos."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此设备的相机不提供受支持的 RAW 格式。你仍可导入和编辑照片。"
-          }
-        }
-      }
-    },
     "%lld³" : {
       "comment" : "Fixed brand, acronym or mathematical notation. Do not translate.",
       "extractionState" : "manual",
@@ -47,6 +13,12 @@
         }
       },
       "shouldTranslate" : false
+    },
+    "120" : {
+
+    },
+    "135" : {
+
     },
     "about.about" : {
       "comment" : "About interface text.",
@@ -62,6 +34,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于"
+          }
+        }
+      }
+    },
+    "about.accent" : {
+      "comment" : "About interface text. Interface tint choice. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accent color"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主题色"
           }
         }
       }
@@ -252,13 +242,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Export uses the original. Preview quality does not reduce the stored photo."
+            "value" : "Preview only; exports use the original."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "导出始终使用原图。预览画质不影响已存储的照片。"
+            "value" : "仅用于预览，导出使用原图。"
           }
         }
       }
@@ -288,13 +278,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No accounts, ads or tracking. Photos, edits and LUTs stay on this device."
+            "value" : "Photos, edits, formulae and LUTs stay on this device."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "没有账户、广告或跟踪。照片、编辑和 LUT 仅保留在此设备上。"
+            "value" : "照片、编辑、配方和 LUT 均保存在此设备上。"
           }
         }
       }
@@ -313,6 +303,113 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "SpektraCam · 项目"
+          }
+        }
+      }
+    },
+    "about.remember_flash" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remember flash status"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记住闪光灯状态"
+          }
+        }
+      }
+    },
+    "about.render_precision" : {
+      "comment" : "About interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendering pipeline"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "渲染管线"
+          }
+        }
+      }
+    },
+    "about.render_precision_note" : {
+      "comment" : "About interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic uses 16-bit float during live adjustments for responsive previews, and 32-bit float for settled RAW/deep-color previews and exports on capable devices."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“自动”在实时调节期间使用 16 位浮点以保持流畅预览，并在性能允许的设备上为静止的 RAW/深色预览与导出使用 32 位浮点。"
+          }
+        }
+      }
+    },
+    "about.render_precision.16bit" : {
+      "comment" : "About interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "16-bit float"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "16 位浮点"
+          }
+        }
+      }
+    },
+    "about.render_precision.32bit" : {
+      "comment" : "About interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "32-bit float"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "32 位浮点"
+          }
+        }
+      }
+    },
+    "about.render_precision.auto" : {
+      "comment" : "About interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动"
           }
         }
       }
@@ -342,13 +439,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "SpektraCam uses abbreviated aliases for film and print simulation profiles derived from Andrea Volpato’s spektrafilm project. These simulations draw on published technical data and modelling assumptions; they do not reproduce or guarantee the appearance or performance of physical films, papers or processing workflows. SpektraCam is not affiliated with, sponsored by or endorsed by the manufacturers of the referenced materials."
+            "value" : "Film and print profiles are approximate simulations from spektrafilm based on published data, independent of any manufacturer."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "SpektraCam 使用简写别名标识源自 Andrea Volpato 的 spektrafilm 项目的胶片与印相模拟配置。这些模拟基于公开技术资料及建模假设，不保证重现实物胶片、相纸或冲洗流程的外观与性能。SpektraCam 与所参考材料的制造商无关联，亦未获其赞助或认可。"
+            "value" : "胶片与印相配置源自 spektrafilm，基于公开资料提供近似模拟，独立于任何厂商。"
           }
         }
       }
@@ -421,6 +518,78 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "版本"
+          }
+        }
+      }
+    },
+    "accent.blue" : {
+      "comment" : "About interface text. Interface tint choice. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blue"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "蓝色"
+          }
+        }
+      }
+    },
+    "accent.magenta" : {
+      "comment" : "About interface text. Interface tint choice. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Magenta"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "品红"
+          }
+        }
+      }
+    },
+    "accent.mono" : {
+      "comment" : "About interface text. Interface tint choice. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Black & White"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "黑白"
+          }
+        }
+      }
+    },
+    "accent.orange" : {
+      "comment" : "About interface text. Interface tint choice. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orange"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "橙色"
           }
         }
       }
@@ -511,6 +680,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "切换高光和阴影范围"
+          }
+        }
+      }
+    },
+    "adjust.change_s_curve_range" : {
+      "comment" : "Adjust interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change S-curve range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换反差曲线范围"
           }
         }
       }
@@ -947,24 +1134,6 @@
         }
       }
     },
-    "batch.memory_policy" : {
-      "comment" : "Preview and batch export interface text. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Photos export one at a time. If a photo needs more memory, the others continue. Choose a smaller size to retry failed photos; completed photos will not export again."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "照片将逐张导出。如果某张照片内存不足，其余照片仍会继续导出。请选择较小尺寸以重试失败的照片；已完成的照片不会重复导出。"
-          }
-        }
-      }
-    },
     "batch.memory_stopped" : {
       "comment" : "Batch export low-memory status. New copy; human editorial review pending.",
       "extractionState" : "manual",
@@ -1091,24 +1260,6 @@
         }
       }
     },
-    "camera.12_mp" : {
-      "comment" : "Camera interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "12 MP"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "12 MP"
-          }
-        }
-      }
-    },
     "camera.access_denied" : {
       "comment" : "Camera interface text.",
       "extractionState" : "manual",
@@ -1199,6 +1350,24 @@
         }
       }
     },
+    "camera.capture_format" : {
+      "comment" : "Camera format picker label.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "格式"
+          }
+        }
+      }
+    },
     "camera.capture_kept" : {
       "comment" : "Camera interface text.",
       "extractionState" : "manual",
@@ -1253,24 +1422,6 @@
         }
       }
     },
-    "camera.dng_raw" : {
-      "comment" : "Camera interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "DNG RAW"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "DNG RAW"
-          }
-        }
-      }
-    },
     "camera.error.needs_device" : {
       "comment" : "Camera interface text.",
       "extractionState" : "manual",
@@ -1285,6 +1436,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拍照需要使用实体设备。"
+          }
+        }
+      }
+    },
+    "camera.error.no_photo_data" : {
+      "comment" : "Camera error message.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The camera did not return a photo."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相机未返回照片。"
           }
         }
       }
@@ -1393,6 +1562,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "相机曝光"
+          }
+        }
+      }
+    },
+    "camera.failed_save" : {
+      "comment" : "Camera interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture could not be saved"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未能保存拍摄照片"
           }
         }
       }
@@ -1595,6 +1782,42 @@
         }
       }
     },
+    "camera.import_quarantined_many" : {
+      "comment" : "Camera interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld earlier captures couldn’t be imported and were kept safely."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有 %lld 张早期拍摄的照片无法导入，已安全保留。"
+          }
+        }
+      }
+    },
+    "camera.import_quarantined_one" : {
+      "comment" : "Camera interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One earlier capture couldn’t be imported and was kept safely."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有一张早期拍摄的照片无法导入，已安全保留。"
+          }
+        }
+      }
+    },
     "camera.interrupted.generic" : {
       "comment" : "Camera interface text.",
       "extractionState" : "manual",
@@ -1721,24 +1944,6 @@
         }
       }
     },
-    "camera.max_mp" : {
-      "comment" : "Camera interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Max (%lld MP)"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最高（%lld MP）"
-          }
-        }
-      }
-    },
     "camera.millimeter_lens" : {
       "comment" : "Camera interface text.",
       "extractionState" : "manual",
@@ -1753,6 +1958,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 毫米镜头"
+          }
+        }
+      }
+    },
+    "camera.notice.saved_at_mp" : {
+      "comment" : "Camera interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved at %lld MP"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已以 %lld MP 保存"
           }
         }
       }
@@ -1829,20 +2052,36 @@
         }
       }
     },
-    "camera.raw_needs_device" : {
-      "comment" : "Camera interface text.",
+    "camera.raw_unavailable" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "RAW capture needs a physical device."
+            "value" : "RAW Capture Unavailable"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "拍摄 RAW 照片需要使用实体设备。"
+            "value" : "无法拍摄 RAW"
+          }
+        }
+      }
+    },
+    "camera.raw_unsupported_note" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This device’s cameras do not provide a supported RAW format. You can still import and edit photos."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备的相机不提供受支持的 RAW 格式。你仍可导入和编辑照片。"
           }
         }
       }
@@ -1937,6 +2176,24 @@
         }
       }
     },
+    "camera.standard_mp" : {
+      "comment" : "Camera interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld MP"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld MP"
+          }
+        }
+      }
+    },
     "camera.starting_camera" : {
       "comment" : "Camera interface text.",
       "extractionState" : "manual",
@@ -1951,6 +2208,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在启动相机…"
+          }
+        }
+      }
+    },
+    "camera.take_photo" : {
+      "comment" : "Camera accessibility label.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Take Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拍照"
           }
         }
       }
@@ -1973,8 +2248,27 @@
         }
       }
     },
+    "camera.up_to_mp" : {
+      "comment" : "Camera interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Up to %lld MP"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高 %lld MP"
+          }
+        }
+      }
+    },
     "common.auto" : {
       "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1988,8 +2282,7 @@
             "value" : "自动"
           }
         }
-      },
-      "extractionState" : "manual"
+      }
     },
     "common.cancel" : {
       "comment" : "Common interface text.",
@@ -2565,6 +2858,24 @@
         }
       }
     },
+    "crop.aspect.super8Camera" : {
+      "comment" : "Crop interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Super 8 · camera 5.79×4.01 mm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Super 8 · 摄影画幅 5.79×4.01 mm"
+          }
+        }
+      }
+    },
     "crop.aspect.super16ARRI" : {
       "comment" : "Crop interface text.",
       "extractionState" : "manual",
@@ -2597,24 +2908,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Super 35 · ANSI 24.9×18.7 mm"
-          }
-        }
-      }
-    },
-    "crop.aspect.super8Camera" : {
-      "comment" : "Crop interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Super 8 · camera 5.79×4.01 mm"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Super 8 · 摄影画幅 5.79×4.01 mm"
           }
         }
       }
@@ -2691,6 +2984,24 @@
         }
       }
     },
+    "crop.film_frame" : {
+      "comment" : "Crop interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Film frame"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "胶片画幅"
+          }
+        }
+      }
+    },
     "crop.flip_horizontal" : {
       "comment" : "Crop interface text.",
       "extractionState" : "manual",
@@ -2723,6 +3034,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "垂直翻转"
+          }
+        }
+      }
+    },
+    "crop.frame135.full" : {
+      "comment" : "Crop 135 film frame option.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full frame"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全画幅"
+          }
+        }
+      }
+    },
+    "crop.frame135.half" : {
+      "comment" : "Crop 135 film frame option.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Half frame"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "半格"
           }
         }
       }
@@ -3303,6 +3650,24 @@
         }
       }
     },
+    "darkroom.border.thin" : {
+      "comment" : "Darkroom border preset.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thin"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "极窄"
+          }
+        }
+      }
+    },
     "darkroom.border.wide" : {
       "comment" : "Darkroom border preset.",
       "extractionState" : "manual",
@@ -3371,6 +3736,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "强度"
+          }
+        }
+      }
+    },
+    "darkroom.distress.burn_coverage" : {
+      "comment" : "Darkroom distress copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coverage"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "覆盖范围"
+          }
+        }
+      }
+    },
+    "darkroom.distress.burn_texture" : {
+      "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Burn texture"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "烧灼纹理"
           }
         }
       }
@@ -3483,6 +3884,42 @@
         }
       }
     },
+    "darkroom.distress.effective" : {
+      "comment" : "Darkroom distress copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effective: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实际生效：%@"
+          }
+        }
+      }
+    },
+    "darkroom.distress.effective_clamped" : {
+      "comment" : "Darkroom clamped handling readout.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendered: %@ (clamped)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "渲染结果：%@（已限幅）"
+          }
+        }
+      }
+    },
     "darkroom.distress.extra_tilt" : {
       "comment" : "Darkroom copy; human editorial review pending.",
       "extractionState" : "manual",
@@ -3544,13 +3981,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hole variation"
+            "value" : "Sprocket variation"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "齿孔差异"
+            "value" : "齿孔公差"
           }
         }
       }
@@ -3753,6 +4190,24 @@
         }
       }
     },
+    "darkroom.distress.reroll_leak" : {
+      "comment" : "Darkroom distress copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Randomize leak"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "随机漏光"
+          }
+        }
+      }
+    },
     "darkroom.distress.scratches" : {
       "comment" : "Darkroom distress copy; human editorial review pending.",
       "extractionState" : "manual",
@@ -3778,13 +4233,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Scratches cross the picture"
+            "value" : "In photo"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "划痕延伸到画面"
+            "value" : "画面内"
           }
         }
       }
@@ -3802,7 +4257,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "烧灼"
+            "value" : "烧片头"
           }
         }
       }
@@ -4025,6 +4480,7 @@
     },
     "darkroom.edge.adjust_crop" : {
       "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4038,29 +4494,11 @@
             "value" : "调整裁切"
           }
         }
-      },
-      "extractionState" : "manual"
-    },
-    "darkroom.edge.cine35" : {
-      "comment" : "Darkroom copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "35 mm cine"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "35 mm 电影胶片"
-          }
-        }
       }
     },
     "darkroom.edge.fixed_gate" : {
       "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4074,11 +4512,11 @@
             "value" : "固定片门"
           }
         }
-      },
-      "extractionState" : "manual"
+      }
     },
     "darkroom.edge.from_develop" : {
       "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4092,8 +4530,7 @@
             "value" : "跟随冲洗设置"
           }
         }
-      },
-      "extractionState" : "manual"
+      }
     },
     "darkroom.edge.inverted_scan" : {
       "comment" : "Darkroom copy; human editorial review pending.",
@@ -4115,6 +4552,7 @@
     },
     "darkroom.edge.negative_print" : {
       "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4128,11 +4566,11 @@
             "value" : "负片印相"
           }
         }
-      },
-      "extractionState" : "manual"
+      }
     },
     "darkroom.edge.negative_scan" : {
       "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4146,8 +4584,7 @@
             "value" : "负片直接扫描"
           }
         }
-      },
-      "extractionState" : "manual"
+      }
     },
     "darkroom.edge.scan_zoom" : {
       "comment" : "Darkroom copy; human editorial review pending.",
@@ -4169,6 +4606,7 @@
     },
     "darkroom.edge.slide_scan" : {
       "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4182,8 +4620,7 @@
             "value" : "反转片扫描"
           }
         }
-      },
-      "extractionState" : "manual"
+      }
     },
     "darkroom.fill" : {
       "comment" : "Darkroom print layout interface. New copy; human editorial review pending.",
@@ -4205,6 +4642,7 @@
     },
     "darkroom.film_edge" : {
       "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4218,8 +4656,43 @@
             "value" : "胶片边缘"
           }
         }
-      },
-      "extractionState" : "manual"
+      }
+    },
+    "darkroom.frame35.full" : {
+      "comment" : "Darkroom 135 frame size option.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全画幅"
+          }
+        }
+      }
+    },
+    "darkroom.frame35.half" : {
+      "comment" : "Darkroom 135 frame size option.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Half"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "半格"
+          }
+        }
+      }
     },
     "darkroom.gate" : {
       "comment" : "Darkroom distress copy; human editorial review pending.",
@@ -4293,20 +4766,38 @@
         }
       }
     },
-    "darkroom.gate.rough" : {
-      "comment" : "Darkroom copy; human editorial review pending.",
+    "darkroom.gate.size" : {
+      "comment" : "Darkroom gate size slider label.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rough"
+            "value" : "Gate size"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "粗犷"
+            "value" : "片门尺寸"
+          }
+        }
+      }
+    },
+    "darkroom.handling.new_seed" : {
+      "comment" : "Darkroom handling copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New handling"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "换一组操作痕迹"
           }
         }
       }
@@ -4419,6 +4910,42 @@
         }
       }
     },
+    "darkroom.perforations.cine" : {
+      "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "35 mm cine (BH)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "35 mm 电影 (BH)"
+          }
+        }
+      }
+    },
+    "darkroom.perforations.still" : {
+      "comment" : "Darkroom copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "35 mm still (KS)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "35 mm 静态 (KS)"
+          }
+        }
+      }
+    },
     "darkroom.print_preview" : {
       "comment" : "Darkroom print layout interface. New copy; human editorial review pending.",
       "extractionState" : "manual",
@@ -4433,6 +4960,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "印相预览"
+          }
+        }
+      }
+    },
+    "darkroom.reset_edits" : {
+      "comment" : "Darkroom History menu action.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Darkroom Edits"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还原暗房编辑"
           }
         }
       }
@@ -4608,24 +5153,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "调整"
-          }
-        }
-      }
-    },
-    "editor.close_editor" : {
-      "comment" : "Editor interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Close Editor"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭编辑器"
           }
         }
       }
@@ -5206,24 +5733,6 @@
         }
       }
     },
-    "export.color_space" : {
-      "comment" : "Export interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Color space"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "色彩空间"
-          }
-        }
-      }
-    },
     "export.error.decode" : {
       "comment" : "Photo exporter interface text.",
       "extractionState" : "manual",
@@ -5292,6 +5801,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法渲染全分辨率图像。"
+          }
+        }
+      }
+    },
+    "export.file" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件"
           }
         }
       }
@@ -5386,6 +5912,40 @@
         }
       }
     },
+    "export.original_file" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Original file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原始文件"
+          }
+        }
+      }
+    },
+    "export.original_raw" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Original RAW"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原始 RAW"
+          }
+        }
+      }
+    },
     "export.output" : {
       "comment" : "Export interface text.",
       "extractionState" : "manual",
@@ -5418,6 +5978,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在准备图像…"
+          }
+        }
+      }
+    },
+    "export.processed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Processed photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "处理后的照片"
           }
         }
       }
@@ -5476,24 +6053,6 @@
         }
       }
     },
-    "export.sdr_srgb_8_bit" : {
-      "comment" : "Export interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SDR · sRGB · 8-bit"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SDR · sRGB · 8 位"
-          }
-        }
-      }
-    },
     "export.share" : {
       "comment" : "Export interface text.",
       "extractionState" : "manual",
@@ -5548,24 +6107,6 @@
         }
       }
     },
-    "export.size.long_edge_note" : {
-      "comment" : "Export interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Longest side in pixels. Never enlarged."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "以像素计的最长边，不会放大。"
-          }
-        }
-      }
-    },
     "export.size.original" : {
       "comment" : "Export interface text.",
       "extractionState" : "manual",
@@ -5580,24 +6121,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "原始"
-          }
-        }
-      }
-    },
-    "export.size.original_note" : {
-      "comment" : "Export interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Every pixel of the crop, film edge and paper. Never enlarged."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留裁切、片边和相纸的全部像素，不会放大。"
           }
         }
       }
@@ -5634,24 +6157,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "相纸"
-          }
-        }
-      }
-    },
-    "export.size.print_note" : {
-      "comment" : "Export interface text.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The paper size at this resolution. Never enlarged."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按此分辨率输出相纸尺寸，不会放大。"
           }
         }
       }
@@ -5854,6 +6359,1140 @@
         }
       }
     },
+    "formula.apply" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apply Formula"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "应用配方"
+          }
+        }
+      }
+    },
+    "formula.card.kicker" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FORMULA"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配方"
+          }
+        }
+      }
+    },
+    "formula.card.make" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formula Card…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配方卡…"
+          }
+        }
+      }
+    },
+    "formula.card.more" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+ %lld more, all in the code"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "另有 %lld 项，均已包含在配方码中"
+          }
+        }
+      }
+    },
+    "formula.card.no_code" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too detailed for a code. Ask for the formula file."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置过多，无法生成配方码。请索取配方文件。"
+          }
+        }
+      }
+    },
+    "formula.card.no_photo" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不带照片"
+          }
+        }
+      }
+    },
+    "formula.card.photo" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照片"
+          }
+        }
+      }
+    },
+    "formula.card.scan" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan to get this formula"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "扫码获取此配方"
+          }
+        }
+      }
+    },
+    "formula.card.title" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formula Card"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配方卡"
+          }
+        }
+      }
+    },
+    "formula.delete" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Formulae"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除配方"
+          }
+        }
+      }
+    },
+    "formula.delete_confirm" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete selected formulae?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除所选配方？"
+          }
+        }
+      }
+    },
+    "formula.delete_message" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photos already developed with them keep their edits."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已使用这些配方的照片会保留各自的编辑。"
+          }
+        }
+      }
+    },
+    "formula.duplicate" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duplicate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制"
+          }
+        }
+      }
+    },
+    "formula.duplicate_name" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ copy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 副本"
+          }
+        }
+      }
+    },
+    "formula.empty" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Formulae"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有配方"
+          }
+        }
+      }
+    },
+    "formula.empty_hint" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save a look as a formula from a photo’s information panel."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可在照片的信息面板中将个性化存储为配方。"
+          }
+        }
+      }
+    },
+    "formula.error.name" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use a name with 1 to 80 characters."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称须为 1 至 80 个字符。"
+          }
+        }
+      }
+    },
+    "formula.error.newer" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This formula needs a newer version of SpektraCam."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此配方需要更新版本的 SpektraCam。"
+          }
+        }
+      }
+    },
+    "formula.error.unreadable" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is not a formula file."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这不是配方文件。"
+          }
+        }
+      }
+    },
+    "formula.favorite" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorite"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收藏"
+          }
+        }
+      }
+    },
+    "formula.formulae" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formulae"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配方"
+          }
+        }
+      }
+    },
+    "formula.import_action" : {
+      "comment" : "Formulae: import formula menu trigger in the floating info panel.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Formula"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入配方"
+          }
+        }
+      }
+    },
+    "formula.import.add" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加"
+          }
+        }
+      }
+    },
+    "formula.import.card" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "From Card Image"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从配方卡图片导入"
+          }
+        }
+      }
+    },
+    "formula.import.exists" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Another version of this formula is already in your library."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "资料库中已有此配方的另一个版本。"
+          }
+        }
+      }
+    },
+    "formula.import.failed" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t Open Formula"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法打开配方"
+          }
+        }
+      }
+    },
+    "formula.import.identical" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This formula is already in your library."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此配方已在资料库中。"
+          }
+        }
+      }
+    },
+    "formula.import.keep_both" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Both"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留两者"
+          }
+        }
+      }
+    },
+    "formula.import.paste" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste Link"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "粘贴链接"
+          }
+        }
+      }
+    },
+    "formula.import.replace" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replace"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "替换"
+          }
+        }
+      }
+    },
+    "formula.import.title" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Formula"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加配方"
+          }
+        }
+      }
+    },
+    "formula.include" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Include"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "包含"
+          }
+        }
+      }
+    },
+    "formula.item_count" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld formula"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld formulae"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 个配方"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "formula.link.copied" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Link Copied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已拷贝链接"
+          }
+        }
+      }
+    },
+    "formula.link.copy" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Link"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷贝链接"
+          }
+        }
+      }
+    },
+    "formula.link.no_code" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No formula code was found in this image."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未在此图片中找到配方码。"
+          }
+        }
+      }
+    },
+    "formula.link.not_formula" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is not a formula link."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这不是配方链接。"
+          }
+        }
+      }
+    },
+    "formula.link.too_large" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This formula is too large for a link or code. Share its file instead."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此配方过大，无法生成链接或配方码。请改为共享配方文件。"
+          }
+        }
+      }
+    },
+    "formula.lut_missing" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Needs LUT: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缺少 LUT：%@"
+          }
+        }
+      }
+    },
+    "formula.lut_missing_unnamed" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Needs a LUT that is not installed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缺少未安装的 LUT"
+          }
+        }
+      }
+    },
+    "formula.lut.choose" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose Another LUT…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选取其他 LUT…"
+          }
+        }
+      }
+    },
+    "formula.lut.different" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That is a different LUT. It was added to your LUTs, but this formula still needs its own."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这是另一个 LUT。它已添加到 LUT 列表，但此配方仍需要原来的 LUT。"
+          }
+        }
+      }
+    },
+    "formula.lut.import" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import LUT…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入 LUT…"
+          }
+        }
+      }
+    },
+    "formula.lut.included" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Included in this file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "包含在此文件中"
+          }
+        }
+      }
+    },
+    "formula.lut.installed" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装"
+          }
+        }
+      }
+    },
+    "formula.lut.not_installed" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not installed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未安装"
+          }
+        }
+      }
+    },
+    "formula.lut.note" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A formula cannot be applied until its LUT is installed. Importing the same LUT file links it automatically."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装所需的 LUT 后才能应用配方。导入同一 LUT 文件即可自动关联。"
+          }
+        }
+      }
+    },
+    "formula.lut.unnamed" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unnamed LUT"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未命名 LUT"
+          }
+        }
+      }
+    },
+    "formula.manager" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formulae and LUTs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配方与 LUT"
+          }
+        }
+      }
+    },
+    "formula.name" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称"
+          }
+        }
+      }
+    },
+    "formula.new" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Formula"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建配方"
+          }
+        }
+      }
+    },
+    "formula.newer_parts" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some settings need a newer SpektraCam."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分设置需要更新版本的 SpektraCam。"
+          }
+        }
+      }
+    },
+    "formula.notes" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "备注"
+          }
+        }
+      }
+    },
+    "formula.process.fine" : {
+      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fine adjustments"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "微调项"
+          }
+        }
+      }
+    },
+    "formula.rename" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Formula"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新命名配方"
+          }
+        }
+      }
+    },
+    "formula.save_as" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save as Formula…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "存储为配方…"
+          }
+        }
+      }
+    },
+    "formula.share" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share Formula"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共享配方"
+          }
+        }
+      }
+    },
+    "formula.share.lut_note" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Without its LUT files, the other person needs the same LUTs installed. Only include LUT files you are allowed to share."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不含 LUT 文件时，对方需要已安装相同的 LUT。请仅包含你有权共享的 LUT 文件。"
+          }
+        }
+      }
+    },
+    "formula.share.only" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share Formula Only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅共享配方"
+          }
+        }
+      }
+    },
+    "formula.share.with_luts" : {
+      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share with LUT Files"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连同 LUT 文件共享"
+          }
+        }
+      }
+    },
+    "formula.strip_hint" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save this look to use it again on other photos."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "存储此个性化，以便用于其他照片。"
+          }
+        }
+      }
+    },
+    "formula.unfavorite" : {
+      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unfavorite"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消收藏"
+          }
+        }
+      }
+    },
     "library.about_and_settings" : {
       "comment" : "Library interface text.",
       "extractionState" : "manual",
@@ -5908,6 +7547,24 @@
         }
       }
     },
+    "library.delete_app_only_message" : {
+      "comment" : "Library interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This moves the selected photos and their edits to Recently Deleted for 30 days before permanent removal from SpektraCam."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这会将所选照片及其编辑移至“最近删除”并保留 30 天，之后再从 SpektraCam 中永久移除。"
+          }
+        }
+      }
+    },
     "library.delete_confirm" : {
       "comment" : "Library interface text.",
       "extractionState" : "manual",
@@ -5951,13 +7608,31 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This removes the app copies and their edits. Your source photos stay unchanged."
+            "value" : "This moves the app copies and their edits to Recently Deleted for 30 days. Your source photos in Apple Photos stay unchanged."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "这会删除 App 内的照片副本及其编辑。源照片保持不变。"
+            "value" : "这会将 App 内的照片副本及其编辑移至“最近删除”并保留 30 天。Apple 照片中的源照片保持不变。"
+          }
+        }
+      }
+    },
+    "library.delete_mixed_message" : {
+      "comment" : "Library interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This moves the selected photos and their edits to Recently Deleted for 30 days before permanent removal. Your Apple Photos originals stay unchanged."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这会将所选照片及其编辑移至“最近删除”并保留 30 天，之后再永久移除。Apple 照片中的原件保持不变。"
           }
         }
       }
@@ -6408,6 +8083,168 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的图库"
+          }
+        }
+      }
+    },
+    "look.copy" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Look"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷贝个性化"
+          }
+        }
+      }
+    },
+    "look.paste" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste Look…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "粘贴个性化…"
+          }
+        }
+      }
+    },
+    "look.paste.confirm" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "粘贴"
+          }
+        }
+      }
+    },
+    "look.paste.framing_note" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crop and rotation stay with each photo."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每张照片保留各自的裁切与旋转。"
+          }
+        }
+      }
+    },
+    "look.paste.skipped" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photos edited with an older film model were skipped."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已跳过使用旧版胶片模型编辑的照片。"
+          }
+        }
+      }
+    },
+    "look.paste.title" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste Look"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "粘贴个性化"
+          }
+        }
+      }
+    },
+    "look.pasted_count" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Look applied to %lld photo"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Look applied to %lld photos"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "已应用到 %lld 张照片"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "look.undo_paste" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Undo Paste"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撤销粘贴"
           }
         }
       }
@@ -9400,6 +11237,114 @@
         }
       }
     },
+    "part.darkroom" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Darkroom"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暗房"
+          }
+        }
+      }
+    },
+    "part.darkroom.detail" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paper, border, film edge and distress"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相纸、白边、胶片边缘与做旧"
+          }
+        }
+      }
+    },
+    "part.exposure" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exposure"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "曝光"
+          }
+        }
+      }
+    },
+    "part.exposure.detail" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exposure and white balance"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "曝光与白平衡"
+          }
+        }
+      }
+    },
+    "part.look" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Look"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "个性化"
+          }
+        }
+      }
+    },
+    "part.look.detail" : {
+      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Film, print, contrast, color and effects"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "胶片、印相、反差、色彩与效果"
+          }
+        }
+      }
+    },
     "photo_info.accessibility_summary" : {
       "comment" : "Photo info interface text.",
       "extractionState" : "manual",
@@ -9468,6 +11413,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "色彩空间"
+          }
+        }
+      }
+    },
+    "photo_info.details" : {
+      "comment" : "Photo info collapsible EXIF metadata header.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photo Details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照片详情"
           }
         }
       }
@@ -9670,6 +11633,24 @@
         }
       }
     },
+    "photo.delete_app_only_message" : {
+      "comment" : "Photo interface text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This moves the photo and its edits to Recently Deleted for 30 days before permanent removal from SpektraCam."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这会将此照片及其编辑移至“最近删除”并保留 30 天，之后再从 SpektraCam 中永久移除。"
+          }
+        }
+      }
+    },
     "photo.delete_confirm" : {
       "comment" : "Photo interface text.",
       "extractionState" : "manual",
@@ -9695,13 +11676,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This removes the app copy and its edits. Your source photo stays unchanged."
+            "value" : "This moves the app copy and its edits to Recently Deleted for 30 days. Your source photo in Apple Photos stays unchanged."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将删除 App 内的照片副本及其编辑。源照片保持不变。"
+            "value" : "这会将 App 内的照片副本及其编辑移至“最近删除”并保留 30 天。Apple 照片中的源照片保持不变。"
           }
         }
       }
@@ -9850,6 +11831,24 @@
         }
       }
     },
+    "photo.revert_menu" : {
+      "comment" : "Photo viewer history menu action.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revert to Original…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还原为原图…"
+          }
+        }
+      }
+    },
     "photo.zoom_in" : {
       "comment" : "Photo canvas interface text.",
       "extractionState" : "manual",
@@ -9882,6 +11881,438 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "缩放 %.0f%%"
+          }
+        }
+      }
+    },
+    "recently_deleted.count" : {
+      "comment" : "Count of items in Recently Deleted.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld item"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld items"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 张"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "recently_deleted.days_badge" : {
+      "comment" : "Compact remaining-days badge on thumbnail.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lldd"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lldd"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld天"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "recently_deleted.days_remaining" : {
+      "comment" : "VoiceOver remaining days description.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld day remaining"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld days remaining"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "还剩 %lld 天"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "recently_deleted.delete_permanently" : {
+      "comment" : "Permanent deletion action.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Permanently"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "永久删除"
+          }
+        }
+      }
+    },
+    "recently_deleted.deselect_all" : {
+      "comment" : "Toolbar button in Recently Deleted.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deselect All"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消全选"
+          }
+        }
+      }
+    },
+    "recently_deleted.duplicate_error" : {
+      "comment" : "Error description when reimporting soft-deleted photo.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This photo is already in Recently Deleted."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此照片已在“最近删除”中。"
+          }
+        }
+      }
+    },
+    "recently_deleted.duplicate_prompt" : {
+      "comment" : "Confirmation prompt explaining duplicate recovery.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recovering restores the existing copy and its saved edits."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复将还原现有副本及其已保存的编辑。"
+          }
+        }
+      }
+    },
+    "recently_deleted.duplicate_title_many" : {
+      "comment" : "Plural duplicate recovery title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Photo Is in Recently Deleted"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Photos Are in Recently Deleted"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 张照片已在“最近删除”中"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "recently_deleted.duplicate_title_one" : {
+      "comment" : "Singular duplicate recovery title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photo Is in Recently Deleted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照片已在“最近删除”中"
+          }
+        }
+      }
+    },
+    "recently_deleted.empty_message" : {
+      "comment" : "Empty state message explaining 30-day retention.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleted photos and edits stay here for 30 days before permanent removal."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已删除的照片及其编辑会在此保留 30 天，之后再永久移除。"
+          }
+        }
+      }
+    },
+    "recently_deleted.empty_title" : {
+      "comment" : "Empty state title in Recently Deleted.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Recently Deleted Photos"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有最近删除的照片"
+          }
+        }
+      }
+    },
+    "recently_deleted.purge_confirm_many" : {
+      "comment" : "Confirmation title for permanently deleting multiple photos.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Permanently Delete %lld Photo?"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Permanently Delete %lld Photos?"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "要永久删除 %lld 张照片吗？"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "recently_deleted.purge_confirm_one" : {
+      "comment" : "Confirmation title for permanently deleting 1 photo.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permanently Delete 1 Photo?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要永久删除 1 张照片吗？"
+          }
+        }
+      }
+    },
+    "recently_deleted.purge_message" : {
+      "comment" : "Confirmation message for permanent deletion.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This permanently deletes the app copy and its edits from SpektraCam and cannot be undone. Originals in Apple Photos or Files are not affected."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这会从 SpektraCam 中永久删除 App 副本及其编辑且无法撤销。Apple 照片或“文件”中的原件不受影响。"
+          }
+        }
+      }
+    },
+    "recently_deleted.recover" : {
+      "comment" : "Recover button in Recently Deleted.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recover"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复"
+          }
+        }
+      }
+    },
+    "recently_deleted.recover_existing" : {
+      "comment" : "Action button to recover duplicate soft-deleted photo.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recover Existing Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复现有照片"
+          }
+        }
+      }
+    },
+    "recently_deleted.recover_existing_many" : {
+      "comment" : "Plural action button to recover duplicate soft-deleted photos.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recover Existing Photos"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复现有照片"
+          }
+        }
+      }
+    },
+    "recently_deleted.select_all" : {
+      "comment" : "Toolbar button in Recently Deleted.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select All"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全选"
+          }
+        }
+      }
+    },
+    "recently_deleted.title" : {
+      "comment" : "Recently Deleted collection title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recently Deleted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近删除"
           }
         }
       }
@@ -10023,1602 +12454,6 @@
         }
       },
       "shouldTranslate" : false
-    },
-    "about.accent" : {
-      "comment" : "About interface text. Interface tint choice. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Accent color"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "主题色"
-          }
-        }
-      }
-    },
-    "accent.magenta" : {
-      "comment" : "About interface text. Interface tint choice. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Magenta"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "品红"
-          }
-        }
-      }
-    },
-    "accent.orange" : {
-      "comment" : "About interface text. Interface tint choice. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Orange"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "橙色"
-          }
-        }
-      }
-    },
-    "accent.blue" : {
-      "comment" : "About interface text. Interface tint choice. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Blue"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "蓝色"
-          }
-        }
-      }
-    },
-    "accent.mono" : {
-      "comment" : "About interface text. Interface tint choice. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Black & White"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "黑白"
-          }
-        }
-      }
-    },
-    "look.copy" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copy Look"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拷贝个性化"
-          }
-        }
-      }
-    },
-    "look.paste" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Paste Look…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "粘贴个性化…"
-          }
-        }
-      }
-    },
-    "look.paste.title" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Paste Look"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "粘贴个性化"
-          }
-        }
-      }
-    },
-    "look.paste.confirm" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Paste"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "粘贴"
-          }
-        }
-      }
-    },
-    "look.undo_paste" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Undo Paste"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "撤销粘贴"
-          }
-        }
-      }
-    },
-    "look.paste.framing_note" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Crop and rotation stay with each photo."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每张照片保留各自的裁切与旋转。"
-          }
-        }
-      }
-    },
-    "look.paste.skipped" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Photos edited with an older film model were skipped."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已跳过使用旧版胶片模型编辑的照片。"
-          }
-        }
-      }
-    },
-    "part.look" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Look"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "个性化"
-          }
-        }
-      }
-    },
-    "part.exposure" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Exposure"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "曝光"
-          }
-        }
-      }
-    },
-    "part.darkroom" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darkroom"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暗房"
-          }
-        }
-      }
-    },
-    "part.look.detail" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Film, print, contrast, color and effects"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "胶片、印相、反差、色彩与效果"
-          }
-        }
-      }
-    },
-    "part.exposure.detail" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Exposure, white balance and print balance"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "曝光、白平衡与印相色彩平衡"
-          }
-        }
-      }
-    },
-    "part.darkroom.detail" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Paper, border and film edge"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "相纸、白边与胶片边缘"
-          }
-        }
-      }
-    },
-    "look.pasted_count" : {
-      "comment" : "Copy and paste a look between photos. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Look applied to %lld photo"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Look applied to %lld photos"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "已应用到 %lld 张照片"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "formula.formulae" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Formulae"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "配方"
-          }
-        }
-      }
-    },
-    "formula.manager" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Formulae and LUTs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "配方与 LUT"
-          }
-        }
-      }
-    },
-    "formula.save_as" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save as Formula…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "存储为配方…"
-          }
-        }
-      }
-    },
-    "formula.new" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "New Formula"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新建配方"
-          }
-        }
-      }
-    },
-    "formula.name" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Name"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "名称"
-          }
-        }
-      }
-    },
-    "formula.notes" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Notes"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "备注"
-          }
-        }
-      }
-    },
-    "formula.include" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Include"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "包含"
-          }
-        }
-      }
-    },
-    "formula.save.framing_note" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Crop and rotation are never saved in a formula."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "配方不会存储裁切与旋转。"
-          }
-        }
-      }
-    },
-    "formula.strip_hint" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save this look to use it again on other photos."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "存储此个性化，以便用于其他照片。"
-          }
-        }
-      }
-    },
-    "formula.empty" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No Formulae"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "没有配方"
-          }
-        }
-      }
-    },
-    "formula.empty_hint" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save a look as a formula from a photo’s information panel."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可在照片的信息面板中将个性化存储为配方。"
-          }
-        }
-      }
-    },
-    "formula.apply" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apply Formula"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "应用配方"
-          }
-        }
-      }
-    },
-    "formula.rename" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rename Formula"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重新命名配方"
-          }
-        }
-      }
-    },
-    "formula.duplicate" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Duplicate"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "复制"
-          }
-        }
-      }
-    },
-    "formula.duplicate_name" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ copy"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 副本"
-          }
-        }
-      }
-    },
-    "formula.favorite" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorite"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "收藏"
-          }
-        }
-      }
-    },
-    "formula.unfavorite" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unfavorite"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "取消收藏"
-          }
-        }
-      }
-    },
-    "formula.delete_confirm" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete selected formulae?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "删除所选配方？"
-          }
-        }
-      }
-    },
-    "formula.delete" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Formulae"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "删除配方"
-          }
-        }
-      }
-    },
-    "formula.delete_message" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Photos already developed with them keep their edits."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已使用这些配方的照片会保留各自的编辑。"
-          }
-        }
-      }
-    },
-    "formula.lut_missing" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Needs LUT: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "缺少 LUT：%@"
-          }
-        }
-      }
-    },
-    "formula.lut_missing_unnamed" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Needs a LUT that is not installed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "缺少未安装的 LUT"
-          }
-        }
-      }
-    },
-    "formula.newer_parts" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Some settings need a newer SpektraCam."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "部分设置需要更新版本的 SpektraCam。"
-          }
-        }
-      }
-    },
-    "formula.error.unreadable" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This is not a formula file."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这不是配方文件。"
-          }
-        }
-      }
-    },
-    "formula.error.newer" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This formula needs a newer version of SpektraCam."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此配方需要更新版本的 SpektraCam。"
-          }
-        }
-      }
-    },
-    "formula.error.name" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use a name with 1 to 80 characters."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "名称须为 1 至 80 个字符。"
-          }
-        }
-      }
-    },
-    "formula.item_count" : {
-      "comment" : "Formulae: saved looks. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld formula"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld formulae"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld 个配方"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "formula.import.title" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add Formula"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "添加配方"
-          }
-        }
-      }
-    },
-    "formula.import.add" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "添加"
-          }
-        }
-      }
-    },
-    "formula.import.replace" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Replace"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "替换"
-          }
-        }
-      }
-    },
-    "formula.import.keep_both" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keep Both"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留两者"
-          }
-        }
-      }
-    },
-    "formula.import.exists" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Another version of this formula is already in your library."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "资料库中已有此配方的另一个版本。"
-          }
-        }
-      }
-    },
-    "formula.import.identical" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This formula is already in your library."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此配方已在资料库中。"
-          }
-        }
-      }
-    },
-    "formula.import.failed" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn’t Open Formula"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法打开配方"
-          }
-        }
-      }
-    },
-    "formula.lut.installed" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已安装"
-          }
-        }
-      }
-    },
-    "formula.lut.included" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Included in this file"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "包含在此文件中"
-          }
-        }
-      }
-    },
-    "formula.lut.not_installed" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not installed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未安装"
-          }
-        }
-      }
-    },
-    "formula.lut.unnamed" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unnamed LUT"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未命名 LUT"
-          }
-        }
-      }
-    },
-    "formula.lut.import" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Import LUT…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "导入 LUT…"
-          }
-        }
-      }
-    },
-    "formula.lut.choose" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose Another LUT…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选取其他 LUT…"
-          }
-        }
-      }
-    },
-    "formula.lut.different" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "That is a different LUT. It was added to your LUTs, but this formula still needs its own."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这是另一个 LUT。它已添加到 LUT 列表，但此配方仍需要原来的 LUT。"
-          }
-        }
-      }
-    },
-    "formula.lut.note" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A formula cannot be applied until its LUT is installed. Importing the same LUT file links it automatically."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安装所需的 LUT 后才能应用配方。导入同一 LUT 文件即可自动关联。"
-          }
-        }
-      }
-    },
-    "formula.share" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Share Formula"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "共享配方"
-          }
-        }
-      }
-    },
-    "formula.share.only" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Share Formula Only"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅共享配方"
-          }
-        }
-      }
-    },
-    "formula.share.with_luts" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Share with LUT Files"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "连同 LUT 文件共享"
-          }
-        }
-      }
-    },
-    "formula.share.lut_note" : {
-      "comment" : "Formulae: sharing and importing. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Without its LUT files, the other person needs the same LUTs installed. Only include LUT files you are allowed to share."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不含 LUT 文件时，对方需要已安装相同的 LUT。请仅包含你有权共享的 LUT 文件。"
-          }
-        }
-      }
-    },
-    "about.remember_flash" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remember flash status"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "记住闪光灯状态"
-          }
-        }
-      }
-    },
-    "about.remember_flash_note" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When off, flash turns off when you leave the camera."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭后，退出相机时会关闭闪光灯。"
-          }
-        }
-      }
-    },
-    "export.file" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "File"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "文件"
-          }
-        }
-      }
-    },
-    "export.processed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Processed photo"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "处理后的照片"
-          }
-        }
-      }
-    },
-    "export.original_raw" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Original RAW"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "原始 RAW"
-          }
-        }
-      }
-    },
-    "export.original_raw_note" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The original capture, with its metadata and full resolution."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留完整分辨率和元数据的原始拍摄文件。"
-          }
-        }
-      }
-    },
-    "formula.link.not_formula" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This is not a formula link."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这不是配方链接。"
-          }
-        }
-      }
-    },
-    "formula.link.no_code" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No formula code was found in this image."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未在此图片中找到配方码。"
-          }
-        }
-      }
-    },
-    "formula.link.too_large" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This formula is too large for a link or code. Share its file instead."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此配方过大，无法生成链接或配方码。请改为共享配方文件。"
-          }
-        }
-      }
-    },
-    "formula.link.copy" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copy Link"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拷贝链接"
-          }
-        }
-      }
-    },
-    "formula.link.copied" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Link Copied"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已拷贝链接"
-          }
-        }
-      }
-    },
-    "formula.import.card" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "From Card Image"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "从配方卡图片导入"
-          }
-        }
-      }
-    },
-    "formula.import.paste" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Paste Link"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "粘贴链接"
-          }
-        }
-      }
-    },
-    "formula.process.fine" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Fine adjustments"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "微调项"
-          }
-        }
-      }
-    },
-    "formula.card.title" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Formula Card"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "配方卡"
-          }
-        }
-      }
-    },
-    "formula.card.make" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Formula Card…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "配方卡…"
-          }
-        }
-      }
-    },
-    "formula.card.kicker" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FORMULA"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "配方"
-          }
-        }
-      }
-    },
-    "formula.card.more" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "+ %lld more, all in the code"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "另有 %lld 项，均已包含在配方码中"
-          }
-        }
-      }
-    },
-    "formula.card.scan" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scan to get this formula"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "扫码获取此配方"
-          }
-        }
-      }
-    },
-    "formula.card.no_code" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Too detailed for a code. Ask for the formula file."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "设置过多，无法生成配方码。请索取配方文件。"
-          }
-        }
-      }
-    },
-    "formula.card.photo" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Photo"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "照片"
-          }
-        }
-      }
-    },
-    "formula.card.no_photo" : {
-      "comment" : "Formulae: link, code and formula card. New copy; human editorial review pending.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No photo"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不带照片"
-          }
-        }
-      }
     }
   },
   "version" : "1.0"

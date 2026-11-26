@@ -25,6 +25,10 @@ import ImageIO
             properties: [kCGImagePropertyGPSDictionary: gps], type: nil, image: context.makeImage()!)
         precondition(metadata.latitude == -12.5 && metadata.longitude == -45.25)
         precondition(CaptureLocation(fix(age: 61), now: now) == nil)
+        precondition(CaptureLocation(fix(age: 75), now: now) == nil)
+        precondition(CaptureLocation(fix(age: 75), now: now, maxAge: 180) != nil)
+        precondition(CaptureLocation(fix(age: 181), now: now, maxAge: 180) == nil)
+        precondition(metadata.coordinateLine == "12.5000° S, 45.2500° W")
         precondition(CaptureLocation(fix(accuracy: -1), now: now) == nil)
         precondition(
             CaptureLocation(fix(vertical: -1), now: now)!.gps[kCGImagePropertyGPSAltitude as String] == nil)

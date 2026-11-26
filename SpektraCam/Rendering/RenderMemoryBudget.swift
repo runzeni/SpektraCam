@@ -72,52 +72,111 @@ nonisolated enum RenderMemoryBudget {
         }
         return total
     }
-    static func check(width: Int, height: Int, recipe: EditRecipe, allowOvercommit: Bool = false,
-                      pixelPitchMicrometers: Double? = nil)
-        throws
-    {
+    struct Plan: Sendable, Equatable {
+        let tiled: Bool
+        let tiling: MetalFilmPipeline.Tiling
+        let estimatedBytes: UInt64
+    }
+
+    /// Selects the largest feasible execution plan for `width × height` under `available` headroom
+    /// and `maxBufferLength`, stepping down cleanly across smaller tile candidates so more memory
+    /// never rejects an export that already fit at lower headroom.
+    static func admittedPlan(
+        width: Int, height: Int, recipe: EditRecipe, allowOvercommit: Bool = false,
+        pixelPitchMicrometers: Double? = nil, available: UInt64? = nil, maxBufferLength: Int? = nil
+    ) throws -> Plan {
         guard width > 0, height > 0, width <= 65536, height <= 65536,
-            let device = MTLCreateSystemDefaultDevice()
+            let resolvedBufferLimit = maxBufferLength ?? MTLCreateSystemDefaultDevice()?.maxBufferLength,
+            resolvedBufferLimit > 0
         else { throw Failure() }
+        let bufferLimit = UInt64(resolvedBufferLimit)
+        let allowance = available ?? ImageMemoryAllowance.available
         let pixels = UInt64(width) * UInt64(height)
-        guard pixels <= UInt64(device.maxBufferLength / 16) else { throw Failure() }
         // Full-frame graph storage plus CPU input; decode and pointwise grade have separate lifetimes.
         // Pointwise grading uses 128-row strips, including LUT/noise references.
-        var estimate = recipe.look.enabled
-            ? pixels * (recipe.look.mode == .lut ? 192 : 176) + 96 * 1024 * 1024
-            : pixels * 80 + 32 * 1024 * 1024
+        let halfFloat = RenderPrecision.resolved.usesHalfFloat
+        var wholeFrameEstimate = recipe.look.enabled
+            ? pixels * (recipe.look.mode == .lut ? (halfFloat ? 144 : 192) : (halfFloat ? 152 : 176))
+                + (halfFloat ? 64 : 96) * 1024 * 1024
+            : pixels * (halfFloat ? 48 : 80) + 32 * 1024 * 1024
         // The support graph plus an optional retained center/paper bitmap. No mask bitmap.
-        if recipe.filmEdgeLayout != nil { estimate += pixels * 64 }
-        if recipe.look.enabled && recipe.look.mode == .spektrafilm && recipe.mix < 1 { estimate += pixels * 32 }
+        if recipe.filmEdgeLayout != nil {
+            wholeFrameEstimate += pixels * (halfFloat ? 36 : 64)
+        } else if recipe.activeCleanPrintDistress != nil {
+            wholeFrameEstimate += pixels * (halfFloat ? 16 : 32)
+        }
+        if recipe.look.enabled && recipe.look.mode == .spektrafilm && recipe.mix < 1 {
+            wholeFrameEstimate += pixels * (halfFloat ? 16 : 32)
+        }
         if recipe.look.enabled && recipe.monochromeGrain && recipe.flag("film_render.grain.active") {
-            estimate += pixels * 32
+            wholeFrameEstimate += pixels * 32
         }
         if max(width, height) <= 2048 && !recipe.tone.outputStage.isIdentity {
-            estimate += pixels * 48
+            wholeFrameEstimate += pixels * (halfFloat ? 24 : 48)
         }
         let transforms = try diffusionTransformBytes(
             width: width, height: height, recipe: recipe, pixelPitchMicrometers: pixelPitchMicrometers)
-        if rendersInTiles(width: width, height: height, transformBytes: transforms) {
-            // Tiled render: the graph's memory follows the tile, pixels live in file-backed
-            // storage, and only 8-bit results scale with the image.
-            let allowance = ImageMemoryAllowance.available
-            let edge = UInt64(
-                min(MetalFilmPipeline.Tiling.fitting(available: allowance).tileEdge, max(width, height)))
-            let graph: UInt64 = recipe.look.enabled ? edge * edge * 16 * 14 : 0
-            // A film edge that composites a separately graded centre also holds its gate mask.
-            let perPixel: UInt64 = recipe.filmEdgeLayout == nil ? 12 : 18
-            let tiled = graph + pixels * perPixel + 160 * 1024 * 1024
-            guard allowOvercommit || tiled < allowance else {
-                throw Failure(estimated: tiled, available: allowance)
+        wholeFrameEstimate += transforms
+
+        if !rendersInTiles(width: width, height: height, transformBytes: transforms) {
+            let untiledBufferOK = pixels * 16 <= bufferLimit && transforms / 8 <= bufferLimit
+            if untiledBufferOK && (allowOvercommit || wholeFrameEstimate < allowance) {
+                return Plan(
+                    tiled: false, tiling: .fitting(available: allowance),
+                    estimatedBytes: wholeFrameEstimate)
             }
-            return
+            if !recipe.look.enabled {
+                guard untiledBufferOK else { throw Failure() }
+                throw Failure(estimated: wholeFrameEstimate, available: allowance)
+            }
         }
-        estimate += transforms
-        let processAllowance = ImageMemoryAllowance.available
-        // Metal's recommended working set is a performance advisory, not an allocation limit.
-        // The process headroom and single-buffer limit above are the admission limits.
-        guard allowOvercommit || estimate < processAllowance else {
-            throw Failure(estimated: estimate, available: processAllowance)
+
+        // Tiled render: choose the largest buffer-valid tile candidate up to the fitting tier
+        // that fits within the process allowance, ensuring strict monotonicity as memory grows.
+        let fittingEdge = MetalFilmPipeline.Tiling.fitting(available: allowance).tileEdge
+        let perPixel: UInt64 =
+            recipe.filmEdgeLayout == nil ? (halfFloat ? 8 : 12) : (halfFloat ? 12 : 18)
+        let baseOverhead: UInt64 = (halfFloat ? 112 : 160) * 1024 * 1024
+        var largestBufferValid: Plan?
+        var smallestEstimate: UInt64?
+
+        for candidate in MetalFilmPipeline.Tiling.candidates where candidate.tileEdge <= fittingEdge {
+            let edge = UInt64(min(candidate.tileEdge, max(width, height)))
+            let tileBuffer = edge * edge * 16
+            let factor = candidate.resolvedFactor(width: width, height: height)
+            let proxyWidth = UInt64((width + factor - 1) / factor + 1)
+            let proxyHeight = UInt64((height + factor - 1) / factor + 1)
+            let proxyBuffer = proxyWidth * proxyHeight * 16
+            let fftBuffer =
+                transforms > 0
+                ? UInt64(candidate.transform) * UInt64(candidate.transform) * 16 : 0
+            guard max(tileBuffer, max(proxyBuffer, fftBuffer)) <= bufferLimit else { continue }
+
+            let graph: UInt64 = recipe.look.enabled ? edge * edge * 16 * 14 : 0
+            let estimate = graph + pixels * perPixel + baseOverhead
+            let plan = Plan(tiled: true, tiling: candidate, estimatedBytes: estimate)
+            if largestBufferValid == nil { largestBufferValid = plan }
+            smallestEstimate = estimate
+            if estimate < allowance {
+                return plan
+            }
         }
+
+        guard let fallback = largestBufferValid, let smallestEstimate else {
+            throw Failure()
+        }
+        if allowOvercommit { return fallback }
+        throw Failure(estimated: smallestEstimate, available: allowance)
+    }
+
+    @discardableResult
+    static func check(
+        width: Int, height: Int, recipe: EditRecipe, allowOvercommit: Bool = false,
+        pixelPitchMicrometers: Double? = nil, available: UInt64? = nil, maxBufferLength: Int? = nil
+    ) throws -> Plan {
+        try admittedPlan(
+            width: width, height: height, recipe: recipe, allowOvercommit: allowOvercommit,
+            pixelPitchMicrometers: pixelPitchMicrometers, available: available,
+            maxBufferLength: maxBufferLength)
     }
 }

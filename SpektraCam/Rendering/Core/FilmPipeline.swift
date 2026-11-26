@@ -84,7 +84,7 @@ nonisolated struct FilmPipeline: Sendable {
                 let x = i % width, y = i / width
                 let e = edge.hasExposureNoise ? edge.exposureFields(x: x, y: y) : FilmEdgeGeometry.Exposure()
                 raw.pixels[i] = (raw.pixels[i] + light * e.front) * edge.gateCoverage(x: x, y: y)
-                    + light * e.back + fog * e.fog + core * e.core
+                    + light * e.back + fog * e.fog + core * e.core + neutral * e.burn
             }
         }
         raw = try HalationCore.apply(raw, parameters: halation, pixelSizeMicrometers: pitch)

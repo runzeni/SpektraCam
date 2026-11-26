@@ -9,12 +9,11 @@ nonisolated enum EditorDefaults {
     private static func flag(_ key: String, fallback: Bool) -> Bool {
         UserDefaults.standard.object(forKey: key) as? Bool ?? fallback
     }
-    static func originalRecipe(temperature: Double?) -> EditRecipe {
+    static func originalRecipe(temperature _: Double? = nil) -> EditRecipe {
         var recipe = EditRecipe()
         recipe.filmID = "fujifilm_c200"
         recipe.printID = "fujifilm_crystal_archive_typeii"
         recipe.look.enabled = false
-        recipe.temperature = temperature
         recipe.flags["film_render.halation.active"] = flag(halationKey, fallback: true)
         recipe.flags["film_render.grain.active"] = flag(grainKey, fallback: true)
         recipe.monochromeGrain = flag(monochromeGrainKey, fallback: false)

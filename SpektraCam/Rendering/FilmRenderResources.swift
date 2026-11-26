@@ -10,15 +10,26 @@ actor FilmRenderResources {
 
     init(directory: URL) { self.directory = directory }
 
-    func load() throws -> (ModelLibrary, MetalFilmPipeline) {
+    var isLoaded: Bool { model != nil || gpu != nil }
+
+    func loadModel() throws -> ModelLibrary {
         if model == nil { model = try ModelLibrary(directory: directory) }
+        return model!
+    }
+
+    func load() throws -> (ModelLibrary, MetalFilmPipeline) {
+        let model = try loadModel()
         if gpu == nil {
             let sources = try ["ColorPipeline", "Spatial", "Grain", "Diffusion", "FilmPipeline"].map {
                 try String(contentsOf: directory.appendingPathComponent($0 + ".metalSource"), encoding: .utf8)
             }
             gpu = try MetalFilmPipeline(sources: sources)
         }
-        return (model!, gpu!)
+        return (model, gpu!)
+    }
+
+    func releaseWorkingCachesIfLoaded() async {
+        if let gpu { await gpu.releaseWorkingCaches() }
     }
 
     /// Source decode and display changes do not alter the photographic material setup.
@@ -34,7 +45,7 @@ actor FilmRenderResources {
         if pipelineKey == key, let preparedPipeline {
             return try FilmPipeline(prepared: preparedPipeline, tone: recipe.tone.rawStage)
         }
-        let (library, _) = try load()
+        let library = try loadModel()
         let result = try FilmPipeline(library: library, recipe: key)
         pipelineKey = key
         preparedPipeline = result

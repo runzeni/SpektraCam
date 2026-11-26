@@ -135,6 +135,66 @@ import Foundation
         var cropping = layout; cropping.fill = true
         let tight = try PrintCompositor.render(source, layout: cropping)
         precondition(max(tight.width, tight.height) == 500, "A sheet cropping the picture was enlarged: \(tight.width)×\(tight.height)")
+
+        // November 22: No border / Fill true short-side full bleed across papers, orientations, enlarger opening,
+        // and distinction between manual 0% fit and intentional full bleed (`fill == true`).
+        precondition(PrintLayout.Border.allCases == [.none, .thin, .narrow, .medium, .wide])
+        precondition(abs(PrintLayout.Border.thin.margin - 0.01) < 1e-9)
+        precondition(PrintLayout.Border(margin: 0.01) == .thin)
+        precondition(PrintLayout.Border.activePreset(margin: 0.01, fill: false) == .thin)
+        precondition(PrintLayout.Border.activePreset(margin: 0.01, fill: true) == PrintLayout.Border.none)
+        do {
+            var thinLayout = PrintLayout()
+            thinLayout.paper = .eightByTen
+            thinLayout.handSet = false
+            thinLayout.margin = PrintLayout.Border.thin.margin
+            let gThin = PrintGeometry(imageSize: sourceSize, layout: thinLayout, longEdge: 1200)!
+            let narrowestThin = min(gThin.imageRect.minX, gThin.imageRect.minY)
+            precondition(abs(narrowestThin - 12.0) < 1.0, "Thin 1% border \(narrowestThin) px, expected 12 px")
+        }
+        precondition(PrintLayout.Border.activePreset(margin: 0, fill: true) == PrintLayout.Border.none)
+        precondition(PrintLayout.Border.activePreset(margin: 0, fill: false) == nil, "Manual 0% should not highlight No border")
+        var asImgFill = PrintLayout(); asImgFill.fill = true
+        precondition(asImgFill.isIdentity && !asImgFill.isDefault, "As-image full bleed lost selection state")
+        let boundaryCtx = CGContext(data: nil, width: 600, height: 400, bitsPerComponent: 8,
+            bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        boundaryCtx.setFillColor(CGColor(red: 0.12, green: 0.35, blue: 0.55, alpha: 1))
+        boundaryCtx.fill(CGRect(x: 0, y: 0, width: 600, height: 400))
+        let blueSource = boundaryCtx.makeImage()!
+        for sheetPaper in [PrintLayout.Paper.fiveBySeven, .eightByTen, .asImage] {
+            for ori in [PrintLayout.Orientation.landscape, .portrait] {
+                var bleed = PrintLayout(); bleed.paper = sheetPaper; bleed.orientation = ori; bleed.fill = true
+                let gBleed = PrintGeometry(imageSize: sourceSize, layout: bleed, longEdge: 1200)!
+                precondition(
+                    gBleed.imageRect.minX <= 0.5 && gBleed.imageRect.minY <= 0.5
+                        && gBleed.imageRect.maxX >= gBleed.paperSize.width - 0.5
+                        && gBleed.imageRect.maxY >= gBleed.paperSize.height - 0.5,
+                    "Full bleed failed on \(sheetPaper) \(ori): \(gBleed.imageRect) on \(gBleed.paperSize)")
+                let img = try PrintCompositor.render(blueSource, layout: bleed, maximum: 400)
+                let px = pixels(img)
+                for edgePt in [(0, img.height / 2), (img.width - 1, img.height / 2), (img.width / 2, 0), (img.width / 2, img.height - 1)] {
+                    let c = rgb(px, img.width, edgePt.0, edgePt.1)
+                    precondition(c.max()! < 200, "Full-bleed left paper margin on \(sheetPaper) \(ori) at \(edgePt): \(c)")
+                }
+            }
+        }
+        // Enlarger nominal frame fill removes white paper border without altering film aspect.
+        var enlargerBleed = PrintLayout(); enlargerBleed.paper = .eightByTen; enlargerBleed.orientation = .portrait; enlargerBleed.fill = true
+        let enlargerFrame = CGRect(x: 0.05, y: 0.05, width: 0.9, height: 0.9)
+        let enlargerGeom = PrintGeometry(
+            imageSize: CGSize(width: 900, height: 600), layout: enlargerBleed, longEdge: 1200,
+            content: .enlarger(frame: enlargerFrame))!
+        let enlargerShown = CGRect(
+            x: enlargerGeom.imageRect.minX + enlargerFrame.minX * enlargerGeom.imageRect.width,
+            y: enlargerGeom.imageRect.minY + enlargerFrame.minY * enlargerGeom.imageRect.height,
+            width: enlargerFrame.width * enlargerGeom.imageRect.width,
+            height: enlargerFrame.height * enlargerGeom.imageRect.height)
+        precondition(
+            enlargerShown.minX <= 0.5 && enlargerShown.minY <= 0.5
+                && enlargerShown.maxX >= enlargerGeom.paperSize.width - 0.5
+                && enlargerShown.maxY >= enlargerGeom.paperSize.height - 0.5,
+            "Enlarger full bleed left white paper: \(enlargerShown) on \(enlargerGeom.paperSize)")
+
         print("PASS: paper orientation, border/Fill, hand-set easel bounds/penumbra/placement, worn blade edges, legacy recipes, processing-cache independence, SDR composition, white margins, image orientation and native-resolution sheets")
     }
     /// The blade's edge carries the gate's wear profile: crisp but not ruled, rougher by kind,
@@ -162,6 +222,7 @@ import Foundation
         let b = Easel.mask(width: 900, height: 600, magnification: 4, kind: .natural, seed: 3)!
         precondition(a.dataProvider!.data! as Data == b.dataProvider!.data! as Data, "Blade mask not deterministic")
         print("Blade wander (px sd at 3000 px): precise \(precise), natural \(natural), worn \(worn)")
+        checkCleanPrintDistress()
     }
     static func pixels(_ image: CGImage) -> [UInt8] {
         let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
@@ -268,6 +329,116 @@ import Foundation
         recipe.constrainFilmEdgeCrop(imageSize: CGSize(width: 800, height: 800))
         precondition(recipe.crop.normalizedRect.width == 1 && abs(recipe.crop.normalizedRect.height - 2 / 3) < 1e-9)
         precondition(recipe.processingRecipe == develop)
+        checkFilmFrameCropSession()
         print("PASS: fixed physical gate, bounded centered trim, idempotence, portrait, 120 and unchanged Develop settings")
+    }
+
+    static func checkFilmFrameCropSession() {
+        let squareSize = CGSize(width: 4000, height: 4000)
+        var layout = FilmEdgeLayout.newDefault()
+        let session = FilmFrameCropSession(baseCrop: CropSelection(), isPreGateBase: true)
+
+        layout.setFrameChoice(.roll66)
+        let directSquare = session.crop(for: layout, imageSize: squareSize).pixelRect(in: squareSize).size
+        precondition(directSquare == CGSize(width: 4000, height: 4000), "Direct 6x6 trimmed: \(directSquare)")
+
+        layout.setFrameChoice(.film35Full)
+        let full35 = session.crop(for: layout, imageSize: squareSize).pixelRect(in: squareSize).size
+        precondition(full35 == CGSize(width: 4000, height: 2667), "135 Full size mismatch: \(full35)")
+
+        layout.setFrameChoice(.roll66)
+        let backToSquare = session.crop(for: layout, imageSize: squareSize).pixelRect(in: squareSize).size
+        precondition(backToSquare == CGSize(width: 4000, height: 4000),
+            "Switching 135 -> 120 6x6 double-trimmed: \(backToSquare)")
+
+        layout.setFrameChoice(.film35Full)
+        let backTo35 = session.crop(for: layout, imageSize: squareSize).pixelRect(in: squareSize).size
+        precondition(backTo35 == CGSize(width: 4000, height: 2667),
+            "Switching 120 6x6 -> 135 Full double-trimmed: \(backTo35)")
+
+        layout.setFrameChoice(.roll67)
+        let sixSeven = session.crop(for: layout, imageSize: squareSize).pixelRect(in: squareSize).size
+        precondition(sixSeven.width == 4000 && abs(sixSeven.height - 3223) <= 1,
+            "120 6x7 modeled gate size mismatch: \(sixSeven)")
+
+        // Portrait orientation preference survives a visit through square 6x6.
+        var portraitSession = FilmFrameCropSession(baseCrop: CropSelection(), isPreGateBase: true)
+        layout.setFrameChoice(.film35Full)
+        let p35 = portraitSession.setOrientation(
+            .portrait, currentCrop: portraitSession.crop(for: layout, imageSize: squareSize),
+            layout: layout, imageSize: squareSize)
+        precondition(p35.pixelRect(in: squareSize).size == CGSize(width: 2667, height: 4000))
+        layout.setFrameChoice(.roll66)
+        _ = portraitSession.crop(for: layout, imageSize: squareSize)
+        layout.setFrameChoice(.roll67)
+        let p67 = portraitSession.crop(for: layout, imageSize: squareSize).pixelRect(in: squareSize).size
+        precondition(p67.height > p67.width, "Portrait preference was lost after 6x6: \(p67)")
+
+        // Off-center manual pre-crop returns cleanly across 135 Full -> 120 6x6 -> 135 Full.
+        var manualPre = CropSelection()
+        manualPre.normalizedRect = CGRect(x: 0.1, y: 0.15, width: 0.8, height: 0.75)
+        let offCenterSession = FilmFrameCropSession(baseCrop: manualPre, isPreGateBase: true)
+        layout.setFrameChoice(.film35Full)
+        let first35 = offCenterSession.crop(for: layout, imageSize: squareSize)
+        layout.setFrameChoice(.roll66)
+        _ = offCenterSession.crop(for: layout, imageSize: squareSize)
+        layout.setFrameChoice(.film35Full)
+        let returned35 = offCenterSession.crop(for: layout, imageSize: squareSize)
+        precondition(first35 == returned35, "Off-center pre-crop shifted across frame comparisons")
+
+        // 135 Full vs 120 6x9 share 3:2 ratio while preserving distinct film gate metadata.
+        layout.setFrameChoice(.film35Full)
+        let rect35 = offCenterSession.crop(for: layout, imageSize: squareSize).normalizedRect
+        var layout69 = layout
+        layout69.setFrameChoice(.roll69)
+        let rect69 = offCenterSession.crop(for: layout69, imageSize: squareSize).normalizedRect
+        precondition(rect35 == rect69 && layout.format == .film35 && layout69.format == .roll120 && layout69.rollFrame == .six9)
+
+        // Switching frame from 135 Full -> 120 6x7 -> Clean print -> Film edge remembers 120 6x7
+        // and matches the current crop without falsely re-constraining from preFilmEdgeCrop.
+        let portrait34 = CGSize(width: 1800, height: 2400)
+        var layout67 = layout
+        layout67.setFrameChoice(.roll67)
+        let crop67 = offCenterSession.crop(for: layout67, imageSize: portrait34)
+        precondition(layout67.matchesGate(crop67.pixelRect(in: portrait34).size),
+            "120 6x7 gate should match its own constrained crop")
+    }
+
+    static func checkCleanPrintDistress() {
+        var clean = FilmEdgeDistress.cleanPrintFallback
+        precondition(clean.cleanPrintPreset == .clean && !clean.hasCleanPrintEffects)
+        clean.applyCleanPrintPreset(.leaky)
+        precondition(clean.cleanPrintPreset == .leaky && clean.hasCleanPrintEffects)
+        clean.applyCleanPrintPreset(.clean)
+        precondition(clean.cleanPrintPreset == .clean && !clean.hasCleanPrintEffects)
+
+        var lab = FilmEdgeDistress()
+        lab.apply(.lab)
+        precondition(lab.isUntouchedDefaultLab)
+        var worn = lab
+        worn.apply(.worn)
+        precondition(!worn.isUntouchedDefaultLab)
+        clean.transferSurface(from: worn)
+        precondition(clean.hasCleanPrintEffects)
+        var edgeDistress = FilmEdgeDistress()
+        edgeDistress.transferSurface(from: clean)
+        precondition(abs(edgeDistress.dust - worn.dust) < 1e-9 && abs(edgeDistress.leak - worn.leak) < 1e-9)
+
+        let geoDefault = FilmEdgeGeometry(cleanPrintSize: CGSize(width: 1200, height: 800), distress: worn, longEdge: 600)!
+        precondition(
+            geoDefault.width == 600 && geoDefault.height == 400 && !geoDefault.distress.scratchesInImage,
+            "Clean-print distress enabled scratchesInImage by default")
+        var wornInImage = worn
+        wornInImage.scratchesInImage = true
+        let geoInImage = FilmEdgeGeometry(cleanPrintSize: CGSize(width: 1200, height: 800), distress: wornInImage, longEdge: 600)!
+        precondition(
+            geoInImage.width == 600 && geoInImage.height == 400 && geoInImage.distress.scratchesInImage
+                && !geoInImage.scratchCandidates.isEmpty && geoInImage.distress.tilt == 0 && geoInImage.distress.bulge == 0)
+        var scratchesOnlyOff = FilmEdgeDistress.cleanPrintFallback
+        scratchesOnlyOff.scratches = 0.5
+        precondition(!scratchesOnlyOff.hasCleanPrintEffects)
+        scratchesOnlyOff.scratchesInImage = true
+        precondition(scratchesOnlyOff.hasCleanPrintEffects)
+        print("PASS: clean-print distress presets, transfer, and scratch/dust geometry")
     }
 }

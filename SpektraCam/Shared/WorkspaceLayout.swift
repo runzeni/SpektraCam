@@ -27,6 +27,10 @@ extension View {
     @ViewBuilder func onSystemVerticalBar(_ action: @escaping (Bool) -> Void) -> some View {
         if #available(iOS 27.1, *) { modifier(VerticalBarProbe(action: action)) } else { self }
     }
+
+    @ViewBuilder func onSystemVerticalBarEdge(_ action: @escaping (HorizontalEdge?) -> Void) -> some View {
+        if #available(iOS 27.1, *) { modifier(VerticalBarEdgeProbe(action: action)) } else { self }
+    }
 }
 
 @available(iOS 27.1, *)
@@ -35,5 +39,14 @@ private struct VerticalBarProbe: ViewModifier {
     let action: (Bool) -> Void
     func body(content: Content) -> some View {
         content.onChange(of: edge != nil, initial: true) { _, vertical in action(vertical) }
+    }
+}
+
+@available(iOS 27.1, *)
+private struct VerticalBarEdgeProbe: ViewModifier {
+    @Environment(\.toolbarVerticalEdge) private var edge
+    let action: (HorizontalEdge?) -> Void
+    func body(content: Content) -> some View {
+        content.onChange(of: edge, initial: true) { _, newEdge in action(newEdge) }
     }
 }

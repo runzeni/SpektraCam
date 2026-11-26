@@ -40,6 +40,8 @@ import OSLog
     @ObservationIgnored private var filmEpoch = UUID()
     @ObservationIgnored private var renderedFilmRecipe: EditRecipe?
     private var renderedPreviewMaximum = 0
+    @ObservationIgnored private var renderedPrecision = RenderPrecision.resolved
+    @ObservationIgnored private let sourcePrefersDeep: Bool
     var effectivePreviewMaximum = PreviewQuality.editorMaximum
     var previewWasReduced = false
     private var requestedPreviewMaximum: Int {
@@ -57,6 +59,12 @@ import OSLog
     private var lastKey = ""
     @ObservationIgnored private var interactionKey: String?
     @ObservationIgnored private var presentationInteractionKey: String?
+    @ObservationIgnored private var rememberedFilmEdgeLayout: FilmEdgeLayout?
+    @ObservationIgnored private var transferredCleanDistress: FilmEdgeDistress?
+    @ObservationIgnored private var hasExplicitSurfaceDistress = false
+    @ObservationIgnored private(set) var preFilmEdgeCrop: CropSelection?
+    @ObservationIgnored private var activeGroupDepth = 0
+    @ObservationIgnored private var activeGroupPushedUndo = false
 
     @ObservationIgnored var recipeDidChange: ((EditRecipe, Bool) -> Void)?
 
@@ -67,6 +75,9 @@ import OSLog
         self.photo = photo
         self.sourceFilename = sourceFilename
         self.luts = luts
+        let prefersDeep = photo.sourceDescription?.prefersDeepPipeline ?? (photo.preview.bitsPerComponent > 10)
+        self.sourcePrefersDeep = prefersDeep
+        self.renderedPrecision = RenderPrecision.resolved(sourcePrefersDeep: prefersDeep)
         filmSource = photo.preview
         renderedSource = photo.preview
         filmRenderer = PhotoRenderer(
@@ -75,12 +86,19 @@ import OSLog
             resources: resources, sourceType: photo.sourceType,
             description: photo.sourceDescription, sourceFilename: sourceFilename
         )
-        let original = EditorDefaults.originalRecipe(temperature: photo.rawTemperature)
+        let original = EditorDefaults.originalRecipe(temperature: nil)
         uneditedRecipe = original
         var initial = restored ?? original
-        if initial.temperature == nil { initial.temperature = photo.rawTemperature }
+        if let rawTemp = photo.rawTemperature, let savedTemp = initial.temperature,
+            abs(savedTemp - rawTemp) <= 0.5
+        {
+            initial.temperature = nil
+        }
         initial.constrainFilmEdgeCrop(imageSize: CGSize(width: photo.width, height: photo.height))
         recipe = initial
+        rememberedFilmEdgeLayout = initial.filmEdgeLayout
+        hasExplicitSurfaceDistress = initial.distress != nil
+            || (initial.filmEdgeLayout.map { !$0.distress.isUntouchedDefaultLab } ?? false)
         let initialPreview = UIImage(cgImage: photo.preview)
         geometryImage = initialPreview
         displayImage = initialPreview
@@ -121,7 +139,156 @@ import OSLog
     var hasEdits: Bool {
         recipe != uneditedRecipe
     }
-    func resetAll() { update(key: "reset") { $0 = uneditedRecipe } }
+    var hasDarkroomEdits: Bool {
+        recipe.has(.darkroom)
+    }
+    var uprightSize: CGSize {
+        recipe.geometry.quarterTurns % 2 == 0
+            ? CGSize(width: photo.width, height: photo.height)
+            : CGSize(width: photo.height, height: photo.width)
+    }
+    func resetAll() {
+        rememberedFilmEdgeLayout = nil
+        transferredCleanDistress = nil
+        hasExplicitSurfaceDistress = false
+        preFilmEdgeCrop = nil
+        update(key: "reset") { $0 = uneditedRecipe }
+    }
+    func resetDarkroom() {
+        rememberedFilmEdgeLayout = nil
+        transferredCleanDistress = nil
+        hasExplicitSurfaceDistress = false
+        preFilmEdgeCrop = nil
+        performDiscrete(key: "darkroom.reset") {
+            $0 = $0.taking([.darkroom], from: EditRecipe(), rawTarget: photo.rawTemperature != nil)
+        }
+    }
+    func markSurfaceDistressEdited(_ distress: FilmEdgeDistress?) {
+        guard let distress else {
+            hasExplicitSurfaceDistress = false
+            return
+        }
+        hasExplicitSurfaceDistress = !(distress.cleanPrintPreset == .clean && !distress.scratchesInImage)
+    }
+    func recordManualCrop(_ crop: CropSelection) {
+        preFilmEdgeCrop = nil
+    }
+    func resetFilmCrop(to crop: CropSelection) {
+        preFilmEdgeCrop = recipe.filmEdgeLayout != nil ? CropSelection() : nil
+        update(key: "crop.reset") {
+            $0.crop = crop
+            $0.geometry = ImageGeometry()
+        }
+    }
+    func beginUndoGroup() {
+        if activeGroupDepth == 0 {
+            activeGroupPushedUndo = false
+        }
+        activeGroupDepth += 1
+        lastKey = ""
+    }
+    func endUndoGroup() {
+        guard activeGroupDepth > 0 else { return }
+        activeGroupDepth -= 1
+        if activeGroupDepth == 0 {
+            lastKey = ""
+            if activeGroupPushedUndo {
+                activeGroupPushedUndo = false
+                recipeDidChange?(recipe, true)
+            }
+        }
+    }
+    /// Switch between Clean print and Film edge while remembering the active Film edge layout
+    /// across the comparison so returning restores the chosen frame, gate, and handling.
+    func setFilmEdgePresentation(_ enabled: Bool) -> Bool {
+        if enabled {
+            guard recipe.filmEdgeLayout == nil else { return false }
+            let hadRemembered = rememberedFilmEdgeLayout != nil
+            var next = rememberedFilmEdgeLayout ?? FilmEdgeLayout.newDefault()
+            if hadRemembered {
+                if recipe.distress != transferredCleanDistress {
+                    next.distress.transferSurface(from: recipe.distress ?? .cleanPrintFallback)
+                }
+            } else if let clean = recipe.distress {
+                next.distress.transferSurface(from: clean)
+            }
+            let size = uprightSize
+            let referenceCrop = hadRemembered ? recipe.crop : (preFilmEdgeCrop ?? recipe.crop)
+            let needsCrop = !next.matchesGate(referenceCrop.pixelRect(in: size).size)
+            if preFilmEdgeCrop == nil || (hadRemembered && needsCrop) {
+                preFilmEdgeCrop = referenceCrop
+            }
+            if needsCrop {
+                beginUndoGroup()
+                update(key: "darkroom.crop") { r in
+                    r.distress = nil
+                    r.filmEdgeLayout = next
+                    r.crop = next.constrainedCrop(referenceCrop, imageSize: size)
+                }
+            } else {
+                performDiscrete(key: "darkroom.edge.layout") { r in
+                    r.distress = nil
+                    r.filmEdgeLayout = next
+                }
+            }
+            rememberedFilmEdgeLayout = next
+            return needsCrop
+        } else {
+            guard let oldLayout = recipe.filmEdgeLayout else { return false }
+            rememberedFilmEdgeLayout = oldLayout
+            let old = oldLayout.distress
+            let nextClean: FilmEdgeDistress?
+            if hasExplicitSurfaceDistress || !old.isUntouchedDefaultLab {
+                var clean = FilmEdgeDistress.cleanPrintFallback
+                clean.transferSurface(from: old)
+                nextClean = (clean.cleanPrintPreset == .clean && !clean.scratchesInImage) ? nil : clean
+            } else {
+                nextClean = nil
+            }
+            transferredCleanDistress = nextClean
+            performDiscrete(key: "darkroom.edge.layout") { r in
+                r.filmEdgeLayout = nil
+                r.distress = nextClean
+            }
+            return false
+        }
+    }
+    func updateFilmEdgeFromInspector(_ layout: FilmEdgeLayout?) -> Bool {
+        guard let layout else {
+            update(key: "darkroom.edge.layout") { $0.filmEdgeLayout = nil }
+            return false
+        }
+        let size = uprightSize
+        let frameChanged = recipe.filmEdgeLayout?.frameChoice != nil
+            && recipe.filmEdgeLayout?.frameChoice != layout.frameChoice
+        let baseCrop = (frameChanged ? preFilmEdgeCrop : nil) ?? recipe.crop
+        let rawSize = baseCrop.pixelRect(in: size).size
+        let needsCrop = !layout.matchesGate(rawSize)
+        if needsCrop { beginUndoGroup() }
+        update(key: needsCrop ? "darkroom.crop" : "darkroom.edge.layout") { r in
+            r.filmEdgeLayout = layout
+            if frameChanged {
+                r.crop = layout.constrainedCrop(baseCrop, imageSize: size)
+            }
+        }
+        rememberedFilmEdgeLayout = layout
+        return needsCrop
+    }
+    /// Apply a Film frame switch inside Crop while keeping the remembered Film Edge layout current
+    /// so Clean Print comparisons return to this chosen frame without reopening Crop.
+    func applyFilmFrameInCrop(_ layout: FilmEdgeLayout, crop: CropSelection) {
+        update(key: "darkroom.crop") { r in
+            r.filmEdgeLayout = layout
+            r.crop = crop
+        }
+        rememberedFilmEdgeLayout = layout
+    }
+    /// Discrete actions (shape toggles, presets, scoped resets) never coalesce into the 0.4 s
+    /// slider window, guaranteeing one Undo step per tap.
+    func performDiscrete(key: String, _ change: (inout EditRecipe) -> Void) {
+        lastKey = ""
+        update(key: "discrete.\(key).\(UUID().uuidString)", change)
+    }
     func binding<Value>(_ keyPath: WritableKeyPath<EditRecipe, Value>, key: String) -> Binding<
         Value
     > {
@@ -170,7 +337,13 @@ import OSLog
         next.removeDefaultOverrides()
         guard next != recipe else { return }
         let now = Date()
-        if lastKey != key || (interactionKey != key && presentationInteractionKey != key
+        if activeGroupDepth > 0 {
+            if !activeGroupPushedUndo {
+                undoStack.append(recipe)
+                if undoStack.count > 100 { undoStack.removeFirst() }
+                activeGroupPushedUndo = true
+            }
+        } else if lastKey != key || (interactionKey != key && presentationInteractionKey != key
             && now.timeIntervalSince(lastChange) > 0.4) {
             undoStack.append(recipe)
             if undoStack.count > 100 { undoStack.removeFirst() }
@@ -182,6 +355,11 @@ import OSLog
         let oldRect = recipe.crop.normalizedRect
         let changedFilm = recipe.processingRecipe != next.processingRecipe
         recipe = next
+        if let edge = next.filmEdgeLayout {
+            rememberedFilmEdgeLayout = edge
+        }
+        hasExplicitSurfaceDistress = next.distress != nil
+            || (next.filmEdgeLayout.map { !$0.distress.isUntouchedDefaultLab } ?? false)
         recipeDidChange?(recipe, false)
         if changedFilm {
             // Numeric entry, stock changes and switches also deserve a quick first result.
@@ -237,12 +415,19 @@ import OSLog
             snapshot, size: size, format: format, quality: quality, allowOvercommit: allowOvercommit
         )
     }
-    func filmEdgePreview(_ snapshot: EditRecipe, maximum: Int) async throws -> CGImage {
+    func filmEdgePreview(
+        _ snapshot: EditRecipe, maximum: Int, use: RenderPrecision.Use = .output
+    ) async throws -> CGImage {
         edgeTask?.cancel()
         let epoch = UUID()
         edgeEpoch = epoch
         let renderer = filmRenderer
-        let job = Task { try await renderer.renderFilmEdge(snapshot, maximum: maximum) }
+        let job = Task {
+            if snapshot.filmEdgeLayout != nil {
+                return try await renderer.renderFilmEdge(snapshot, maximum: maximum, use: use)
+            }
+            return try await renderer.renderDistressedPrint(snapshot, maximum: maximum, use: use)
+        }
         edgeTask = job
         defer { if edgeEpoch == epoch { edgeTask = nil } }
         return try await withTaskCancellationHandler { try await job.value } onCancel: { job.cancel() }
@@ -256,6 +441,7 @@ import OSLog
         let renderer = filmRenderer
         let job = Task { () -> PhotoRenderer.Detail? in
             if recipe.filmEdgeLayout != nil { return try? await renderer.renderEdgeDetail(recipe, visible: visible) }
+            if recipe.activeCleanPrintDistress != nil { return try? await renderer.renderDistressedPrintDetail(recipe, visible: visible) }
             return try? await renderer.renderDetail(recipe, visible: visible, longEdge: 1_000_000)
         }
         patchTask = job
@@ -292,6 +478,13 @@ import OSLog
         next.constrainFilmEdgeCrop(imageSize: CGSize(width: photo.width, height: photo.height))
         let processingChanged = recipe.processingRecipe != next.processingRecipe
         let geometryChanged = recipe.geometry != next.geometry || recipe.crop != next.crop
+        activeGroupPushedUndo = false
+        preFilmEdgeCrop = nil
+        if let edge = next.filmEdgeLayout {
+            rememberedFilmEdgeLayout = edge
+        }
+        hasExplicitSurfaceDistress = next.distress != nil
+            || (next.filmEdgeLayout.map { !$0.distress.isUntouchedDefaultLab } ?? false)
         recipe = next
         recipeDidChange?(recipe, true)
         lastKey = ""
@@ -302,7 +495,7 @@ import OSLog
         if processingChanged || geometryChanged { renderGeometry() }
     }
     var detailProvider: PhotoScrollView.DetailProvider {
-        { [weak self] visible, longEdge in
+        PhotoScrollView.DetailProvider { [weak self] visible, longEdge in
             await self?.detail(visible: visible, longEdge: longEdge)
         }
     }
@@ -414,9 +607,15 @@ import OSLog
             renderFilmIfNeeded()
         }
     }
+    private var requestedPrecisionUse: RenderPrecision.Use {
+        (interactionKey != nil || waitingToRefine) ? .interactive : .output
+    }
     private func renderFilmIfNeeded() {
+        let currentPrecision = RenderPrecision.resolved(
+            sourcePrefersDeep: sourcePrefersDeep, use: requestedPrecisionUse)
         if filmTask != nil || renderedFilmRecipe != recipe.processingRecipe
             || renderedPreviewMaximum != requestedPreviewMaximum
+            || renderedPrecision != currentPrecision
         {
             renderFilm()
         } else {
@@ -441,6 +640,9 @@ import OSLog
                 let revision = filmRevision
                 let requested = recipe.processingRecipe
                 let maximum = requestedPreviewMaximum
+                let precisionUse = requestedPrecisionUse
+                let precision = RenderPrecision.resolved(
+                    sourcePrefersDeep: sourcePrefersDeep, use: precisionUse)
                 isRefiningPreview = hasFilmPreview && renderedFilmRecipe == requested
                 frameMaximum = maximum
                 do {
@@ -448,7 +650,9 @@ import OSLog
                     let actualMaximum: Int
                     do {
                         let renderer = filmRenderer
-                        let job = Task { try await renderer.render(requested, maximum: maximum) }
+                        let job = Task {
+                            try await renderer.render(requested, maximum: maximum, use: precisionUse)
+                        }
                         frameTask = job
                         image = try await job.value
                         guard !Task.isCancelled, filmEpoch == epoch else { return }
@@ -471,6 +675,7 @@ import OSLog
                     filmHistogram = stats
                     renderedFilmRecipe = requested
                     renderedPreviewMaximum = maximum
+                    renderedPrecision = precision
                     effectivePreviewMaximum = actualMaximum
                     previewWasReduced = actualMaximum < maximum
                     hasFilmPreview = true

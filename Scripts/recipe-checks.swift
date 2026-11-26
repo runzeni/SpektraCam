@@ -140,12 +140,16 @@ import Foundation
         precondition(look.filmID == source.filmID && look.printID == source.printID && look.look == source.look)
         precondition(look.tone.contrast == 1.2 && look.tone.monochrome && look.tone.shadows == 0)
         precondition(look.tone.exposureEV == -1, "Look replaced the photo's exposure")
-        precondition(look.source.saturation == 0.8 && look.source.tint == 3 && look.source.warmth == 0)
-        precondition(look.temperature == 6100)
+        precondition(look.source.saturation == 0.8 && look.source.tint == -4 && look.source.warmth == 0,
+            "Look did not preserve source tint or leaked source warmth")
+        precondition(look.temperature == 6100, "Look changed the RAW target's color temperature")
         precondition(look.numbers["film_render.grain.particle_area_um2"] == 0.8)
         precondition(look.numbers["film_render.halation.scatter_amount"] == nil, "The old look's override leaked")
-        precondition(look.numbers["enlarger.y_filter_shift"] == 2, "Look replaced the photo's filter pack")
-        precondition(look.numbers["camera.exposure_compensation_ev"] == nil)
+        precondition(look.numbers["enlarger.y_filter_shift"] == 9 && look.numbers["enlarger.m_filter_shift"] == -6,
+            "Look dropped the print balance adjustments")
+        precondition(look.numbers["camera.exposure_compensation_ev"] == 1.5,
+            "Look dropped film exposure compensation")
+        precondition(abs(look.printExposureEV - 0.5) < 1e-12, "Look dropped print exposure")
         precondition(look.flags == source.flags && look.choices == source.choices)
         precondition(look.monochromeGrain && look.mix == 0.5)
         precondition(look.printLayout == nil && look.filmEdgeLayout == nil, "Look carried the Darkroom")
@@ -154,14 +158,21 @@ import Foundation
         let exposure = target.taking([.exposure], from: source, rawTarget: true)
         precondition(exposure.filmID == target.filmID && exposure.look == target.look)
         precondition(exposure.tone.exposureEV == 0.7 && exposure.tone.shadows == 0.4)
-        precondition(exposure.source.exposureEV == 0.3 && exposure.source.warmth == 12 && exposure.source.tint == -4)
+        precondition(exposure.source.exposureEV == 0.3 && exposure.source.warmth == 12 && exposure.source.tint == 3,
+            "Exposure did not carry warmth/exposure or overwrote Look tint")
         precondition(exposure.source.saturation == 1, "Saturation belongs to the Look")
         precondition(exposure.temperature == 4800)
         precondition(target.taking([.exposure], from: source, rawTarget: false).temperature == 6100,
             "A RAW white balance reached a rendered photo")
-        precondition(exposure.numbers["camera.exposure_compensation_ev"] == 1.5)
-        precondition(exposure.numbers["enlarger.y_filter_shift"] == 9 && exposure.numbers["enlarger.m_filter_shift"] == -6)
-        precondition(abs(exposure.printExposureEV - 0.5) < 1e-12)
+        var autoRAWSource = EditRecipe()
+        autoRAWSource.tone.exposureEV = 0.4
+        precondition(target.taking([.exposure], from: autoRAWSource, rawTarget: true).temperature == nil,
+            "Auto RAW source exposure did not reset target RAW temperature to Auto WB")
+        precondition(target.taking([.look], from: autoRAWSource, rawTarget: true).temperature == 6100,
+            "Look-only changed the RAW target's color temperature")
+        precondition(exposure.numbers["camera.exposure_compensation_ev"] == nil)
+        precondition(exposure.numbers["enlarger.y_filter_shift"] == 2 && exposure.numbers["enlarger.m_filter_shift"] == nil)
+        precondition(exposure.printExposureEV == 0)
         precondition(exposure.numbers["film_render.grain.particle_area_um2"] == 0.3)
         precondition(exposure.numbers["film_render.halation.scatter_amount"] == 0.9)
         precondition(exposure.flags == target.flags)
@@ -169,8 +180,25 @@ import Foundation
         let darkroom = target.taking([.darkroom], from: source, rawTarget: true)
         precondition(darkroom.printLayout == source.printLayout && darkroom.filmEdgeLayout == source.filmEdgeLayout)
         precondition(darkroom.filmEdgeSelection == source.filmEdgeSelection)
+        precondition(darkroom.distress == source.distress)
         precondition(darkroom.processingRecipe == target.processingRecipe, "Darkroom changed the film render")
         precondition(darkroom.crop == target.crop && darkroom.geometry == target.geometry)
+
+        // Clean-print distress travels strictly inside Part.darkroom and cleans up default .clean overrides.
+        var distressedTarget = target
+        var cleanLeak = FilmEdgeDistress.cleanPrintFallback
+        cleanLeak.applyCleanPrintPreset(.leaky)
+        distressedTarget.distress = cleanLeak
+        precondition(distressedTarget.has(.darkroom))
+        let copiedDistress = target.taking([.darkroom], from: distressedTarget, rawTarget: true)
+        precondition(copiedDistress.distress == cleanLeak)
+        precondition(copiedDistress.processingRecipe == target.processingRecipe, "Clean-print distress altered film processing")
+        let clearedDistress = distressedTarget.taking([.darkroom], from: EditRecipe(), rawTarget: true)
+        precondition(clearedDistress.distress == nil)
+        var defaultClean = EditRecipe()
+        defaultClean.distress = FilmEdgeDistress.cleanPrintFallback
+        defaultClean.removeDefaultOverrides()
+        precondition(defaultClean.distress == nil)
 
         // All parts together are the source with the target's framing.
         var expected = source
@@ -187,7 +215,13 @@ import Foundation
         precondition(source.has(.exposure) && source.has(.darkroom))
         var balanced = EditRecipe()
         balanced.numbers["enlarger.m_filter_shift"] = 4
-        precondition(balanced.has(.exposure), "The filter pack stays with the photo")
+        precondition(!balanced.has(.exposure) && balanced.taking([.look], from: balanced, rawTarget: true).numbers["enlarger.m_filter_shift"] == 4,
+            "Print balance belongs to the Look")
+        var warmed = EditRecipe()
+        warmed.look.enabled = false
+        warmed.source.warmth = 10
+        precondition(!warmed.hasEditedLook && warmed.has(.exposure),
+            "Warmth belongs to Exposure & WB")
         let clip = LookClip(source)
         precondition(clip.recipe.crop == CropSelection() && clip.recipe.geometry.isIdentity, "A clip kept framing")
         precondition(clip.parts == Part.allCases)
@@ -214,8 +248,10 @@ import Foundation
         let formula = try Formula(name: "  Tungsten night ", note: " f/8 ", parts: [.look, .darkroom], from: edit, luts: references)
         precondition(formula.name == "Tungsten night" && formula.note == "f/8")
         precondition(formula.parts == [.look, .darkroom] && formula.unreadable.isEmpty)
-        precondition(formula.recipe.tone.exposureEV == 0 && formula.recipe.numbers["enlarger.y_filter_shift"] == nil,
+        precondition(formula.recipe.tone.exposureEV == 0,
             "A part the author left out was written to the file")
+        precondition(formula.recipe.numbers["enlarger.y_filter_shift"] == 9,
+            "Print balance was dropped from Look")
         precondition(formula.recipe.tone.contrast == 1.2 && formula.recipe.printLayout == paper)
         precondition(formula.recipe.geometry.isIdentity, "A formula kept framing")
         precondition(formula.luts.map(\.name) == ["Warm"], "Only LUTs the look uses are listed")
@@ -226,6 +262,87 @@ import Foundation
         let darkroomOnly = try Formula(name: "Border", parts: [.darkroom], from: edit, luts: references)
         precondition(darkroomOnly.luts.isEmpty && darkroomOnly.missingLUTs(installed: []).isEmpty)
         precondition(darkroomOnly.recipe.processingRecipe == EditRecipe().processingRecipe)
+
+        // Switching to Spektrafilm with a dormant LUT id retained in the slot must not export any
+        // LUT metadata or require that LUT when the formula is saved or shared.
+        var filmWithDormantLUT = edit
+        filmWithDormantLUT.look.enabled = true
+        filmWithDormantLUT.look.mode = .spektrafilm
+        precondition(filmWithDormantLUT.look.activeSlots.isEmpty && filmWithDormantLUT.look.activeIdentifiers.isEmpty)
+        let filmDormantFormula = try Formula(name: "Spektrafilm", parts: [.look], from: filmWithDormantLUT, luts: references)
+        precondition(filmDormantFormula.luts.isEmpty && filmDormantFormula.missingLUTs(installed: []).isEmpty)
+        precondition(filmDormantFormula.recipe.look.first.id == nil && filmDormantFormula.recipe.look.second.id == nil)
+
+        // Original mode must also ignore dormant LUTs and unedited tones.
+        var originalWithDormant = filmWithDormantLUT
+        originalWithDormant.look.enabled = false
+        originalWithDormant.tone = EditRecipe.Tone()
+        precondition(!originalWithDormant.hasEditedLook)
+        let originalFormula = try Formula(name: "Original", parts: [.look], from: originalWithDormant, luts: references)
+        precondition(originalFormula.luts.isEmpty && originalFormula.recipe.look.first.id == nil)
+
+        // A 0-mix secondary LUT slot is inactive and excluded from LUT requirements.
+        let secondLUT = String(repeating: "d", count: 64)
+        var singleActiveLUT = edit
+        singleActiveLUT.look.enabled = true
+        singleActiveLUT.look.mode = .lut
+        singleActiveLUT.look.first.mix = 0.8
+        singleActiveLUT.look.second = .init(id: secondLUT, mix: 0)
+        precondition(singleActiveLUT.look.activeIdentifiers == [lut])
+        let activeFormula = try Formula(
+            name: "Single LUT", parts: [.look], from: singleActiveLUT,
+            luts: references + [Formula.LUT(id: secondLUT, name: "Muted", size: 17)])
+        precondition(activeFormula.luts.map(\.id) == [lut] && activeFormula.recipe.look.second.id == nil)
+        precondition(activeFormula.missingLUTs(installed: [lut]).isEmpty)
+
+        // Extended S-curve values (±10 -> 0.30...1.70) survive sanitization and FormulaLink round-trip.
+        for extreme in [0.30, 1.70] {
+            var wide = EditRecipe()
+            wide.tone.contrast = extreme
+            let f = try Formula(name: "Extreme", parts: [.look], from: wide, luts: [])
+            let back = try Formula(data: try FormulaLink.file(from: try FormulaLink.url(for: f.data()).absoluteString))
+            precondition(abs(back.recipe.tone.contrast - extreme) < 1e-9, "S-curve contrast was clipped: \(back.recipe.tone.contrast)")
+        }
+
+        // Unedited RAW camera temperature matches neutralTemperature and is not treated as an exposure edit.
+        var rawRecipe = EditRecipe()
+        rawRecipe.temperature = 5200
+        rawRecipe.tone.exposureEV = 1.1
+        rawRecipe.source.tint = -8
+        rawRecipe.numbers["camera.exposure_compensation_ev"] = 0.5
+        rawRecipe.numbers["enlarger.y_filter_shift"] = 6
+        precondition(rawRecipe.hasEditedLook, "Tint/film exposure edit must mark Look as edited")
+        var rawLookCheck = EditRecipe()
+        rawLookCheck.temperature = 5200
+        precondition(!rawLookCheck.has(.exposure, neutralTemperature: 5200))
+        precondition(rawLookCheck.has(.exposure, neutralTemperature: 6500))
+        let rawLookOnly = try Formula(
+            name: "RAW Look", parts: [.look], from: rawRecipe, luts: [], neutralTemperature: 5200)
+        precondition(rawLookOnly.recipe.temperature == nil && rawLookOnly.recipe.tone.exposureEV == 0,
+            "Formula Look kept exposure or RAW color temperature")
+        precondition(rawLookOnly.recipe.source.tint == -8
+            && rawLookOnly.recipe.numbers["camera.exposure_compensation_ev"] == 0.5
+            && rawLookOnly.recipe.numbers["enlarger.y_filter_shift"] == 6,
+            "Formula Look dropped source tint, film exposure, or print balance")
+        var secondRAW = EditRecipe()
+        secondRAW.temperature = 6400
+        secondRAW.tone.exposureEV = -0.5
+        let appliedToSecond = secondRAW.taking(Set(rawLookOnly.parts), from: rawLookOnly.recipe, rawTarget: true)
+        precondition(
+            appliedToSecond.temperature == 6400 && appliedToSecond.tone.exposureEV == -0.5
+                && appliedToSecond.source.tint == -8
+                && appliedToSecond.numbers["camera.exposure_compensation_ev"] == 0.5
+                && appliedToSecond.numbers["enlarger.y_filter_shift"] == 6,
+            "Applying Formula Look altered target RAW temperature/exposure or lost Look settings")
+        let rawAutoWBWithExposure = try Formula(
+            name: "RAW Auto WB + Exposure", parts: [.look, .exposure], from: rawRecipe, luts: [],
+            neutralTemperature: 5200)
+        precondition(rawAutoWBWithExposure.recipe.temperature == nil && rawAutoWBWithExposure.recipe.tone.exposureEV == 1.1,
+            "Untouched RAW temperature was not kept as Auto WB (nil)")
+        let appliedAutoToSecond = secondRAW.taking(
+            Set(rawAutoWBWithExposure.parts), from: rawAutoWBWithExposure.recipe, rawTarget: true)
+        precondition(appliedAutoToSecond.temperature == nil && appliedAutoToSecond.tone.exposureEV == 1.1,
+            "Applying Formula with Auto RAW WB did not keep target RAW on Auto WB (nil)")
 
         let data = try formula.data()
         let read = try Formula(data: data)
@@ -261,6 +378,62 @@ import Foundation
         let copy = try Formula.duplicating(data, name: "Copy")
         let duplicate = try Formula(data: copy.data)
         precondition(duplicate.id == copy.id && duplicate.id != formula.id && duplicate.recipe == formula.recipe)
+
+        // Tagged v1.0 Formula files keep v1 part semantics: Exposure owns tint & film/print overrides.
+        var v1Target = EditRecipe()
+        v1Target.source.tint = 3
+        v1Target.numbers["enlarger.y_filter_shift"] = 5
+        v1Target.temperature = 6100
+        let v1ExposureJSON = Data("""
+        {
+          "created": "2026-11-20T00:00:00Z",
+          "format": 1,
+          "id": "11111111-1111-1111-1111-111111111111",
+          "luts": [],
+          "name": "v1 Exposure Only",
+          "note": "",
+          "parts": { "exposure": 1 },
+          "recipe": {
+            "numbers": { "enlarger.y_filter_shift": 12 },
+            "source": { "exposureEV": 0, "saturation": 1, "tint": -8, "warmth": 0 },
+            "version": 5
+          }
+        }
+        """.utf8)
+        let v1Exposure = try Formula(data: v1ExposureJSON)
+        precondition(v1Exposure.partVersions == [.exposure: 1])
+        let appliedV1Exposure = v1Exposure.applied(to: v1Target, rawTarget: true)
+        precondition(appliedV1Exposure.source.tint == -8 && appliedV1Exposure.numbers["enlarger.y_filter_shift"] == 12,
+            "v1.0 Exposure-only formula lost tint or yellow-balance override")
+        precondition(appliedV1Exposure.temperature == 6100,
+            "v1.0 Exposure-only formula without saved temperature cleared target RAW temperature")
+        let v1ExposureRoundTrip = try Formula(data: try v1Exposure.data())
+        precondition(v1ExposureRoundTrip.partVersions == [.exposure: 1],
+            "Re-encoding a v1.0 formula bumped its stored part version")
+
+        let v1LookJSON = Data("""
+        {
+          "created": "2026-11-20T00:00:00Z",
+          "format": 1,
+          "id": "22222222-2222-2222-2222-222222222222",
+          "luts": [],
+          "name": "v1 Look Only",
+          "note": "",
+          "parts": { "look": 1 },
+          "recipe": {
+            "filmID": "fujifilm_c200",
+            "version": 5
+          }
+        }
+        """.utf8)
+        let v1Look = try Formula(data: v1LookJSON)
+        precondition(v1Look.partVersions == [.look: 1])
+        let appliedV1Look = v1Look.applied(to: v1Target, rawTarget: true)
+        precondition(appliedV1Look.source.tint == 3 && appliedV1Look.numbers["enlarger.y_filter_shift"] == 5
+            && appliedV1Look.filmID == "fujifilm_c200",
+            "v1.0 Look-only formula overwrote target tint or yellow-balance override")
+        precondition(formula.partVersions == [.look: 2, .darkroom: 1],
+            "Newly saved v1.1 formula did not record part versions")
 
         // Files are untrusted: unknown paths go, values are held to each control's limits.
         stored = (try JSONSerialization.jsonObject(with: data) as! [String: Any])["recipe"] as! [String: Any]

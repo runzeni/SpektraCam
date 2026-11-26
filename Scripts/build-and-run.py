@@ -19,7 +19,7 @@ if ui_tests and not devices:
     raise SystemExit("Boot a Simulator before running UI checks.")
 scheme = "SpektraCam"
 destination = "id=" + devices[0]["udid"] if devices else "generic/platform=iOS Simulator"
-args = [ENV["DEVELOPER_DIR"] + "/usr/bin/xcodebuild", "-project", str(ROOT / "SpektraCam.xcodeproj"), "-scheme", scheme, "-configuration", "Debug", "-sdk", "iphonesimulator", "-destination", destination, "-derivedDataPath", str(OUTPUT), "CODE_SIGNING_ALLOWED=NO"]
+args = [ENV["DEVELOPER_DIR"] + "/usr/bin/xcodebuild", "-project", str(ROOT / "SpektraCam.xcodeproj"), "-scheme", scheme, "-configuration", "Debug", "-sdk", "iphonesimulator", "-destination", destination, "-derivedDataPath", str(OUTPUT), "CODE_SIGNING_IDENTITY=-"]
 if ui_tests:
     args += ["-parallel-testing-enabled", "NO", "-resultBundlePath", str(OUTPUT / ("editor-checks-" + str(time.time_ns()) + ".xcresult")), "test"]
 else:

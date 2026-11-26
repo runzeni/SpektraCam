@@ -68,12 +68,14 @@ for key, (files, arguments) in checks.items():
  if 'LibraryImages' in files and 'ImageRequestPool' not in files:
   files.append('ImageRequestPool')
 checks['image-requests'] = (['ImageRequestPool'], [])
-checks['editor-session-benchmark'] = (list(dict.fromkeys(checks['processed-export'][0] + ['EditorSession','Log','EditorDefaults','PhotoHistogram','LUTLibrary','PhotoCanvas','PhotoInfoPanel'])), ['.'])
+checks['editor-session-benchmark'] = (list(dict.fromkeys(checks['library'][0] + ['EditorSession','Log','PhotoHistogram','PhotoCanvas','PhotoInfoPanel','PasteLookSheet','FormulaViews','FormulaCard','FormulaCode','FormulaProcess','FormulaSharing','FailureAlert','PhotoThumbnail','LUTPanel','PanelTabs','AppAccent','AdaptiveToggle','ParameterControl','PlatformCompatibility'])), ['.'])
 checks['editor-benchmark'] = (checks['processed-export'][0], ['.'])
 checks['lut-grain'] = (checks['processed-export'][0], ['.'])
 checks['film-edge'] = (list(dict.fromkeys(checks['processed-export'][0] + ['PrintCompositor', 'FilmEdgeRenderer', 'BatchPhotoExporter'])), ['.'])
 checks['darkroom-orientation'] = (list(dict.fromkeys(checks['processed-export'][0] + ['PrintCompositor', 'FilmEdgeRenderer'])), ['.'])
 checks['darkroom'] = (list(dict.fromkeys(checks['export'][0] + checks['recipe'][0] + ['PrintCompositor'])), [])
+checks['precision'] = (checks['library'][0], ['.'])
+checks['camera'] = (list(dict.fromkeys(checks['library'][0] + ['PhotoMetadata','CameraLocation','CameraMeter','CameraPreview','CameraService','CameraModel'])), ['.'])
 for files, arguments in checks.values():
  if any(f.startswith('Metal') or f == 'ToneRenderer' for f in files) and 'MetalDispatch' not in files: files.append('MetalDispatch')
  if any(f in files for f in ['MetalFilmPipeline','SourceImageRenderer','ToneRenderer']) and 'PixelStore' not in files: files.append('PixelStore')
@@ -81,6 +83,7 @@ for files, arguments in checks.values():
   for dependency in ['PrintLayout', 'FilmEdgeSelection', 'FilmEdgeLayout', 'RecipeParts', 'Formula', 'FormulaLink']:
    if dependency not in files: files.append(dependency)
  if 'SourceImageRenderer' in files and 'GeometryRenderer' not in files: files.append('GeometryRenderer')
+ if 'PhotoLibrary' in files and 'Log' not in files: files.append('Log')
  if 'PhotoRenderer' in files:
   for dependency in ['PrintCompositor', 'FilmEdgeRenderer']:
    if dependency not in files: files.append(dependency)
@@ -96,8 +99,11 @@ if args.simulator:
  if env.get('SPEKTRACAM_SIMULATOR_ID'): booted=[d for d in booted if d==env['SPEKTRACAM_SIMULATOR_ID']]
  if not booted: raise SystemExit('Boot a Simulator before using --simulator.')
  simulator = [simctl,'spawn',booted[0]]
- compiler += ['-target',platform.machine()+'-apple-ios26.0-simulator']
-for name in args.checks or [key for key in checks if not key.startswith('metal-') and not key.endswith('-benchmark') and key not in ['raw-input','processed-export','stress-export','bypass','tone-response']]:
+ compiler += ['-target',platform.machine()+'-apple-ios17.0-simulator','-default-isolation','MainActor']
+ for ui_dep in ['EditorSession','Log','PhotoHistogram','PhotoCanvas','PhotoInfoPanel','PasteLookSheet','FormulaViews','FormulaCard','FormulaCode','FormulaProcess','FormulaSharing','FailureAlert','PhotoThumbnail','LUTPanel','PanelTabs','AppAccent','AdaptiveToggle','ParameterControl','PlatformCompatibility']:
+  if ui_dep not in checks['precision'][0]: checks['precision'][0].append(ui_dep)
+  if ui_dep not in checks['camera'][0]: checks['camera'][0].append(ui_dep)
+for name in args.checks or [key for key in checks if not key.startswith('metal-') and not key.endswith('-benchmark') and key not in ['raw-input','processed-export','stress-export','bypass','tone-response','camera']]:
  files,arguments=checks[name];binary=out/(name+'-checks'+('-simulator' if args.simulator else ''))
  subprocess.run(compiler+(['-O','-assert-config','Debug'] if args.optimized else ['-O'] if name.endswith('-benchmark') and not args.debug_benchmarks else [])+[str(sources[f]) for f in files]+[str(root/'Scripts'/(name+'-checks.swift')),'-o',str(binary)],env=env,check=True)
  env['SPEKTRAFILM_BENCHMARK_CONFIGURATION']='debug' if args.debug_benchmarks else 'optimized'

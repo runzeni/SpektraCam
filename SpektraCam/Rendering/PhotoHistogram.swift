@@ -6,6 +6,14 @@ import Foundation
 /// no image work is performed while SwiftUI lays out the chart.
 nonisolated struct PhotoHistogram: Sendable {
     let brightness: [UInt], red: [UInt], green: [UInt], blue: [UInt]
+
+    init(brightness: [UInt], red: [UInt], green: [UInt], blue: [UInt]) {
+        self.brightness = brightness
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
+
     static let empty = Self(
         brightness: Array(repeating: 0, count: 256), red: Array(repeating: 0, count: 256),
         green: Array(repeating: 0, count: 256), blue: Array(repeating: 0, count: 256))
@@ -35,11 +43,12 @@ nonisolated struct PhotoHistogram: Sendable {
                     &buffer, $0.baseAddress!, vImage_Flags(kvImageNoFlags))
             }
         }
-        var luma = Array(repeating: UInt8(0), count: image.width * image.height)
+        let w = image.width, h = image.height
+        var luma = Array(repeating: UInt8(0), count: w * h)
         var brightness = Array(repeating: UInt(0), count: 256)
         luma.withUnsafeMutableBytes { bytes in
             var plane = vImage_Buffer(
-                data: bytes.baseAddress!, height: buffer.height, width: buffer.width, rowBytes: image.width)
+                data: bytes.baseAddress!, height: buffer.height, width: buffer.width, rowBytes: w)
             let matrix: [Int16] = [0, 54, 183, 19]
             matrix.withUnsafeBufferPointer { weights in
                 _ = vImageMatrixMultiply_ARGB8888ToPlanar8(

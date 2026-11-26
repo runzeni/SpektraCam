@@ -75,7 +75,10 @@ import ImageIO
         let data = try Data(contentsOf: url)
         let raw = CIRAWFilter(imageData: data, identifierHint: nil)!
         let dimensions = try PhotoExporter.sourceDimensions(data)
-        precondition(dimensions == raw.nativeSize, "Export dimensions came from the RAW preview")
+        precondition(
+            max(dimensions.width, dimensions.height) == max(raw.nativeSize.width, raw.nativeSize.height)
+                && min(dimensions.width, dimensions.height) == min(raw.nativeSize.width, raw.nativeSize.height),
+            "Export dimensions came from the RAW preview")
         let original = try PhotoExporter.decodeSource(data)
         precondition(
             max(original.width, original.height) == Int(max(raw.nativeSize.width, raw.nativeSize.height)),
@@ -264,6 +267,16 @@ import ImageIO
         let destination = CGImageDestinationCreateWithData(bytes, "public.png" as CFString, 1, nil)!
         CGImageDestinationAddImage(destination, image, nil)
         precondition(CGImageDestinationFinalize(destination))
+        let defaults = UserDefaults.standard
+        let savedPrecision = defaults.object(forKey: RenderPrecision.storageKey)
+        defer {
+            if let savedPrecision {
+                defaults.set(savedPrecision, forKey: RenderPrecision.storageKey)
+            } else {
+                defaults.removeObject(forKey: RenderPrecision.storageKey)
+            }
+        }
+        defaults.set(RenderPrecision.float32.rawValue, forKey: RenderPrecision.storageKey)
         let worker = PhotoRenderer(
             source: image, directory: directory, data: bytes as Data,
             lutDirectory: temporary)
@@ -313,6 +326,31 @@ import ImageIO
         let restored = try await worker.render(recipe)
         let restoredPixels = try PhotoColorBridge.decode(restored)
         precondition(restoredPixels == actualPixels, "Effects changed the clean LUT frame")
+
+        defaults.set(RenderPrecision.automatic.rawValue, forKey: RenderPrecision.storageKey)
+        let autoWorker = PhotoRenderer(
+            source: image, directory: directory, data: bytes as Data,
+            lutDirectory: temporary)
+        let autoActual = try await autoWorker.render(recipe)
+        let autoActualPixels = try PhotoColorBridge.decode(autoActual)
+        let autoExport = try await autoWorker.export(recipe, size: .small, format: .png, quality: 1)
+        defer { try? FileManager.default.removeItem(at: autoExport.0) }
+        let autoExported = try PhotoExporter.decodeSource(Data(contentsOf: autoExport.0))
+        let autoExportedPixels = try PhotoColorBridge.decode(autoExported)
+        precondition(autoActualPixels == autoExportedPixels, "Automatic LUT preview and export differ at the same size")
+        func srgbEncode(_ linear: Float) -> Int {
+            let clamped = max(0, min(1, linear))
+            let srgb = clamped <= 0.0031308 ? 12.92 * clamped : 1.055 * powf(clamped, 1 / 2.4) - 0.055
+            return Int((srgb * 255).rounded())
+        }
+        let maxAutoCodeDelta = zip(expectedPixels, autoActualPixels).reduce(0) { best, pair in
+            max(
+                best,
+                abs(srgbEncode(pair.0.x) - srgbEncode(pair.1.x)),
+                abs(srgbEncode(pair.0.y) - srgbEncode(pair.1.y)),
+                abs(srgbEncode(pair.0.z) - srgbEncode(pair.1.z)))
+        }
+        precondition(maxAutoCodeDelta <= 1, "Automatic 8-bit LUT precision diverged beyond 1/255: \(maxAutoCodeDelta)/255")
         print(
             "PASS: LUT mode bypasses film color; RAW order, both slots, four effects, reset and PNG export agree"
         )
